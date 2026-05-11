@@ -1,0 +1,17 @@
+[Unit]
+Description=Furance Robot Control System
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/furance_robot
+ExecStart=/opt/furance_robot/bin/robot_control_server
+Restart=always
+RestartSec=5s
+Environment=STATIC_DIR=/opt/furance_robot/static
+Environment=TEACH_DATA_DIR=/opt/furance_robot/data/teach
+Environment=LOG_DIR=/opt/furance_robot/logs
+
+[Install]
+WantedBy=multi-user.target
