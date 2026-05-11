@@ -6,6 +6,7 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "pydantic>=2.5",
+    "pydantic-settings>=2.2",
     "websockets>=12.0",
     "furance-shared",
 ]
@@ -18,8 +19,8 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
