@@ -28,9 +28,9 @@ async def test_sampler_api_structure(client):
         mock_sampler_service_class.return_value = mock_sampler_service
 
         # Test start
-        resp = await client.post("/api/v1/sampler/command", json={"command": "start", "params": {}})
+        resp = await client.post("/api/v1/dispatch/sampler/command", json={"command": "start", "params": {}})
         assert resp.status_code == 200
 
         # Test query
-        resp = await client.get("/api/v1/sampler/status")
+        resp = await client.get("/api/v1/dispatch/sampler/status")
         assert resp.status_code == 200

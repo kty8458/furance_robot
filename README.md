@@ -681,12 +681,20 @@ type 取值: `feat` / `fix` / `chore` / `docs` / `refactor` / `test`
 ### Q: 启动后端报 `address already in use`
 
 ```bash
-fuser -k 8000/tcp        # 终止占用进程
-# 或指定其他端口
-uvicorn app.main:app --port 8080
+# 检查端口占用
+ss -tlnp sport = :8000
+# 或
+fuser 8000/tcp
+
+# 终止占用进程
+fuser -k 8000/tcp
+
+# 常见原因: Docker 容器占用了端口
+docker ps  # 检查是否有容器映射了 8000 端口
+docker stop <container_name>  # 停止占用端口的容器
 ```
 
-使用 `./scripts/dev.sh stop` 可清理所有残留进程。
+使用 `./scripts/dev.sh stop` 可清理脚本启动的残留进程，但无法清理 Docker 容器或其他外部进程。
 
 ### Q: ROS2 Real 模式启动失败
 
