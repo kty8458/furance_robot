@@ -4,6 +4,7 @@ from app.api.arm import router as arm_router
 from app.api.navigation import router as nav_router
 from app.api.ros2_nodes import router as ros2_router
 from app.ws.status import router as status_ws_router
+from app.ws.logs import router as logs_ws_router
 
 
 def create_app() -> FastAPI:
@@ -13,6 +14,7 @@ def create_app() -> FastAPI:
     app.include_router(nav_router)
     app.include_router(ros2_router)
     app.include_router(status_ws_router)
+    app.include_router(logs_ws_router)
     return app
 
 
