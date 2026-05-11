@@ -10,3 +10,5 @@ node_modules/
 *.db
 *.log
 .env
+.dev_pids/
+.dev_logs/
