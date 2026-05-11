@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m pytest:*)",
+      "Bash(pip install:*)",
+      "Bash(cd shared:*)",
+      "Bash(cd robot_control:*)",
+      "Bash(cd dispatch:*)",
+      "Bash(npm:*)",
+      "Bash(ruff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Read",
+      "Write",
+      "Edit"
+    ]
+  }
+}
