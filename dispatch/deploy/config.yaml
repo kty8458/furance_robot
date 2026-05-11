@@ -1,0 +1,24 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+
+robots:
+  - id: "robot_001"
+    name: "1号机器人"
+    control_url: "http://192.168.1.100:8000"
+    ws_url: "ws://192.168.1.100:8000/ws/v1/status"
+
+sampler:
+  ws_url: "ws://192.168.1.200:9000"
+
+l2:
+  enabled: false
+  adapter: "default"
+
+database:
+  path: "./data/dispatch.db"
+
+logging:
+  level: "INFO"
+  dir: "C:\\FuranceDispatch\\logs"
+  retention_days: 30

@@ -1,1 +1,12 @@
-chat.md
+.superpowers/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+node_modules/
+*.db
+*.log
+.env

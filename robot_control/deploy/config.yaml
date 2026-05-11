@@ -1,0 +1,18 @@
+server:
+  host: "0.0.0.0"
+  port: 8000
+
+ros2:
+  domain_id: 0
+  service_timeout: 30.0
+
+websocket:
+  status_interval: 30  # 心跳间隔(秒)
+
+logging:
+  level: "INFO"
+  dir: "/opt/furance_robot/logs"
+  retention_days: 30
+
+teach:
+  data_dir: "/opt/furance_robot/data/teach"
