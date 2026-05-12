@@ -1,15 +1,18 @@
 <template>
-  <div class="logs">
+  <div class="tech-page">
     <el-row :gutter="20">
       <el-col :span="24">
-        <el-card>
+        <el-card class="tech-card">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><Document /></el-icon>
               <span style="margin-left: 8px">运行日志</span>
-              <el-tag :type="connected ? 'success' : 'danger'" size="small" style="margin-left: 10px">
-                {{ connected ? '已连接' : '连接断开' }}
-              </el-tag>
+              <span style="margin-left: 10px">
+                <span :class="['status-dot', connected ? 'online' : 'offline']"></span>
+                <el-tag :type="connected ? 'success' : 'danger'" size="small">
+                  {{ connected ? '已连接' : '连接断开' }}
+                </el-tag>
+              </span>
               <el-button @click="handleClear" style="margin-left: auto" type="danger">
                 <el-icon><Delete /></el-icon>
                 清空日志
@@ -131,14 +134,3 @@ async function handleClear() {
   }
 }
 </script>
-
-<style scoped>
-.logs {
-  padding: 20px;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-}
-</style>

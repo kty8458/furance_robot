@@ -1,10 +1,10 @@
 <template>
-  <div class="sampler">
+  <div class="tech-page">
     <el-row :gutter="20">
       <el-col :span="12">
-        <el-card>
+        <el-card class="tech-card">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><Monitor /></el-icon>
               <span style="margin-left: 8px">制样机状态</span>
               <el-tag :type="getStatusType(samplerStatus?.status)" size="small" style="margin-left: 10px">{{ samplerStatus?.status || '未知' }}</el-tag>
@@ -24,7 +24,7 @@
               {{ samplerStatus?.current_step || '--' }}
             </el-descriptions-item>
             <el-descriptions-item label="错误信息">
-              <span v-if="samplerStatus?.error" style="color: #f56c6c">{{ samplerStatus.error }}</span>
+              <span v-if="samplerStatus?.error" style="color: #ff3b5c">{{ samplerStatus.error }}</span>
               <span v-else>--</span>
             </el-descriptions-item>
           </el-descriptions>
@@ -32,9 +32,9 @@
       </el-col>
 
       <el-col :span="12">
-        <el-card>
+        <el-card class="tech-card">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><Setting /></el-icon>
               <span style="margin-left: 8px">制样机控制</span>
             </div>
@@ -56,9 +56,9 @@
           </el-button>
         </el-card>
 
-        <el-card style="margin-top: 20px">
+        <el-card class="tech-card" style="margin-top: 20px">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><Document /></el-icon>
               <span style="margin-left: 8px">制样参数</span>
             </div>
@@ -151,14 +151,3 @@ onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
 })
 </script>
-
-<style scoped>
-.sampler {
-  padding: 20px;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-}
-</style>

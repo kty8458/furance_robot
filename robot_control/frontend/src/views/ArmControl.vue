@@ -1,10 +1,10 @@
 <template>
-  <div class="arm-control">
+  <div class="tech-page">
     <el-row :gutter="20">
       <el-col :span="24">
-        <el-card>
+        <el-card class="tech-card">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><SetUp /></el-icon>
               <span style="margin-left: 8px">手臂运动控制</span>
             </div>
@@ -80,9 +80,9 @@
 
     <el-row :gutter="20" style="margin-top: 20px">
       <el-col :span="24">
-        <el-card>
+        <el-card class="tech-card">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><Files /></el-icon>
               <span style="margin-left: 8px">示教管理</span>
             </div>
@@ -230,14 +230,3 @@ function formatArm(row) {
   return row.arm === 'left' ? '左臂' : '右臂'
 }
 </script>
-
-<style scoped>
-.arm-control {
-  padding: 20px;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-}
-</style>

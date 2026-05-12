@@ -1,10 +1,10 @@
 <template>
-  <div class="ros2-nodes">
+  <div class="tech-page">
     <el-row :gutter="20">
       <el-col :span="24">
-        <el-card>
+        <el-card class="tech-card">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><Cpu /></el-icon>
               <span style="margin-left: 8px">ROS2节点管理</span>
               <el-button @click="refreshNodes" style="margin-left: auto">
@@ -91,14 +91,3 @@ async function handleStop(name) {
   }
 }
 </script>
-
-<style scoped>
-.ros2-nodes {
-  padding: 20px;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-}
-</style>

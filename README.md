@@ -125,7 +125,7 @@ npm run dev  # http://localhost:3001
 # 单个子系统
 cd shared && pytest tests/ -v                           # 35 tests
 cd robot_control/backend && pytest tests/ -v            # 26 tests
-cd dispatch/backend && pytest tests/ -v                 # 12 tests
+cd dispatch/backend && pytest tests/ -v                 # 18 tests
 
 # 全量测试
 cd shared && pytest tests/ -v && \
@@ -170,30 +170,41 @@ cd dispatch/frontend && npm run build         # 产出 → dist/
 | WS   | `/ws/v1/status` | 实时状态推送 |
 | WS   | `/ws/v1/logs` | 实时日志推送 |
 
-### 调度系统 API (端口 8000)
+### 调度系统 API (端口 8001)
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/v1/robot/{id}/home` | 机器人归零 (代理) |
-| POST | `/api/v1/robot/{id}/grab` | 机器人抓取 (代理) |
-| POST | `/api/v1/robot/{id}/place` | 机器人放置 (代理) |
-| POST | `/api/v1/robot/{id}/gripper` | 夹爪控制 (代理) |
-| POST | `/api/v1/robot/{id}/lift` | 升降控制 (代理) |
-| POST | `/api/v1/robot/{id}/charge` | 充电控制 (代理) |
-| POST | `/api/v1/robot/{id}/enable` | 使能控制 (代理) |
-| POST | `/api/v1/robot/{id}/move` | 导航移动 (代理) |
-| GET  | `/api/v1/robot/{id}/status` | 机器人状态 |
-| GET  | `/api/v1/maps` | 地图列表 (代理) |
-| GET  | `/api/v1/maps/{id}/waypoints` | 导航点 (代理) |
-| GET  | `/api/v1/tasks/templates` | 任务模板列表 |
-| POST | `/api/v1/tasks/templates` | 创建任务模板 |
-| POST | `/api/v1/tasks/execute` | 执行任务 |
-| POST | `/api/v1/tasks/{id}/cancel` | 取消任务 |
-| GET  | `/api/v1/tasks/executions` | 执行记录列表 |
-| GET  | `/api/v1/tasks/executions/{id}` | 执行详情 |
-| POST | `/api/v1/sampler/start` | 制样机启动 |
-| POST | `/api/v1/sampler/stop` | 制样机停止 |
-| GET  | `/api/v1/sampler/status` | 制样机状态 |
+| **机器人管理** | | |
+| GET | `/api/v1/dispatch/robots` | 机器人列表 (含状态) |
+| POST | `/api/v1/dispatch/robots` | 注册机器人 |
+| DELETE | `/api/v1/dispatch/robots/{id}` | 删除机器人 |
+| **机器人指令** | | |
+| POST | `/api/v1/dispatch/robot/{id}/home` | 归零 (代理) |
+| POST | `/api/v1/dispatch/robot/{id}/grab` | 抓取 (代理) |
+| POST | `/api/v1/dispatch/robot/{id}/place` | 放置 (代理) |
+| POST | `/api/v1/dispatch/robot/{id}/gripper` | 夹爪控制 (代理) |
+| POST | `/api/v1/dispatch/robot/{id}/lift` | 升降控制 (代理) |
+| POST | `/api/v1/dispatch/robot/{id}/charge` | 充电控制 (代理) |
+| POST | `/api/v1/dispatch/robot/{id}/enable` | 使能控制 (代理) |
+| POST | `/api/v1/dispatch/robot/{id}/move` | 导航移动 (代理) |
+| GET | `/api/v1/dispatch/robot/{id}/status` | 机器人状态 (实时→DB→Mock) |
+| **导航** | | |
+| GET | `/api/v1/dispatch/maps` | 地图列表 (代理) |
+| GET | `/api/v1/dispatch/maps/{id}/waypoints` | 导航点 (代理) |
+| **任务模板** | | |
+| GET | `/api/v1/dispatch/tasks/templates` | 模板列表 |
+| GET | `/api/v1/dispatch/tasks/templates/{id}` | 模板详情 |
+| POST | `/api/v1/dispatch/tasks/templates` | 创建模板 |
+| PUT | `/api/v1/dispatch/tasks/templates/{id}` | 更新模板 |
+| DELETE | `/api/v1/dispatch/tasks/templates/{id}` | 删除模板 |
+| **任务执行** | | |
+| POST | `/api/v1/dispatch/tasks/execute` | 执行任务 |
+| GET | `/api/v1/dispatch/tasks/executions` | 执行记录列表 |
+| GET | `/api/v1/dispatch/tasks/executions/{id}` | 执行详情 (含步骤) |
+| POST | `/api/v1/dispatch/tasks/executions/{id}/cancel` | 取消执行 |
+| **制样机** | | |
+| POST | `/api/v1/dispatch/sampler/command` | 制样机指令 (start/stop/query) |
+| GET | `/api/v1/dispatch/sampler/status` | 制样机状态 (实时→DB→Mock) |
 
 ### 统一响应格式
 
@@ -216,6 +227,138 @@ cd dispatch/frontend && npm run build         # 产出 → dist/
 
 // 错误帧
 {"type": "error", "robot_id": "robot_001", "timestamp": 1715400000000, "payload": {"error_code": 2001, "error_msg": "...", "source": "arm"}}
+```
+
+---
+
+## 调度系统数据库
+
+调度系统使用 SQLite 持久化存储，路径由 `DATABASE_PATH` 环境变量或 `config.yaml` 的 `database.path` 字段控制。首次启动时自动建表并写入种子数据（3个任务模板 + 配置中的机器人）。
+
+### 数据表设计
+
+#### robots — 机器人注册表
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | TEXT | PRIMARY KEY | 机器人唯一标识 |
+| name | TEXT | NOT NULL | 机器人名称 |
+| control_url | TEXT | NOT NULL | 控制系统 HTTP 地址 |
+| ws_url | TEXT | NOT NULL | 控制系统 WebSocket 地址 |
+| status | TEXT | DEFAULT 'offline' | 在线状态 |
+| last_heartbeat | REAL | DEFAULT 0 | 最后心跳时间戳 |
+
+#### robot_status — 机器人实时状态 (缓存)
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| robot_id | TEXT | PRIMARY KEY → robots.id | 机器人ID |
+| position_json | TEXT | DEFAULT '{}' | 位置信息 JSON |
+| gripper_json | TEXT | DEFAULT '{}' | 夹爪状态 JSON |
+| arm_json | TEXT | DEFAULT '{}' | 手臂状态 JSON |
+| battery | INTEGER | DEFAULT 0 | 电量百分比 |
+| charging | INTEGER | DEFAULT 0 | 充电状态 (0/1) |
+| enabled | INTEGER | DEFAULT 0 | 使能状态 (0/1) |
+| error_code | INTEGER | DEFAULT 0 | 错误码 |
+| task_status | TEXT | DEFAULT 'idle' | 任务状态 |
+| updated_at | REAL | DEFAULT 0 | 更新时间戳 |
+
+状态读取策略：实时数据 → DB 缓存 → Mock 数据。
+
+#### task_templates — 任务模板
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | TEXT | PRIMARY KEY | 模板唯一标识 |
+| name | TEXT | NOT NULL | 模板名称 |
+| steps_json | TEXT | NOT NULL | 步骤定义 JSON |
+| created_at | REAL | NOT NULL | 创建时间戳 |
+| updated_at | REAL | NOT NULL | 更新时间戳 |
+
+`steps_json` 格式：
+
+```json
+{
+  "steps": [
+    {"order": 1, "action": "robot.home", "params": {}},
+    {"order": 2, "action": "robot.move", "params": {"map_id": "workshop_map", "waypoint_id": "wp_02"}},
+    {"order": 3, "action": "sampler.start", "params": {}}
+  ]
+}
+```
+
+支持的 action 前缀：
+- `robot.*` — 代理到控制系统 (home, move, grab, place, gripper, lift, charge, enable)
+- `sampler.*` — 调用制样机服务 (start, stop)
+- `wait_sampler_complete` — 等待制样完成
+- `delay` — 延时等待，参数 `seconds`
+
+#### task_executions — 任务执行记录
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PRIMARY KEY AUTOINCREMENT | 执行ID |
+| task_template_id | TEXT | NOT NULL → task_templates.id | 关联模板 |
+| robot_id | TEXT | NOT NULL | 执行机器人 |
+| status | TEXT | DEFAULT 'pending' | 状态: pending/running/completed/failed/cancelled |
+| started_at | REAL | | 开始时间戳 |
+| completed_at | REAL | | 完成时间戳 |
+| error_msg | TEXT | | 失败原因 |
+
+#### task_step_logs — 任务步骤日志
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PRIMARY KEY AUTOINCREMENT | 日志ID |
+| execution_id | INTEGER | NOT NULL → task_executions.id | 关联执行 |
+| step_order | INTEGER | NOT NULL | 步骤序号 |
+| action | TEXT | NOT NULL | 动作名称 |
+| params_json | TEXT | | 参数 JSON |
+| result_json | TEXT | | 执行结果 JSON |
+| status | TEXT | DEFAULT 'pending' | 状态: pending/completed/failed |
+| started_at | REAL | | 开始时间戳 |
+| completed_at | REAL | | 完成时间戳 |
+
+#### sampler_status — 制样机状态 (缓存)
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PRIMARY KEY AUTOINCREMENT | 记录ID |
+| status | TEXT | DEFAULT 'idle' | 状态: idle/running/completed/error |
+| progress | INTEGER | DEFAULT 0 | 进度百分比 |
+| last_update | REAL | NOT NULL | 更新时间戳 |
+
+#### l2_commands — L2 接口命令 (预留)
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PRIMARY KEY AUTOINCREMENT | 命令ID |
+| l2_request_id | TEXT | | L2 请求ID |
+| task_template_id | TEXT | | 关联模板 |
+| task_execution_id | INTEGER | | 关联执行 |
+| command_json | TEXT | | 命令内容 JSON |
+| status | TEXT | DEFAULT 'pending' | 状态 |
+| received_at | REAL | | 接收时间戳 |
+| completed_at | REAL | | 完成时间戳 |
+| response_json | TEXT | | 响应内容 JSON |
+
+### 种子数据
+
+首次启动时自动插入：
+
+- **3个任务模板**: `auto_sample` (自动制样流程), `charge_and_wait` (充电等待), `grab_place_cycle` (抓放循环)
+- **机器人**: 从 `config.yaml` 的 `robots` 配置中读取
+
+### ER 关系
+
+```
+robots ──1:1── robot_status
+  │
+  └──1:N── task_executions ──1:N── task_step_logs
+                │
+task_templates ──1:N──┘
+                │
+            l2_commands ──N:1──┘
 ```
 
 ---
@@ -524,10 +667,25 @@ curl -X POST http://localhost:8000/api/v1/robot/robot_001/arm/move \
   -d '{"arm": "left", "method": "moveJ", "joint_angles": [0,0,0,0,0,0,0], "coordinate": "base_link"}'
 
 # 查询地图 (调度系统代理)
-curl http://localhost:8001/api/v1/maps
+curl http://localhost:8001/api/v1/dispatch/maps
 
 # 任务模板列表
-curl http://localhost:8001/api/v1/tasks/templates
+curl http://localhost:8001/api/v1/dispatch/tasks/templates
+
+# 创建任务模板
+curl -X POST http://localhost:8001/api/v1/dispatch/tasks/templates \
+  -H "Content-Type: application/json" \
+  -d '{"id": "my_task", "name": "自定义流程", "steps": [{"order": 1, "action": "robot.home", "params": {}}]}'
+
+# 执行任务
+curl -X POST http://localhost:8001/api/v1/dispatch/tasks/execute \
+  -H "Content-Type: application/json" \
+  -d '{"template_id": "auto_sample", "robot_id": "robot_001"}'
+
+# 注册机器人
+curl -X POST http://localhost:8001/api/v1/dispatch/robots \
+  -H "Content-Type: application/json" \
+  -d '{"id": "robot_002", "name": "2号机器人", "control_url": "http://192.168.1.101:8000", "ws_url": "ws://192.168.1.101:8000/ws/v1/status"}'
 ```
 
 ### WebSocket 调试

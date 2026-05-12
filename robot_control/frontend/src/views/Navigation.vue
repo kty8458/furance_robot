@@ -1,10 +1,10 @@
 <template>
-  <div class="navigation">
+  <div class="tech-page">
     <el-row :gutter="20">
       <el-col :span="24">
-        <el-card>
+        <el-card class="tech-card">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><MapLocation /></el-icon>
               <span style="margin-left: 8px">导航控制</span>
             </div>
@@ -133,20 +133,11 @@ function formatTheta(row) {
 </script>
 
 <style scoped>
-.navigation {
-  padding: 20px;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-}
-
 :deep(.selected-row) {
-  background-color: #ecf5ff;
+  background-color: #0d1f35 !important;
 }
 
 :deep(.el-table__body tr:hover) {
-  background-color: #f5f7fa;
+  background-color: #0d1f35 !important;
 }
 </style>

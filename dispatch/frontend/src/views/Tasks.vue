@@ -1,10 +1,10 @@
 <template>
-  <div class="tasks">
+  <div class="tech-page">
     <el-row :gutter="20">
       <el-col :span="24">
-        <el-card style="margin-bottom: 20px">
+        <el-card class="tech-card" style="margin-bottom: 20px">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><Document /></el-icon>
               <span style="margin-left: 8px">任务模板</span>
             </div>
@@ -26,9 +26,9 @@
 
     <el-row :gutter="20">
       <el-col :span="24">
-        <el-card>
+        <el-card class="tech-card">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><List /></el-icon>
               <span style="margin-left: 8px">执行历史</span>
               <el-button type="primary" size="small" style="margin-left: auto" @click="loadExecutions">刷新</el-button>
@@ -220,14 +220,3 @@ onMounted(() => {
   loadRobots()
 })
 </script>
-
-<style scoped>
-.tasks {
-  padding: 20px;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-}
-</style>

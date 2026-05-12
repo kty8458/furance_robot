@@ -1,20 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch
-from httpx import AsyncClient, ASGITransport
 from furance_shared.protocol.http_schema import ApiResponse
-from app.main import create_app
-
-
-@pytest.fixture
-def app():
-    return create_app()
-
-
-@pytest.fixture
-async def client(app):
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
 
 
 @pytest.mark.asyncio

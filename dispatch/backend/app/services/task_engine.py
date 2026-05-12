@@ -18,26 +18,56 @@ class TaskTemplate(BaseModel):
 
 
 class TaskEngine:
-    def __init__(self, db_path: str = "./data/dispatch.db"):
-        self._db = Database(db_path)
+    def __init__(self, db: Database | None = None, db_path: str = "./data/dispatch.db"):
+        self._db = db or Database(db_path)
 
-    async def init_db(self):
-        await self._db.init()
+    async def _ensure_db(self):
+        if not self._db._db:
+            await self._db.init()
 
-    async def save_template(self, template: TaskTemplate):
-        await self.init_db()
+    # ── Template CRUD ──
+
+    async def create_template(self, template: TaskTemplate) -> dict:
+        await self._ensure_db()
         now = time.time()
         await self._db.execute(
             "INSERT OR REPLACE INTO task_templates (id, name, steps_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
             (template.id, template.name, template.model_dump_json(exclude={"id", "name"}), now, now),
         )
+        return {"id": template.id, "name": template.name}
 
     async def list_templates(self) -> list[dict]:
-        await self.init_db()
+        await self._ensure_db()
         return await self._db.fetch_all("SELECT * FROM task_templates")
 
+    async def get_template(self, template_id: str) -> dict | None:
+        await self._ensure_db()
+        return await self._db.fetch_one("SELECT * FROM task_templates WHERE id = ?", (template_id,))
+
+    async def update_template(self, template: TaskTemplate) -> dict | None:
+        await self._ensure_db()
+        existing = await self._db.fetch_one("SELECT id FROM task_templates WHERE id = ?", (template.id,))
+        if not existing:
+            return None
+        now = time.time()
+        await self._db.execute(
+            "UPDATE task_templates SET name = ?, steps_json = ?, updated_at = ? WHERE id = ?",
+            (template.name, template.model_dump_json(exclude={"id", "name"}), now, template.id),
+        )
+        return {"id": template.id, "name": template.name}
+
+    async def delete_template(self, template_id: str) -> bool:
+        await self._ensure_db()
+        existing = await self._db.fetch_one("SELECT id FROM task_templates WHERE id = ?", (template_id,))
+        if not existing:
+            return False
+        await self._db.execute("DELETE FROM task_templates WHERE id = ?", (template_id,))
+        return True
+
+    # ── Execution ──
+
     async def execute(self, template_id: str, robot_id: str, robot_proxy, sampler_service) -> dict:
-        await self.init_db()
+        await self._ensure_db()
         template_row = await self._db.fetch_one(
             "SELECT * FROM task_templates WHERE id = ?", (template_id,)
         )
@@ -114,15 +144,27 @@ class TaskEngine:
         )
         return {"status": "completed", "execution_id": execution_id}
 
-    async def list_executions(self) -> list[dict]:
-        await self.init_db()
-        return await self._db.fetch_all("SELECT * FROM task_executions ORDER BY id DESC")
+    async def cancel_execution(self, execution_id: int) -> bool:
+        await self._ensure_db()
+        execution = await self._db.fetch_one("SELECT * FROM task_executions WHERE id = ?", (execution_id,))
+        if not execution or execution["status"] != "running":
+            return False
+        now = time.time()
+        await self._db.execute(
+            "UPDATE task_executions SET status = ?, completed_at = ?, error_msg = ? WHERE id = ?",
+            ("cancelled", now, "Cancelled by user", execution_id),
+        )
+        return True
+
+    async def list_executions(self, limit: int = 50) -> list[dict]:
+        await self._ensure_db()
+        return await self._db.fetch_all("SELECT * FROM task_executions ORDER BY id DESC LIMIT ?", (limit,))
 
     async def get_execution(self, execution_id: int) -> dict | None:
-        await self.init_db()
+        await self._ensure_db()
         execution = await self._db.fetch_one("SELECT * FROM task_executions WHERE id = ?", (execution_id,))
         if not execution:
             return None
-        steps = await self._db.fetch_all("SELECT * FROM task_step_logs WHERE execution_id = ?", (execution_id,))
+        steps = await self._db.fetch_all("SELECT * FROM task_step_logs WHERE execution_id = ? ORDER BY step_order", (execution_id,))
         execution["steps"] = steps
         return execution

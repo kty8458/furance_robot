@@ -1,13 +1,16 @@
 <template>
-  <div class="dashboard">
+  <div class="tech-page">
     <el-row :gutter="20">
       <el-col :span="24">
-        <el-card>
+        <el-card class="tech-card">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><Monitor /></el-icon>
               <span style="margin-left: 8px">机器人状态监控</span>
-              <el-tag :type="connected ? 'success' : 'danger'" size="small" style="margin-left: 10px">{{ connected ? '在线' : '离线' }}</el-tag>
+              <span style="margin-left: 10px">
+                <span :class="['status-dot', connected ? 'online' : 'offline']"></span>
+                <el-tag :type="connected ? 'success' : 'danger'" size="small">{{ connected ? '在线' : '离线' }}</el-tag>
+              </span>
             </div>
           </template>
 
@@ -89,14 +92,3 @@ function formatJointAngles(angles) {
   return Object.values(angles).map(a => `${a.toFixed(1)}°`).join(', ')
 }
 </script>
-
-<style scoped>
-.dashboard {
-  padding: 20px;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-}
-</style>

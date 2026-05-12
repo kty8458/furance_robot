@@ -1,10 +1,10 @@
 <template>
-  <div class="commands">
+  <div class="tech-page">
     <el-row :gutter="20">
       <el-col :span="12">
-        <el-card>
+        <el-card class="tech-card">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><Position /></el-icon>
               <span style="margin-left: 8px">基础指令</span>
             </div>
@@ -38,9 +38,9 @@
       </el-col>
 
       <el-col :span="12">
-        <el-card>
+        <el-card class="tech-card">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><SwitchButton /></el-icon>
               <span style="margin-left: 8px">夹爪控制</span>
             </div>
@@ -68,9 +68,9 @@
           </el-form>
         </el-card>
 
-        <el-card style="margin-top: 20px">
+        <el-card class="tech-card" style="margin-top: 20px">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><Position /></el-icon>
               <span style="margin-left: 8px">升降控制</span>
             </div>
@@ -92,9 +92,9 @@
           </el-form>
         </el-card>
 
-        <el-card style="margin-top: 20px">
+        <el-card class="tech-card" style="margin-top: 20px">
           <template #header>
-            <div class="card-header">
+            <div class="tech-card-header">
               <el-icon><Connection /></el-icon>
               <span style="margin-left: 8px">充电控制</span>
             </div>
@@ -244,14 +244,3 @@ async function handleClearError() {
   }
 }
 </script>
-
-<style scoped>
-.commands {
-  padding: 20px;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-}
-</style>
