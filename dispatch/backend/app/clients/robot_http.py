@@ -3,9 +3,9 @@ from furance_shared.protocol.http_schema import ApiResponse
 
 
 class RobotHttpClient:
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, timeout: float = 5.0):
         self._base_url = base_url.rstrip("/")
-        self._client = httpx.AsyncClient(timeout=30.0)
+        self._client = httpx.AsyncClient(timeout=timeout)
 
     async def post(self, path: str, json: dict | None = None) -> ApiResponse:
         url = f"{self._base_url}{path}"

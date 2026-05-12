@@ -11,9 +11,13 @@
           </template>
 
           <el-table :data="taskTemplates" style="width: 100%">
-            <el-table-column prop="id" label="ID" width="80" />
+            <el-table-column prop="id" label="ID" width="120" />
             <el-table-column prop="name" label="名称" />
-            <el-table-column prop="description" label="描述" />
+            <el-table-column label="步骤数" width="80">
+              <template #default="{ row }">
+                {{ parseStepCount(row.steps_json) }}
+              </template>
+            </el-table-column>
             <el-table-column label="操作" width="150">
               <template #default="scope">
                 <el-button type="primary" size="small" @click="showExecuteDialog(scope.row)">执行</el-button>
@@ -37,7 +41,7 @@
 
           <el-table :data="executions" style="width: 100%">
             <el-table-column prop="id" label="ID" width="80" />
-            <el-table-column prop="template_name" label="任务模板" />
+            <el-table-column prop="task_template_id" label="任务模板" />
             <el-table-column prop="robot_id" label="机器人" width="120" />
             <el-table-column label="状态" width="100">
               <template #default="scope">
@@ -46,8 +50,12 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="start_time" label="开始时间" />
-            <el-table-column prop="end_time" label="结束时间" />
+            <el-table-column label="开始时间" width="180">
+              <template #default="{ row }">{{ formatTime(row.started_at) }}</template>
+            </el-table-column>
+            <el-table-column label="结束时间" width="180">
+              <template #default="{ row }">{{ formatTime(row.completed_at) }}</template>
+            </el-table-column>
             <el-table-column label="操作" width="200">
               <template #default="scope">
                 <el-button type="info" size="small" @click="showDetailDialog(scope.row)">详情</el-button>
@@ -81,20 +89,20 @@
     <el-dialog v-model="showDetail" title="任务详情" width="600px">
       <el-descriptions :column="1" border v-if="selectedExecution">
         <el-descriptions-item label="任务ID">{{ selectedExecution.id }}</el-descriptions-item>
-        <el-descriptions-item label="任务模板">{{ selectedExecution.template_name }}</el-descriptions-item>
+        <el-descriptions-item label="任务模板">{{ selectedExecution.task_template_id }}</el-descriptions-item>
         <el-descriptions-item label="机器人">{{ selectedExecution.robot_id }}</el-descriptions-item>
         <el-descriptions-item label="状态">
           <el-tag :type="getStatusType(selectedExecution.status)">{{ selectedExecution.status }}</el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="开始时间">{{ selectedExecution.start_time }}</el-descriptions-item>
-        <el-descriptions-item label="结束时间">{{ selectedExecution.end_time || '--' }}</el-descriptions-item>
-        <el-descriptions-item label="错误信息">{{ selectedExecution.error || '--' }}</el-descriptions-item>
+        <el-descriptions-item label="开始时间">{{ formatTime(selectedExecution.started_at) }}</el-descriptions-item>
+        <el-descriptions-item label="结束时间">{{ formatTime(selectedExecution.completed_at) }}</el-descriptions-item>
+        <el-descriptions-item label="错误信息">{{ selectedExecution.error_msg || '--' }}</el-descriptions-item>
       </el-descriptions>
-      <div v-if="selectedExecution?.steps" style="margin-top: 20px">
-        <h4>执行步骤</h4>
+      <div v-if="selectedExecution?.steps?.length" style="margin-top: 20px">
+        <h4 style="color: #6b8ba5; font-size: 13px; margin-bottom: 12px">执行步骤</h4>
         <el-timeline>
-          <el-timeline-item v-for="(step, index) in selectedExecution.steps" :key="index" :timestamp="step.time" :type="getStepType(step.status)">
-            {{ step.name }} - {{ step.status }}
+          <el-timeline-item v-for="(step, index) in selectedExecution.steps" :key="index" :timestamp="formatTime(step.completed_at)" :type="getStepType(step.status)">
+            #{{ step.step_order }} {{ step.action }} - <el-tag :type="getStepType(step.status)" size="small">{{ step.status }}</el-tag>
           </el-timeline-item>
         </el-timeline>
       </div>
@@ -125,7 +133,8 @@ const executeForm = ref({ robotId: '' })
 async function loadTaskTemplates() {
   try {
     const response = await taskApi.listTemplates()
-    taskTemplates.value = response.data.templates || []
+    const d = response.data
+    taskTemplates.value = Array.isArray(d) ? d : (d.templates || [])
   } catch (error) {
     ElMessage.error('加载任务模板失败')
   }
@@ -134,7 +143,8 @@ async function loadTaskTemplates() {
 async function loadExecutions() {
   try {
     const response = await taskApi.listExecutions()
-    executions.value = response.data.executions || []
+    const d = response.data
+    executions.value = Array.isArray(d) ? d : (d.executions || [])
   } catch (error) {
     ElMessage.error('加载执行历史失败')
   }
@@ -199,7 +209,7 @@ function getStatusType(status) {
   switch (status) {
     case 'running': return 'warning'
     case 'completed': return 'success'
-    case 'error': return 'danger'
+    case 'failed': return 'danger'
     case 'cancelled': return 'info'
     default: return 'info'
   }
@@ -209,9 +219,27 @@ function getStepType(status) {
   switch (status) {
     case 'completed': return 'success'
     case 'running': return 'primary'
-    case 'error': return 'danger'
+    case 'failed': return 'danger'
     default: return 'info'
   }
+}
+
+function parseStepCount(stepsJson) {
+  try {
+    const parsed = typeof stepsJson === 'string' ? JSON.parse(stepsJson) : stepsJson
+    return parsed?.steps?.length ?? '--'
+  } catch {
+    return '--'
+  }
+}
+
+function formatTime(ts) {
+  if (!ts) return '--'
+  return new Date(ts * 1000).toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false
+  })
 }
 
 onMounted(() => {

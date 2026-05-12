@@ -24,27 +24,27 @@
             </div>
           </template>
 
-          <el-button type="primary" @click="handleHome" :disabled="!selectedRobot" style="width: 100%; margin-bottom: 10px">
+          <el-button type="primary" @click="handleHome" :disabled="!selectedRobot" style="width: 100%; margin-bottom: 10px; height: 44px; font-size: 14px">
             <el-icon><Location /></el-icon>
             归零
           </el-button>
 
-          <el-button type="success" @click="showGrabDialog = true" :disabled="!selectedRobot" style="width: 100%; margin-bottom: 10px">
+          <el-button type="success" @click="showGrabDialog = true" :disabled="!selectedRobot" style="width: 100%; margin-bottom: 10px; height: 44px; font-size: 14px">
             <el-icon><Goods /></el-icon>
             抓取
           </el-button>
 
-          <el-button type="warning" @click="showPlaceDialog = true" :disabled="!selectedRobot" style="width: 100%; margin-bottom: 10px">
+          <el-button type="warning" @click="showPlaceDialog = true" :disabled="!selectedRobot" style="width: 100%; margin-bottom: 10px; height: 44px; font-size: 14px">
             <el-icon><Goods /></el-icon>
             放置
           </el-button>
 
-          <el-button :type="robotStatus?.enabled ? 'danger' : 'success'" @click="handleEnable" :disabled="!selectedRobot" style="width: 100%; margin-bottom: 10px">
+          <el-button :type="robotStatus?.enabled ? 'danger' : 'success'" @click="handleEnable" :disabled="!selectedRobot" style="width: 100%; margin-bottom: 10px; height: 44px; font-size: 14px">
             <el-icon><CircleCheck /></el-icon>
             {{ robotStatus?.enabled ? '禁用' : '使能' }}
           </el-button>
 
-          <el-button type="info" @click="handleClearError" :disabled="!selectedRobot" style="width: 100%">
+          <el-button type="info" @click="handleClearError" :disabled="!selectedRobot" style="width: 100%; height: 44px; font-size: 14px">
             <el-icon><CircleClose /></el-icon>
             清除错误
           </el-button>
@@ -58,11 +58,11 @@
             </div>
           </template>
 
-          <el-button type="success" @click="handleCharge('start')" :disabled="!selectedRobot" style="width: 100%; margin-bottom: 10px">
+          <el-button type="success" @click="handleCharge('start')" :disabled="!selectedRobot" style="width: 100%; margin-bottom: 10px; height: 44px; font-size: 14px">
             <el-icon><SuccessFilled /></el-icon>
             开始充电
           </el-button>
-          <el-button type="warning" @click="handleCharge('stop')" :disabled="!selectedRobot" style="width: 100%">
+          <el-button type="warning" @click="handleCharge('stop')" :disabled="!selectedRobot" style="width: 100%; height: 44px; font-size: 14px">
             <el-icon><SwitchButton /></el-icon>
             停止充电
           </el-button>

@@ -10,27 +10,27 @@
             </div>
           </template>
 
-          <el-button type="primary" @click="handleHome" style="width: 100%; margin-bottom: 10px">
+          <el-button type="primary" @click="handleHome" style="width: 100%; margin-bottom: 10px; height: 44px; font-size: 14px">
             <el-icon><Location /></el-icon>
             归零
           </el-button>
 
-          <el-button type="success" @click="showGrabDialog = true" style="width: 100%; margin-bottom: 10px">
+          <el-button type="success" @click="showGrabDialog = true" style="width: 100%; margin-bottom: 10px; height: 44px; font-size: 14px">
             <el-icon><Goods /></el-icon>
             抓取
           </el-button>
 
-          <el-button type="warning" @click="showPlaceDialog = true" style="width: 100%; margin-bottom: 10px">
+          <el-button type="warning" @click="showPlaceDialog = true" style="width: 100%; margin-bottom: 10px; height: 44px; font-size: 14px">
             <el-icon><Goods /></el-icon>
             放置
           </el-button>
 
-          <el-button :type="status?.enabled ? 'danger' : 'success'" @click="handleEnable" style="width: 100%; margin-bottom: 10px">
+          <el-button :type="status?.enabled ? 'danger' : 'success'" @click="handleEnable" style="width: 100%; margin-bottom: 10px; height: 44px; font-size: 14px">
             <el-icon><CircleCheck /></el-icon>
             {{ status?.enabled ? '禁用' : '使能' }}
           </el-button>
 
-          <el-button type="info" @click="handleClearError" style="width: 100%">
+          <el-button type="info" @click="handleClearError" style="width: 100%; height: 44px; font-size: 14px">
             <el-icon><CircleClose /></el-icon>
             清除错误
           </el-button>
@@ -100,11 +100,11 @@
             </div>
           </template>
 
-          <el-button type="success" @click="handleCharge('start')" style="width: 100%; margin-bottom: 10px">
+          <el-button type="success" @click="handleCharge('start')" style="width: 100%; margin-bottom: 10px; height: 44px; font-size: 14px">
             <el-icon><SuccessFilled /></el-icon>
             开始充电
           </el-button>
-          <el-button type="warning" @click="handleCharge('stop')" style="width: 100%">
+          <el-button type="warning" @click="handleCharge('stop')" style="width: 100%; height: 44px; font-size: 14px">
             <el-icon><SwitchButton /></el-icon>
             停止充电
           </el-button>
