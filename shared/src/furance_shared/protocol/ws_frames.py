@@ -35,6 +35,7 @@ class ErrorPayload(BaseModel):
 class LogPayload(BaseModel):
     level: str
     source: str
+    node: str = ""
     message: str
 
 

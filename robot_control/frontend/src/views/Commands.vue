@@ -165,7 +165,7 @@ async function handleHome() {
     await robotApi.home()
     ElMessage.success('归零指令已发送')
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '归零失败')
+    ElMessage.error(error.message || '归零失败')
   }
 }
 
@@ -180,7 +180,7 @@ async function handleGrab() {
     showGrabDialog.value = false
     grabForm.value.target = ''
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '抓取失败')
+    ElMessage.error(error.message || '抓取失败')
   }
 }
 
@@ -195,7 +195,7 @@ async function handlePlace() {
     showPlaceDialog.value = false
     placeForm.value.target = ''
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '放置失败')
+    ElMessage.error(error.message || '放置失败')
   }
 }
 
@@ -204,7 +204,7 @@ async function handleGripper() {
     await robotApi.gripper(gripperForm.value.arm, gripperForm.value.action, gripperForm.value.force)
     ElMessage.success('夹爪指令已发送')
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '夹爪控制失败')
+    ElMessage.error(error.message || '夹爪控制失败')
   }
 }
 
@@ -213,7 +213,7 @@ async function handleLift() {
     await robotApi.lift(liftForm.value.direction, liftForm.value.height)
     ElMessage.success('升降指令已发送')
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '升降控制失败')
+    ElMessage.error(error.message || '升降控制失败')
   }
 }
 
@@ -222,7 +222,7 @@ async function handleCharge(action) {
     await robotApi.charge(action)
     ElMessage.success(`充电${action === 'start' ? '开始' : '停止'}指令已发送`)
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '充电控制失败')
+    ElMessage.error(error.message || '充电控制失败')
   }
 }
 
@@ -231,7 +231,7 @@ async function handleEnable() {
     await robotApi.enable(!status.value?.enabled, false)
     ElMessage.success(`${!status.value?.enabled ? '使能' : '禁用'}成功`)
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '使能操作失败')
+    ElMessage.error(error.message || '使能操作失败')
   }
 }
 
@@ -240,7 +240,7 @@ async function handleClearError() {
     await robotApi.enable(status.value?.enabled || true, true)
     ElMessage.success('错误已清除')
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '清除错误失败')
+    ElMessage.error(error.message || '清除错误失败')
   }
 }
 </script>

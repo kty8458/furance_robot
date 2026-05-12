@@ -162,9 +162,10 @@ onMounted(refreshTeachList)
 async function refreshTeachList() {
   try {
     const response = await armApi.teachList()
-    teachList.value = response.data || []
+    const payload = response.data
+    teachList.value = payload?.data || payload || []
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '获取示教列表失败')
+    ElMessage.error(error.message || '获取示教列表失败')
   }
 }
 
@@ -174,18 +175,19 @@ async function handleMove() {
       arm: moveForm.value.arm,
       method: moveForm.value.method,
       coordinate: moveForm.value.coordinate,
-      joint_angles: {
-        joint1: moveForm.value.joint1,
-        joint2: moveForm.value.joint2,
-        joint3: moveForm.value.joint3,
-        joint4: moveForm.value.joint4,
-        joint5: moveForm.value.joint5,
-        joint6: moveForm.value.joint6
-      }
+      joint_angles: [
+        moveForm.value.joint1,
+        moveForm.value.joint2,
+        moveForm.value.joint3,
+        moveForm.value.joint4,
+        moveForm.value.joint5,
+        moveForm.value.joint6,
+        0.0
+      ]
     })
     ElMessage.success('运动指令已发送')
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '运动失败')
+    ElMessage.error(error.message || '运动失败')
   }
 }
 
@@ -200,7 +202,7 @@ async function handleTeachSave() {
     teachForm.value.name = ''
     refreshTeachList()
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '保存失败')
+    ElMessage.error(error.message || '保存失败')
   }
 }
 
@@ -209,7 +211,7 @@ async function handleTeachExec(row) {
     await armApi.teachExec(row.arm, row.name)
     ElMessage.success('执行指令已发送')
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '执行失败')
+    ElMessage.error(error.message || '执行失败')
   }
 }
 
@@ -221,7 +223,7 @@ async function handleTeachDelete(row) {
     refreshTeachList()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.message || '删除失败')
+      ElMessage.error(error.message || '删除失败')
     }
   }
 }

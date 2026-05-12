@@ -14,18 +14,11 @@ try:
 except ImportError:
     HAS_RCLPY = False
 
-# Try importing custom srv interface; fallback to None if unavailable
-_GENERIC_SRV_TYPE = None
-if HAS_RCLPY:
-    try:
-        from furance_interfaces.srv import GenericCommand
 
-        _GENERIC_SRV_TYPE = GenericCommand
-    except ImportError:
-        logger.warning(
-            "furance_interfaces.srv.GenericCommand not found. "
-            "Real ROS2 service calls will not work until the package is built."
-        )
+def _get_generic_srv_type():
+    """Lazy import of GenericCommand — call only after workspace paths are set up."""
+    from furance_interfaces.srv import GenericCommand
+    return GenericCommand
 
 
 class Ros2ServiceClientBase(ABC):
@@ -50,11 +43,13 @@ class RealRos2ServiceClient(Ros2ServiceClientBase):
     def __init__(self, runtime, timeout: float = 30.0):
         if not HAS_RCLPY:
             raise RuntimeError("rclpy is not installed")
-        if _GENERIC_SRV_TYPE is None:
+        try:
+            self._srv_type = _get_generic_srv_type()
+        except ImportError as e:
             raise RuntimeError(
                 "furance_interfaces.srv.GenericCommand not available. "
-                "Build the furance_interfaces package first."
-            )
+                "Ensure ros2_workspace is configured and the package is built."
+            ) from e
         self._runtime = runtime
         self._timeout = timeout
         self._clients: dict[str, Any] = {}
@@ -64,7 +59,7 @@ class RealRos2ServiceClient(Ros2ServiceClientBase):
         if service_name not in self._clients:
             node: Node = self._runtime.node
             client = node.create_client(
-                _GENERIC_SRV_TYPE,
+                self._srv_type,
                 service_name,
             )
             self._clients[service_name] = client
@@ -81,7 +76,6 @@ class RealRos2ServiceClient(Ros2ServiceClientBase):
             Dict with keys: success, message, and optional result data
         """
         client = self._get_or_create_client(service_name)
-        node: Node = self._runtime.node
 
         # Wait for service to be available
         if not client.wait_for_service(timeout_sec=5.0):
@@ -93,7 +87,7 @@ class RealRos2ServiceClient(Ros2ServiceClientBase):
 
         # Build request — extract command from service name
         command = service_name.lstrip("/")
-        req = _GENERIC_SRV_TYPE.Request()
+        req = self._srv_type.Request()
         req.command = command
         req.params_json = json.dumps(request)
 

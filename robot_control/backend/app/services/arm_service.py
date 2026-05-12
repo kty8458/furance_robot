@@ -9,12 +9,14 @@ from furance_shared.protocol.http_schema import ApiResponse
 
 
 class ArmService:
-    def __init__(self, ros2_client: Ros2ServiceClientBase | None = None, teach_dir: str = "/opt/furance_robot/data/teach"):
+    def __init__(self, ros2_client: Ros2ServiceClientBase | None = None, teach_dir: str = "data/teach"):
         self._ros2 = ros2_client or MockRos2ServiceClient()
         self._teach_dir = Path(teach_dir)
 
     async def arm_move(self, robot_id: str, cmd: ArmMoveCommand) -> ApiResponse:
         result = await self._ros2.call_service("/ArmMoveCommand", cmd.model_dump())
+        if result.get("success") is False:
+            return ApiResponse(code=1001, message=result.get("message", "ROS2 服务调用失败"))
         return ApiResponse(data=result)
 
     def save_teach(self, robot_id: str, preset: TeachPreset) -> None:
@@ -64,6 +66,8 @@ class ArmService:
                 code=ErrorCode.TEACH_NAME_NOT_FOUND,
             )
         result = await self._ros2.call_service("/ArmTeachExec", cmd.model_dump())
+        if result.get("success") is False:
+            return ApiResponse(code=1001, message=result.get("message", "ROS2 服务调用失败"))
         return ApiResponse(data=result)
 
     def _load_presets(self, file_path: Path) -> dict:

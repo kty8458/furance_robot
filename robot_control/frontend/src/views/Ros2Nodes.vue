@@ -65,9 +65,10 @@ onMounted(refreshNodes)
 async function refreshNodes() {
   try {
     const response = await ros2Api.listNodes()
-    nodes.value = response.data || []
+    const payload = response.data
+    nodes.value = payload?.data || payload || []
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '获取节点列表失败')
+    ElMessage.error(error.message || '获取节点列表失败')
   }
 }
 
@@ -77,7 +78,7 @@ async function handleStart(name) {
     ElMessage.success(`节点 ${name} 启动指令已发送`)
     refreshNodes()
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '启动节点失败')
+    ElMessage.error(error.message || '启动节点失败')
   }
 }
 
@@ -87,7 +88,7 @@ async function handleStop(name) {
     ElMessage.success(`节点 ${name} 停止指令已发送`)
     refreshNodes()
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '停止节点失败')
+    ElMessage.error(error.message || '停止节点失败')
   }
 }
 </script>

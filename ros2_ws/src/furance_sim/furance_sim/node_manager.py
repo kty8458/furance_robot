@@ -13,6 +13,8 @@ NODE_REGISTRY = {
     'command_node': {'package': 'furance_sim', 'executable': 'command_node'},
 }
 
+SELF_MANAGED = True  # node_manager is always running if responding
+
 
 class NodeManager(Node):
     def __init__(self):
@@ -32,6 +34,8 @@ class NodeManager(Node):
         for name in NODE_REGISTRY:
             status = 'running' if name in self._processes and self._processes[name].poll() is None else 'stopped'
             nodes.append({'name': name, 'status': status})
+        # node_manager itself is always running
+        nodes.append({'name': 'node_manager', 'status': 'running'})
 
         response.success = True
         response.message = 'OK'
@@ -41,6 +45,12 @@ class NodeManager(Node):
     def _handle_start(self, request, response):
         params = json.loads(request.params_json) if request.params_json else {}
         name = params.get('name', '')
+
+        if name == 'node_manager':
+            response.success = False
+            response.message = 'node_manager cannot be restarted'
+            response.result_json = '{}'
+            return response
 
         if name not in NODE_REGISTRY:
             self.get_logger().warning(f'NodeStart: unknown node {name}')
@@ -79,6 +89,12 @@ class NodeManager(Node):
         params = json.loads(request.params_json) if request.params_json else {}
         name = params.get('name', '')
 
+        if name == 'node_manager':
+            response.success = False
+            response.message = 'node_manager cannot be stopped'
+            response.result_json = '{}'
+            return response
+
         if name not in NODE_REGISTRY:
             response.success = False
             response.message = f'Unknown node: {name}'
@@ -112,6 +128,12 @@ class NodeManager(Node):
     def _handle_status(self, request, response):
         params = json.loads(request.params_json) if request.params_json else {}
         name = params.get('name', '')
+
+        if name == 'node_manager':
+            response.success = True
+            response.message = 'OK'
+            response.result_json = json.dumps({'name': 'node_manager', 'status': 'running'})
+            return response
 
         if name not in NODE_REGISTRY:
             response.success = False

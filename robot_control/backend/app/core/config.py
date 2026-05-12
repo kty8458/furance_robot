@@ -11,10 +11,10 @@ class Settings(BaseSettings):
     ws_status_interval: int = 30
 
     log_level: str = "INFO"
-    log_dir: str = "/opt/furance_robot/logs"
+    log_dir: str = "data/logs"
     log_retention_days: int = 30
 
-    teach_data_dir: str = "/opt/furance_robot/data/teach"
+    teach_data_dir: str = "data/teach"
 
     model_config = {"env_prefix": "", "case_sensitive": False}
 

@@ -1,6 +1,9 @@
+import ctypes
 import logging
 import os
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from app.core.config import Settings, get_settings
 from app.ros2.log_collector import (
@@ -20,6 +23,33 @@ from app.ros2.topic_listener import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Directory where CMake post-build copies furance_interfaces install output
+_BACKEND_ROS2_LIBS = Path(__file__).resolve().parent.parent.parent / "ros2_libs"
+
+
+def _setup_ros2_workspace():
+    """Set up sys.path and preload .so libraries from local ros2_libs directory."""
+    if not _BACKEND_ROS2_LIBS.is_dir():
+        logger.warning("ros2_libs directory not found: %s", _BACKEND_ROS2_LIBS)
+        return
+
+    # Add Python dist-packages to sys.path
+    for py_dir in _BACKEND_ROS2_LIBS.rglob("dist-packages"):
+        resolved = str(py_dir.resolve())
+        if resolved not in sys.path:
+            sys.path.insert(0, resolved)
+            logger.info("Added to sys.path: %s", resolved)
+
+    # Preload native .so libraries via ctypes so the dynamic linker can find them
+    lib_dir = _BACKEND_ROS2_LIBS / "lib"
+    if lib_dir.is_dir():
+        for so_file in sorted(lib_dir.glob("*.so")):
+            try:
+                ctypes.CDLL(str(so_file))
+                logger.debug("Preloaded: %s", so_file.name)
+            except OSError as e:
+                logger.warning("Failed to preload %s: %s", so_file.name, e)
 
 
 @dataclass
@@ -43,6 +73,7 @@ def create_ros2_components(settings: Settings | None = None) -> Ros2Components:
 
     if mode == "real":
         try:
+            _setup_ros2_workspace()
             from app.ros2.runtime import Ros2Runtime
 
             runtime = Ros2Runtime(domain_id=settings.ros2_domain_id)

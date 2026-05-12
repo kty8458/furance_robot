@@ -77,9 +77,10 @@ onMounted(refreshMaps)
 async function refreshMaps() {
   try {
     const response = await navigationApi.getMaps()
-    maps.value = response.data || []
+    const payload = response.data
+    maps.value = payload?.data?.maps || payload?.maps || []
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '获取地图列表失败')
+    ElMessage.error(error.message || '获取地图列表失败')
   }
 }
 
@@ -89,9 +90,10 @@ async function handleMapChange() {
   if (selectedMap.value) {
     try {
       const response = await navigationApi.getWaypoints(selectedMap.value)
-      waypoints.value = response.data || []
+      const payload = response.data
+      waypoints.value = payload?.data?.waypoints || payload?.waypoints || []
     } catch (error) {
-      ElMessage.error(error.response?.data?.message || '获取航点列表失败')
+      ElMessage.error(error.message || '获取航点列表失败')
     }
   }
 }
@@ -118,7 +120,7 @@ async function handleMove() {
     await navigationApi.move(selectedMap.value, moveForm.value.waypointId, moveForm.value.speed)
     ElMessage.success('移动指令已发送')
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '移动失败')
+    ElMessage.error(error.message || '移动失败')
   }
 }
 
