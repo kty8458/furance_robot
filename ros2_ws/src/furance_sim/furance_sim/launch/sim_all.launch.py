@@ -1,9 +1,14 @@
+import os
+
 from launch import LaunchDescription
+from launch.actions import SetEnvironmentVariable
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    return LaunchDescription([
+    furance_root = os.environ.get('FURANCE_ROBOT_ROOT', '')
+
+    nodes = [
         Node(
             package='furance_sim',
             executable='navigation_node',
@@ -15,6 +20,8 @@ def generate_launch_description():
             executable='arm_node',
             name='arm_node',
             output='screen',
+            parameters=[{'teach_dir': os.path.join(furance_root, 'robot_control', 'backend', 'data', 'teach')}]
+                       if furance_root else [],
         ),
         Node(
             package='furance_sim',
@@ -40,4 +47,11 @@ def generate_launch_description():
             name='node_manager',
             output='screen',
         ),
-    ])
+    ]
+
+    actions = []
+    if furance_root:
+        actions.append(SetEnvironmentVariable('FURANCE_ROBOT_ROOT', furance_root))
+    actions.extend(nodes)
+
+    return LaunchDescription(actions)

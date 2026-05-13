@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Request
 from furance_shared.models.command import ArmMoveCommand, TeachSaveCommand, TeachExecCommand
 from furance_shared.protocol.http_schema import ApiResponse
@@ -81,3 +83,15 @@ async def teach_exec(robot_id: str, cmd: TeachExecCommand, request: Request):
 async def teach_delete(robot_id: str, name: str, request: Request):
     _get_arm_service(request).delete_teach(robot_id, name)
     return ApiResponse(data={"deleted": name})
+
+
+@router.get("/teach/ros2", response_model=ApiResponse)
+async def teach_ros2_list(robot_id: str, request: Request, arm: Optional[str] = None):
+    """Query teach points via ROS2 /GetTeachPoints service."""
+    from app.services.robot_service import _check_result
+    ros2_client = request.app.state.ros2.service_client
+    params = {"robot_id": robot_id}
+    if arm:
+        params["arm"] = arm
+    result = await ros2_client.call_service("/GetTeachPoints", params)
+    return _check_result(result)
