@@ -16,6 +16,14 @@ def _get_arm_service(request: Request) -> ArmService:
     )
 
 
+def _get_current_arm_state(request: Request, robot_id: str, arm: str) -> dict:
+    status_service = request.app.state.status_service
+    latest = status_service.get_latest(robot_id)
+    if not latest:
+        return {}
+    return latest.get("arm", {}).get(arm.value if hasattr(arm, 'value') else arm, {})
+
+
 @router.post("/move", response_model=ApiResponse)
 async def arm_move(robot_id: str, cmd: ArmMoveCommand, request: Request):
     return await _get_arm_service(request).arm_move(robot_id, cmd)
@@ -24,10 +32,33 @@ async def arm_move(robot_id: str, cmd: ArmMoveCommand, request: Request):
 @router.post("/teach/save", response_model=ApiResponse)
 async def teach_save(robot_id: str, cmd: TeachSaveCommand, request: Request):
     try:
+        side_data = _get_current_arm_state(request, robot_id, cmd.arm)
+        joint_angles = side_data.get("joint_angles", [0.0] * 7)
+        end_effector = side_data.get("end_effector", {"x": 0.0, "y": 0.0, "z": 0.0, "roll": 0.0, "pitch": 0.0, "yaw": 0.0})
+        coordinate_frame = side_data.get("coordinate_frame", "base_link")
+
         _get_arm_service(request).save_teach(robot_id, TeachPreset(
-            arm=cmd.arm, name=cmd.name, joint_angles=[0.0] * 7
+            arm=cmd.arm, name=cmd.name, joint_angles=joint_angles,
+            end_effector=end_effector, coordinate_frame=coordinate_frame,
         ))
         return ApiResponse(data={"name": cmd.name})
+    except FuranceError as e:
+        raise HTTPException(status_code=400, detail=e.to_dict())
+
+
+@router.put("/teach/{name}", response_model=ApiResponse)
+async def teach_update(robot_id: str, name: str, cmd: TeachSaveCommand, request: Request):
+    try:
+        side_data = _get_current_arm_state(request, robot_id, cmd.arm)
+        joint_angles = side_data.get("joint_angles", [0.0] * 7)
+        end_effector = side_data.get("end_effector", {"x": 0.0, "y": 0.0, "z": 0.0, "roll": 0.0, "pitch": 0.0, "yaw": 0.0})
+        coordinate_frame = side_data.get("coordinate_frame", "base_link")
+
+        _get_arm_service(request).save_teach(robot_id, TeachPreset(
+            arm=cmd.arm, name=name, joint_angles=joint_angles,
+            end_effector=end_effector, coordinate_frame=coordinate_frame,
+        ), overwrite=True)
+        return ApiResponse(data={"name": name})
     except FuranceError as e:
         raise HTTPException(status_code=400, detail=e.to_dict())
 

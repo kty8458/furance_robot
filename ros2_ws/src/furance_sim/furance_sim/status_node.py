@@ -24,8 +24,18 @@ class StatusNode(Node):
             'right': {'state': 'open', 'force': 0.0},
         }
         self._arm = {
-            'left': {'joint_angles': [0.0, -0.5, 0.3, 0.0, 0.2, 0.0, 0.0], 'status': 'idle'},
-            'right': {'joint_angles': [0.0, 0.3, -0.2, 0.0, -0.1, 0.0, 0.0], 'status': 'idle'},
+            'left': {
+                'joint_angles': [0.0, -0.5, 0.3, 0.0, 0.2, 0.0, 0.0],
+                'end_effector': {'x': 0.35, 'y': 0.20, 'z': 0.45, 'roll': 0.0, 'pitch': -1.57, 'yaw': 0.0},
+                'coordinate_frame': 'base_link',
+                'status': 'idle',
+            },
+            'right': {
+                'joint_angles': [0.0, 0.3, -0.2, 0.0, -0.1, 0.0, 0.0],
+                'end_effector': {'x': 0.35, 'y': -0.20, 'z': 0.45, 'roll': 0.0, 'pitch': -1.57, 'yaw': 0.0},
+                'coordinate_frame': 'base_link',
+                'status': 'idle',
+            },
         }
 
         self._tick_count = 0
@@ -74,6 +84,10 @@ class StatusNode(Node):
             self._arm[side]['joint_angles'] = [
                 round(a + random.uniform(-0.01, 0.01), 3) for a in angles
             ]
+            ee = self._arm[side]['end_effector']
+            self._arm[side]['end_effector'] = {
+                k: round(v + random.uniform(-0.002, 0.002), 4) for k, v in ee.items()
+            }
 
         # Task status: rarely change
         if random.random() < 0.05:

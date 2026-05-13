@@ -76,3 +76,4 @@ class TeachSaveCommand(BaseModel):
 class TeachExecCommand(BaseModel):
     arm: ArmSide
     name: str = Field(min_length=1, max_length=64)
+    method: ArmMoveMethod = ArmMoveMethod.MOVEJ

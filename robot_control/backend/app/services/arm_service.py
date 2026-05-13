@@ -19,13 +19,13 @@ class ArmService:
             return ApiResponse(code=1001, message=result.get("message", "ROS2 服务调用失败"))
         return ApiResponse(data=result)
 
-    def save_teach(self, robot_id: str, preset: TeachPreset) -> None:
+    def save_teach(self, robot_id: str, preset: TeachPreset, overwrite: bool = False) -> None:
         robot_dir = self._teach_dir / robot_id
         robot_dir.mkdir(parents=True, exist_ok=True)
         file_path = robot_dir / "presets.json"
         presets = self._load_presets(file_path)
         key = f"{preset.arm.value}_{preset.name}"
-        if key in presets:
+        if key in presets and not overwrite:
             raise BusinessError(
                 message=f"Teach preset '{preset.name}' already exists for {preset.arm}",
                 code=ErrorCode.TEACH_NAME_EXISTS,
@@ -33,16 +33,19 @@ class ArmService:
         presets[key] = preset.model_dump()
         file_path.write_text(json.dumps(presets, indent=2))
 
-    def list_teach(self, robot_id: str) -> list[TeachPresetSummary]:
+    def list_teach(self, robot_id: str) -> list[TeachPreset]:
         robot_dir = self._teach_dir / robot_id
         file_path = robot_dir / "presets.json"
         if not file_path.exists():
             return []
         presets = self._load_presets(file_path)
-        return [
-            TeachPresetSummary(arm=v["arm"], name=v["name"])
-            for v in presets.values()
-        ]
+        result = []
+        for v in presets.values():
+            try:
+                result.append(TeachPreset(**v))
+            except Exception:
+                continue
+        return result
 
     def delete_teach(self, robot_id: str, name: str) -> None:
         robot_dir = self._teach_dir / robot_id
@@ -65,7 +68,15 @@ class ArmService:
                 message=f"Teach preset '{cmd.name}' not found for {cmd.arm}",
                 code=ErrorCode.TEACH_NAME_NOT_FOUND,
             )
-        result = await self._ros2.call_service("/ArmTeachExec", cmd.model_dump())
+        preset_data = presets[key]
+        move_cmd = ArmMoveCommand(
+            arm=cmd.arm,
+            method=cmd.method,
+            joint_angles=preset_data.get("joint_angles"),
+            position=preset_data.get("end_effector"),
+            coordinate=preset_data.get("coordinate_frame", "base_link"),
+        )
+        result = await self._ros2.call_service("/ArmMoveCommand", move_cmd.model_dump())
         if result.get("success") is False:
             return ApiResponse(code=1001, message=result.get("message", "ROS2 服务调用失败"))
         return ApiResponse(data=result)

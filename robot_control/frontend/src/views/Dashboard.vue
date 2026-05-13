@@ -58,7 +58,11 @@
                 <el-tag :type="status?.arm?.left?.status === 'idle' ? 'success' : 'warning'">
                   {{ status?.arm?.left?.status || '未知' }}
                 </el-tag>
-                <div style="margin-top: 5px">关节角度: {{ formatJointAngles(status?.arm?.left?.joint_angles) }}</div>
+                <div style="margin-top: 4px">关节: {{ formatJointAngles(status?.arm?.left?.joint_angles) }}</div>
+                <div style="margin-top: 2px; color: #00d4ff">
+                  末端: {{ formatEE(status?.arm?.left?.end_effector) }}
+                  <span v-if="status?.arm?.left?.coordinate_frame" style="color: #6b7280"> [{{ status.arm.left.coordinate_frame }}]</span>
+                </div>
               </div>
             </el-descriptions-item>
             <el-descriptions-item label="右手臂状态">
@@ -66,7 +70,11 @@
                 <el-tag :type="status?.arm?.right?.status === 'idle' ? 'success' : 'warning'">
                   {{ status?.arm?.right?.status || '未知' }}
                 </el-tag>
-                <div style="margin-top: 5px">关节角度: {{ formatJointAngles(status?.arm?.right?.joint_angles) }}</div>
+                <div style="margin-top: 4px">关节: {{ formatJointAngles(status?.arm?.right?.joint_angles) }}</div>
+                <div style="margin-top: 2px; color: #00d4ff">
+                  末端: {{ formatEE(status?.arm?.right?.end_effector) }}
+                  <span v-if="status?.arm?.right?.coordinate_frame" style="color: #6b7280"> [{{ status.arm.right.coordinate_frame }}]</span>
+                </div>
               </div>
             </el-descriptions-item>
             <el-descriptions-item label="任务状态">
@@ -93,6 +101,11 @@ const taskStatusText = computed(() => taskStatusMap[status.value?.task_status] |
 
 function formatJointAngles(angles) {
   if (!angles || !Array.isArray(angles)) return '--'
-  return angles.map(a => `${a.toFixed(1)}°`).join(', ')
+  return angles.map(a => `${a.toFixed(4)}°`).join(', ')
+}
+
+function formatEE(ee) {
+  if (!ee) return '--'
+  return `(${ee.x?.toFixed(3) ?? '?'}, ${ee.y?.toFixed(3) ?? '?'}, ${ee.z?.toFixed(3) ?? '?'})`
 }
 </script>

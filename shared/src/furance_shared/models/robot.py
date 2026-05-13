@@ -40,8 +40,19 @@ class GripperInfo(BaseModel):
     force: float = 0.0
 
 
+class EndEffectorPose(BaseModel):
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+    roll: float = 0.0
+    pitch: float = 0.0
+    yaw: float = 0.0
+
+
 class ArmState(BaseModel):
     joint_angles: list[float] = Field(min_length=7, max_length=7)
+    end_effector: EndEffectorPose = EndEffectorPose()
+    coordinate_frame: str = "base_link"
     status: str = "idle"
 
 

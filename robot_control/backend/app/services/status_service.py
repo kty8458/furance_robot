@@ -8,6 +8,7 @@ from furance_shared.models.robot import Position, GripperInfo, GripperState, Arm
 class StatusService:
     def __init__(self):
         self._connections: list[WebSocket] = []
+        self._latest: dict[str, dict] = {}
 
     def add_connection(self, ws: WebSocket):
         self._connections.append(ws)
@@ -15,7 +16,11 @@ class StatusService:
     def remove_connection(self, ws: WebSocket):
         self._connections.remove(ws)
 
+    def get_latest(self, robot_id: str) -> dict | None:
+        return self._latest.get(robot_id)
+
     async def push_status(self, robot_id: str, status_data: dict):
+        self._latest[robot_id] = status_data
         frame = StatusFrame(
             robot_id=robot_id,
             timestamp=int(time.time() * 1000),
