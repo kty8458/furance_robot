@@ -32,6 +32,7 @@ async def lifespan(app: FastAPI):
         components.runtime.start(asyncio.get_event_loop())
         await components.log_collector.start(log_service)
         await components.topic_listener.start(status_service)
+        await components.joint_state_listener.start(status_service)
 
     # Store on app.state for access from API endpoints and WS handlers
     app.state.ros2 = components
@@ -47,6 +48,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if components.runtime is not None:
         await components.log_collector.stop()
+        await components.joint_state_listener.stop()
         await components.topic_listener.stop()
         components.runtime.stop()
     logger.info("Application stopped")

@@ -21,6 +21,11 @@ from app.ros2.topic_listener import (
     RealRos2TopicListener,
     Ros2TopicListenerBase,
 )
+from app.ros2.joint_state_listener import (
+    MockJointStateListener,
+    RealJointStateListener,
+    JointStateListenerBase,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +64,7 @@ class Ros2Components:
     service_client: Ros2ServiceClientBase
     log_collector: Ros2LogCollectorBase
     topic_listener: Ros2TopicListenerBase
+    joint_state_listener: JointStateListenerBase
     runtime: object | None  # Ros2Runtime when real mode, None when mock
 
 
@@ -84,6 +90,7 @@ def create_ros2_components(settings: Settings | None = None) -> Ros2Components:
                 ),
                 log_collector=RealRos2LogCollector(runtime),
                 topic_listener=RealRos2TopicListener(runtime),
+                joint_state_listener=RealJointStateListener(runtime),
             )
             logger.info("ROS2 components created in REAL mode (domain_id=%d)", settings.ros2_domain_id)
             return components
@@ -98,6 +105,7 @@ def create_ros2_components(settings: Settings | None = None) -> Ros2Components:
         service_client=MockRos2ServiceClient(),
         log_collector=MockRos2LogCollector(),
         topic_listener=MockRos2TopicListener(),
+        joint_state_listener=MockJointStateListener(),
     )
     logger.info("ROS2 components created in MOCK mode")
     return components
