@@ -1,0 +1,17 @@
+# Default initial positions for t1's ros2_control fake system
+
+initial_positions:
+  ARM-L-J1_Joint: 0
+  ARM-L-J2_Joint: 0
+  ARM-L-J3_Joint: 0
+  ARM-L-J4_Joint: 0
+  ARM-L-J5_Joint: 0
+  ARM-L-J6_Joint: 0
+  ARM-L-J7_Joint: 0
+  ARM-R-J1_Joint: 0
+  ARM-R-J2_Joint: 0
+  ARM-R-J3_Joint: 0
+  ARM-R-J4_Joint: 0
+  ARM-R-J5_Joint: 0
+  ARM-R-J6_Joint: 0
+  ARM-R-J7_Joint: 0

@@ -1,0 +1,5 @@
+# srv/ExecuteTrajectory.srv
+trajectory_msgs/JointTrajectory trajectory
+---
+bool success
+string message

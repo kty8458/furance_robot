@@ -1,0 +1,17 @@
+# GripperAction.action
+
+# Goal
+string arm
+string method
+float64 torque
+float64 position
+---
+# Result
+bool success
+string gripper_status
+string gripper_message
+---
+# Feedback
+float64 current_position
+string gripper_status
+string gripper_message

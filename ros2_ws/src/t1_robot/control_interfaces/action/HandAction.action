@@ -1,0 +1,14 @@
+# Goal definition
+string hand
+string command  # 支持"open"/"close"等字符串指令
+float32[] angles  # 直接指定各关节角度
+float32[] velocity  # 直接指定各关节角度
+
+---
+# Result definition
+bool success
+string message
+---
+# Feedback
+float32[] current_angles
+float32 progress

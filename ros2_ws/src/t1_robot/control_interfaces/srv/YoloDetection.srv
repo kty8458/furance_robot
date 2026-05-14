@@ -1,0 +1,10 @@
+# 请求参数
+sensor_msgs/Image rgb_img
+sensor_msgs/Image depth_img
+int32 target_class
+int32 camera_id
+---
+# 返回参数
+sensor_msgs/Image annotated_image
+geometry_msgs/Point object_position
+bool success

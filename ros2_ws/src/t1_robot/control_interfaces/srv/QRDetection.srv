@@ -1,0 +1,9 @@
+# 请求参数
+int32 qr_id
+float32 qr_size
+sensor_msgs/Image image
+---
+# 返回参数
+geometry_msgs/Point point
+float32 angle
+bool success

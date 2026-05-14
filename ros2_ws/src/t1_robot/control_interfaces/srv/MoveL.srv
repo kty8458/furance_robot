@@ -1,0 +1,5 @@
+geometry_msgs/Pose[] waypoints
+string lor
+---
+bool success
+string message

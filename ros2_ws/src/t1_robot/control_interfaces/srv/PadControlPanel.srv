@@ -1,0 +1,7 @@
+# 请求参数
+string control_target
+string param1
+string param2
+---
+# 返回参数
+bool success

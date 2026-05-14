@@ -1,0 +1,7 @@
+# 请求参数 -----------
+string lor
+
+# 响应参数 --------
+---
+bool success
+float64[] joint_angles

@@ -1,0 +1,20 @@
+# 操作类型枚举
+uint8 ADD=1
+uint8 REMOVE=2
+
+# 形状类型枚举
+uint8 BOX=10
+uint8 SPHERE=11
+uint8 CYLINDER=12
+
+# 请求参数 -----------
+uint8 operation_type  # 取值为ADD或REMOVE
+uint8 shape_type      # 当operation_type=ADD时有效，取BOX/SPHERE/CYLINDER
+geometry_msgs/Pose center
+float64[] dimensions  # 形状参数
+string obstacle_id
+
+# 响应参数 --------
+---
+bool success
+string message

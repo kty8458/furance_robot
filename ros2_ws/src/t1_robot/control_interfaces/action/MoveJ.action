@@ -1,0 +1,12 @@
+# MoveJ.action
+# Goal
+string lor
+float64[] target_joint_positions
+
+---
+# Result
+bool success
+
+---
+# Feedback
+string feedback_message

@@ -1,0 +1,25 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: t1_description
+    relative_path: urdf/t1.urdf
+  srdf:
+    relative_path: config/t1.srdf
+  package_settings:
+    author_name: TianyangKe
+    author_email: 563646@baosight.com
+    generated_timestamp: 1778657566
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity

@@ -1,0 +1,7 @@
+# 请求参数
+int32 camera_id
+---
+# 返回参数
+sensor_msgs/Image image
+sensor_msgs/Image depth_image
+bool success
