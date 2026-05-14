@@ -103,10 +103,7 @@ class ArmService:
             position=preset_data.get("end_effector"),
             coordinate=preset_data.get("coordinate_frame", "base_link"),
         )
-        result = await self._ros2.call_service("/ArmMoveCommand", move_cmd.model_dump())
-        if result.get("success") is False:
-            return ApiResponse(code=1001, message=result.get("message", "ROS2 服务调用失败"))
-        return ApiResponse(data=result)
+        return await self.arm_move(robot_id, move_cmd)
 
     def _load_presets(self, file_path: Path) -> dict:
         if not file_path.exists():
