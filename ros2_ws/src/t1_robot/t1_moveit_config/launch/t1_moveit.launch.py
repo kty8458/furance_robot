@@ -304,7 +304,7 @@ def launch_setup(context, *args, **kwargs):
         output='screen'
     )
     controller = Node(
-        package='arm_controller',
+        package='python_pkgs' if use_sim.perform(context) == "true" else 'arm_controller',
         executable='sim_arm_controller' if use_sim.perform(context) == 'true' else 'moveit_arm_controller',
         output='screen',
     )
