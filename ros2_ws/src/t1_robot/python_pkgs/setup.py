@@ -15,6 +15,9 @@ setup(
         (os.path.join('share', package_name), ['python_pkgs/vision/best2.onnx'])
     ],
     install_requires=['setuptools'],
+    extras_require={
+        'qt': ['PyQt5'],
+    },
     zip_safe=True,
     maintainer='baosight',
     maintainer_email='banwf@foxmail.com',

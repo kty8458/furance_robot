@@ -3,14 +3,24 @@
 <package format="3">
   <name>python_pkgs</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>T1 robot auxiliary Python packages</description>
   <maintainer email="banwf@foxmail.com">baosight</maintainer>
-  <license>TODO: License declaration</license>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <build_depend>ament_python</build_depend>
   <exec_depend>ament_python</exec_depend>
 
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>trajectory_msgs</exec_depend>
+  <exec_depend>control_msgs</exec_depend>
+  <exec_depend>control_interfaces</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>interface_pkg</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
+  <exec_depend>python_qt_binding</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>
