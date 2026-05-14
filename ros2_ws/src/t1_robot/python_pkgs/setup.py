@@ -27,6 +27,7 @@ setup(
     entry_points={
         'console_scripts': [
             'qr_dete = python_pkgs.vision.QR_dete:main',
+            'sim_arm_controller = python_pkgs.t1_control.sim_arm_controller:main',
             't1_joint_state_bridge = python_pkgs.t1_control.t1_joint_states_publisher:main',
             't1_joint_state_publisher_gui = python_pkgs.t1_control.t1_joint_state_publisher_gui:main',
             't1_move_client = python_pkgs.t1_control.t1_move_client:main',
