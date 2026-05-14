@@ -12,8 +12,10 @@ router = APIRouter(prefix="/api/v1/robot/{robot_id}/arm", tags=["arm"])
 
 def _get_arm_service(request: Request) -> ArmService:
     settings = get_settings()
+    moveit_client = getattr(request.app.state.ros2, 'moveit_client', None)
     return ArmService(
         ros2_client=request.app.state.ros2.service_client,
+        moveit_client=moveit_client,
         teach_dir=settings.teach_data_dir,
     )
 

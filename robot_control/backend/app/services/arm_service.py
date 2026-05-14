@@ -4,16 +4,43 @@ from furance_shared.models.robot import ArmSide
 from furance_shared.utils.errors import BusinessError, ErrorCode
 from app.models.teach import TeachPreset, TeachPresetSummary
 from app.ros2.service_client import Ros2ServiceClientBase, MockRos2ServiceClient
+from app.ros2.moveit_client import MoveItServiceClientBase
 from furance_shared.models.command import ArmMoveCommand, TeachSaveCommand, TeachExecCommand
 from furance_shared.protocol.http_schema import ApiResponse
 
 
 class ArmService:
-    def __init__(self, ros2_client: Ros2ServiceClientBase | None = None, teach_dir: str = "data/teach"):
+    def __init__(self, ros2_client: Ros2ServiceClientBase | None = None,
+                 moveit_client: MoveItServiceClientBase | None = None,
+                 teach_dir: str = "data/teach"):
         self._ros2 = ros2_client or MockRos2ServiceClient()
+        self._moveit = moveit_client
         self._teach_dir = Path(teach_dir)
 
     async def arm_move(self, robot_id: str, cmd: ArmMoveCommand) -> ApiResponse:
+        if cmd.method.value == "movep" and self._moveit:
+            to_frame = f"ARM-{'L' if cmd.arm.value == 'left' else 'R'}-J7_Link"
+            result = await self._moveit.move_p(
+                lor=cmd.arm.value,
+                target_pose=cmd.position or {},
+                to_frame=to_frame,
+                reference_frame=cmd.coordinate,
+                planner="ompl",
+            )
+            if result.get("success") is False:
+                return ApiResponse(code=1001, message=result.get("message", "MoveP 失败"))
+            return ApiResponse(data=result)
+
+        if cmd.method.value == "moveL" and self._moveit:
+            result = await self._moveit.move_l(
+                lor=cmd.arm.value,
+                waypoints=[cmd.position] if cmd.position else [],
+            )
+            if result.get("success") is False:
+                return ApiResponse(code=1001, message=result.get("message", "MoveL 失败"))
+            return ApiResponse(data=result)
+
+        # Fallback to GenericCommand for moveJ and other methods
         result = await self._ros2.call_service("/ArmMoveCommand", cmd.model_dump())
         if result.get("success") is False:
             return ApiResponse(code=1001, message=result.get("message", "ROS2 服务调用失败"))
