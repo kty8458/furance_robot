@@ -1,9 +1,13 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
-from interface_pkg.msg import MotFeedback, Robotstatus
 import math
 
+try:
+    from interface_pkg.msg import MotFeedback, Robotstatus
+    HAS_INTERFACE_PKG = True
+except ImportError:
+    HAS_INTERFACE_PKG = False
 
 # Map from partial joint names to internal state indices
 LEFT_JOINT_MAP = {
@@ -20,14 +24,16 @@ class JointStateBridge(Node):
 
         self.pub_joint_states = self.create_publisher(JointState, '/joint_states', 10)
 
-        self.sub_motor = self.create_subscription(
-            MotFeedback, '/motor_feedback', self.motor_callback, 10)
-        self.sub_status = self.create_subscription(
-            Robotstatus, '/robot_status', self.status_callback, 10)
-
-        # Subscribe to sim joint commands (from sim_arm_controller)
+        # Subscribe to sim joint commands (from sim_arm_controller) — always available
         self.sub_sim = self.create_subscription(
             JointState, '/sim_joint_commands', self.sim_joint_callback, 10)
+
+        # Subscribe to hardware feedback — optional, requires interface_pkg
+        if HAS_INTERFACE_PKG:
+            self.sub_motor = self.create_subscription(
+                MotFeedback, '/motor_feedback', self.motor_callback, 10)
+            self.sub_status = self.create_subscription(
+                Robotstatus, '/robot_status', self.status_callback, 10)
 
         self.sj_joint = 0.0
         self.tou_joint = 0.0
@@ -37,9 +43,12 @@ class JointStateBridge(Node):
 
         self.timer = self.create_timer(0.05, self.publish_joint_states)
 
-        self.get_logger().info("T1 JointState bridge node started.")
+        if HAS_INTERFACE_PKG:
+            self.get_logger().info("T1 JointState bridge started (with hardware feedback).")
+        else:
+            self.get_logger().info("T1 JointState bridge started (sim-only, interface_pkg not available).")
 
-    def motor_callback(self, msg: MotFeedback):
+    def motor_callback(self, msg):
         try:
             self.sj_joint = math.radians(msg.angle) if hasattr(msg, 'angle') else 0.0
             if hasattr(msg, 'head_back_angle'):
@@ -47,7 +56,7 @@ class JointStateBridge(Node):
         except Exception as e:
             self.get_logger().error(f"Error parsing MotFeedback: {e}")
 
-    def status_callback(self, msg: Robotstatus):
+    def status_callback(self, msg):
         try:
             if len(msg.left_joint_positions) >= 7:
                 self.left_joints = [math.radians(a) for a in msg.left_joint_positions[:7]]
@@ -59,7 +68,6 @@ class JointStateBridge(Node):
             self.get_logger().error(f"Error parsing Robotstatus: {e}")
 
     def sim_joint_callback(self, msg: JointState):
-        """Update internal joint state from sim controller commands."""
         try:
             for i, name in enumerate(msg.name):
                 pos = msg.position[i]
