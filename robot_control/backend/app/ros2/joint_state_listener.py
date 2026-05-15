@@ -108,7 +108,12 @@ class RealJointStateListener(JointStateListenerBase):
 
         robot_id = "robot_001"
         existing = self._status_service.get_latest(robot_id) or {}
-        merged = {**existing, **arm_data}
+        # Ensure required fields for StatusPayload validation
+        defaults = {
+            "position": existing.get("position", {"x": 0.0, "y": 0.0, "theta": 0.0}),
+            "gripper": existing.get("gripper", {}),
+        }
+        merged = {**defaults, **existing, **arm_data}
 
         self._runtime.call_async_in_loop(
             self._status_service.push_status(robot_id, merged)
