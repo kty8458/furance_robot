@@ -4,6 +4,7 @@ import os
 import signal
 
 from furance_shared.protocol.http_schema import ApiResponse
+from app.ros2.service_client import Ros2ServiceClientBase, MockRos2ServiceClient
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,14 @@ LAUNCH_FILES = {
         "description": "T1 MoveIt (headless)",
     },
 }
+
+# Sample nodes for mock/development mode
+MOCK_NODES = [
+    {"name": "arm_controller", "status": "stopped"},
+    {"name": "gripper_controller", "status": "stopped"},
+    {"name": "navigation_node", "status": "stopped"},
+    {"name": "status_publisher", "status": "stopped"},
+]
 
 
 def _check_result(result: dict) -> ApiResponse:
@@ -100,31 +109,33 @@ class LaunchProcessManager:
 
 
 class Ros2Manager:
-    def __init__(self, ros2_client=None, launch_manager: LaunchProcessManager | None = None):
-        self._ros2 = ros2_client
+    def __init__(self, ros2_client: Ros2ServiceClientBase | None = None,
+                 launch_manager: LaunchProcessManager | None = None):
+        self._ros2 = ros2_client or MockRos2ServiceClient()
+        self._is_mock = isinstance(self._ros2, MockRos2ServiceClient)
         self._launch_manager = launch_manager or LaunchProcessManager()
 
     async def list_nodes(self) -> ApiResponse:
-        if self._ros2 is None:
-            return ApiResponse(data=[])
+        if self._is_mock:
+            return ApiResponse(data=MOCK_NODES)
         result = await self._ros2.call_service("/GetNodeList", {})
         return _check_result(result)
 
     async def start_node(self, node_name: str) -> ApiResponse:
-        if self._ros2 is None:
-            return ApiResponse(code=1001, message="ROS2 not available")
+        if self._is_mock:
+            return ApiResponse(data={"name": node_name, "status": "running"})
         result = await self._ros2.call_service("/NodeStart", {"name": node_name})
         return _check_result(result)
 
     async def stop_node(self, node_name: str) -> ApiResponse:
-        if self._ros2 is None:
-            return ApiResponse(code=1001, message="ROS2 not available")
+        if self._is_mock:
+            return ApiResponse(data={"name": node_name, "status": "stopped"})
         result = await self._ros2.call_service("/NodeStop", {"name": node_name})
         return _check_result(result)
 
     async def node_status(self, node_name: str) -> ApiResponse:
-        if self._ros2 is None:
-            return ApiResponse(code=1001, message="ROS2 not available")
+        if self._is_mock:
+            return ApiResponse(data={"name": node_name, "status": "stopped"})
         result = await self._ros2.call_service("/NodeStatus", {"name": node_name})
         return _check_result(result)
 
