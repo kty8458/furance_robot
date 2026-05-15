@@ -2,6 +2,8 @@ import json
 import os
 import subprocess
 import signal
+import threading
+from datetime import datetime
 
 from rclpy.node import Node
 from furance_interfaces.srv import GenericCommand
@@ -16,7 +18,9 @@ NODE_REGISTRY = {
     't1_moveit': {'type': 'launch', 'package': 't1_moveit_config', 'launch_file': 't1_moveit_headless.launch.py', 'args': {'use_sim': 'true'}},
 }
 
-SELF_MANAGED = True  # node_manager is always running if responding
+SELF_MANAGED = True
+
+LOG_BASE_DIR = os.path.join(os.path.expanduser('~'), '.ros', 'node_manager_logs')
 
 
 class NodeManager(Node):
@@ -25,20 +29,56 @@ class NodeManager(Node):
         self.get_logger().info('NodeManager started')
 
         self._processes: dict[str, subprocess.Popen] = {}
+        self._log_threads: dict[str, threading.Thread] = {}
+        self._log_files: dict[str, object] = {}
+
+        # Create session directory: one folder per node_manager lifetime
+        self._session_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self._session_dir = os.path.join(LOG_BASE_DIR, self._session_id)
+        os.makedirs(self._session_dir, exist_ok=True)
+
+        # Write session marker
+        with open(os.path.join(self._session_dir, '.session'), 'w') as f:
+            f.write(f'started={self._session_id}\n')
 
         self._list_srv = self.create_service(GenericCommand, '/GetNodeList', self._handle_list)
         self._start_srv = self.create_service(GenericCommand, '/NodeStart', self._handle_start)
         self._stop_srv = self.create_service(GenericCommand, '/NodeStop', self._handle_stop)
         self._status_srv = self.create_service(GenericCommand, '/NodeStatus', self._handle_status)
+        self._logs_srv = self.create_service(GenericCommand, '/GetNodeLogDir', self._handle_log_dir)
 
     def _build_cmd(self, name: str, info: dict) -> list[str]:
         if info['type'] == 'launch':
-            cmd = ['ros2', 'launch', info['package'], info['launch_file']]
+            cmd = ['stdbuf', '-oL', 'ros2', 'launch', info['package'], info['launch_file']]
             for k, v in info.get('args', {}).items():
                 cmd.append(f'{k}:={v}')
             return cmd
         else:
             return ['ros2', 'run', info['package'], info['executable']]
+
+    def _log_reader(self, name: str, proc: subprocess.Popen):
+        """Read stdout from subprocess and write to log file."""
+        log_file = self._log_files.get(name)
+        try:
+            for raw_line in iter(proc.stdout.readline, b''):
+                if not raw_line:
+                    continue
+                line = raw_line.decode('utf-8', errors='replace').rstrip('\n\r')
+                if log_file:
+                    try:
+                        log_file.write(line + '\n')
+                        log_file.flush()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        finally:
+            if log_file:
+                try:
+                    log_file.close()
+                except Exception:
+                    pass
+            self._log_files.pop(name, None)
 
     def _handle_list(self, request, response):
         self.get_logger().info('GetNodeList: listing all nodes')
@@ -82,15 +122,33 @@ class NodeManager(Node):
         self.get_logger().info(f'NodeStart: starting {name} with {" ".join(cmd)}')
 
         try:
-            # Use process group for launch entries so we can kill all child processes
             is_launch = info['type'] == 'launch'
+            env = os.environ.copy()
+            env['PYTHONUNBUFFERED'] = '1'
+            env['RCUTILS_LOGGING_BUFFERED_STREAM'] = '1'
+            env['RCUTILS_LOGGING_USE_STDOUT'] = '1'
+
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 preexec_fn=os.setsid if is_launch else None,
+                env=env,
             )
             self._processes[name] = proc
+
+            # Open log file in append mode
+            log_path = os.path.join(self._session_dir, f'{name}.log')
+            log_file = open(log_path, 'a')
+            log_file.write(f'\n--- Started {name} at {datetime.now().isoformat()} (pid={proc.pid}) ---\n')
+            log_file.flush()
+            self._log_files[name] = log_file
+
+            # Start background thread to read stdout and write to log file
+            t = threading.Thread(target=self._log_reader, args=(name, proc), daemon=True)
+            self._log_threads[name] = t
+            t.start()
+
             self.get_logger().info(f'NodeStart: node {name} started (pid={proc.pid})')
             response.success = True
             response.message = f'Node {name} started'
@@ -131,8 +189,18 @@ class NodeManager(Node):
         is_launch = info['type'] == 'launch'
         self.get_logger().info(f'NodeStop: stopping {name} (pid={proc.pid})')
 
+        # Write stop marker
+        log_file = self._log_files.get(name)
+        if log_file:
+            try:
+                log_file.write(f'--- Stopped {name} at {datetime.now().isoformat()} ---\n')
+                log_file.flush()
+                log_file.close()
+            except Exception:
+                pass
+            self._log_files.pop(name, None)
+
         if is_launch:
-            # Kill entire process group for launch entries
             try:
                 os.killpg(os.getpgid(proc.pid), signal.SIGINT)
             except ProcessLookupError:
@@ -153,6 +221,7 @@ class NodeManager(Node):
             proc.wait()
 
         del self._processes[name]
+        self._log_threads.pop(name, None)
         self.get_logger().info(f'NodeStop: node {name} stopped')
 
         response.success = True
@@ -185,11 +254,27 @@ class NodeManager(Node):
         response.result_json = json.dumps({'name': name, 'status': 'running' if is_running else 'stopped', 'pid': pid})
         return response
 
+    def _handle_log_dir(self, request, response):
+        """Return current session log directory path so backend can read files directly."""
+        response.success = True
+        response.message = 'OK'
+        response.result_json = json.dumps({
+            'session_id': self._session_id,
+            'log_dir': self._session_dir,
+        })
+        return response
+
     def destroy_node(self):
-        # Clean up all managed processes
         for name, proc in list(self._processes.items()):
             if proc.poll() is None:
                 self.get_logger().info(f'Shutting down managed node: {name}')
+                log_file = self._log_files.get(name)
+                if log_file:
+                    try:
+                        log_file.write(f'--- Stopped {name} at {datetime.now().isoformat()} (shutdown) ---\n')
+                        log_file.close()
+                    except Exception:
+                        pass
                 info = NODE_REGISTRY.get(name, {})
                 is_launch = info.get('type') == 'launch'
                 if is_launch:
@@ -209,6 +294,7 @@ class NodeManager(Node):
                             pass
                     else:
                         proc.kill()
+        self._log_files.clear()
         super().destroy_node()
 
 

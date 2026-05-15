@@ -44,7 +44,8 @@ class StatusService:
             except Exception:
                 dead.append(ws)
         for ws in dead:
-            self._connections.remove(ws)
+            if ws in self._connections:
+                self._connections.remove(ws)
 
     @property
     def connection_count(self) -> int:

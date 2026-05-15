@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from furance_shared.protocol.http_schema import ApiResponse
 from app.services.ros2_manager import Ros2Manager
 
@@ -31,3 +31,9 @@ async def stop_node(node_name: str, request: Request):
 async def node_status(node_name: str, request: Request):
     manager = _get_manager(request)
     return await manager.node_status(node_name)
+
+
+@router.get("/nodes/{node_name}/logs", response_model=ApiResponse)
+async def node_logs(node_name: str, request: Request, tail: int = Query(200)):
+    manager = _get_manager(request)
+    return await manager.node_logs(node_name, tail)
