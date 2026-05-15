@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import signal
 
@@ -81,7 +82,14 @@ class NodeManager(Node):
         self.get_logger().info(f'NodeStart: starting {name} with {" ".join(cmd)}')
 
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            # Use process group for launch entries so we can kill all child processes
+            is_launch = info['type'] == 'launch'
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                preexec_fn=os.setsid if is_launch else None,
+            )
             self._processes[name] = proc
             self.get_logger().info(f'NodeStart: node {name} started (pid={proc.pid})')
             response.success = True
@@ -119,12 +127,29 @@ class NodeManager(Node):
             return response
 
         proc = self._processes[name]
+        info = NODE_REGISTRY[name]
+        is_launch = info['type'] == 'launch'
         self.get_logger().info(f'NodeStop: stopping {name} (pid={proc.pid})')
-        proc.send_signal(signal.SIGINT)
+
+        if is_launch:
+            # Kill entire process group for launch entries
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGINT)
+            except ProcessLookupError:
+                pass
+        else:
+            proc.send_signal(signal.SIGINT)
+
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            if is_launch:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            else:
+                proc.kill()
             proc.wait()
 
         del self._processes[name]
@@ -165,11 +190,25 @@ class NodeManager(Node):
         for name, proc in list(self._processes.items()):
             if proc.poll() is None:
                 self.get_logger().info(f'Shutting down managed node: {name}')
-                proc.send_signal(signal.SIGINT)
+                info = NODE_REGISTRY.get(name, {})
+                is_launch = info.get('type') == 'launch'
+                if is_launch:
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGINT)
+                    except ProcessLookupError:
+                        pass
+                else:
+                    proc.send_signal(signal.SIGINT)
                 try:
                     proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    proc.kill()
+                    if is_launch:
+                        try:
+                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    else:
+                        proc.kill()
         super().destroy_node()
 
 
