@@ -5,12 +5,14 @@ import signal
 from rclpy.node import Node
 from furance_interfaces.srv import GenericCommand
 
+# Node entries: type='node' uses `ros2 run`, type='launch' uses `ros2 launch`
 NODE_REGISTRY = {
-    'navigation_node': {'package': 'furance_sim', 'executable': 'navigation_node'},
-    'arm_node': {'package': 'furance_sim', 'executable': 'arm_node'},
-    'gripper_node': {'package': 'furance_sim', 'executable': 'gripper_node'},
-    'status_node': {'package': 'furance_sim', 'executable': 'status_node'},
-    'command_node': {'package': 'furance_sim', 'executable': 'command_node'},
+    'navigation_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'navigation_node'},
+    'arm_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'arm_node'},
+    'gripper_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'gripper_node'},
+    'status_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'status_node'},
+    'command_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'command_node'},
+    't1_moveit': {'type': 'launch', 'package': 't1_moveit_config', 'launch_file': 't1_moveit_headless.launch.py', 'args': {'use_sim': 'true'}},
 }
 
 SELF_MANAGED = True  # node_manager is always running if responding
@@ -28,14 +30,22 @@ class NodeManager(Node):
         self._stop_srv = self.create_service(GenericCommand, '/NodeStop', self._handle_stop)
         self._status_srv = self.create_service(GenericCommand, '/NodeStatus', self._handle_status)
 
+    def _build_cmd(self, name: str, info: dict) -> list[str]:
+        if info['type'] == 'launch':
+            cmd = ['ros2', 'launch', info['package'], info['launch_file']]
+            for k, v in info.get('args', {}).items():
+                cmd.append(f'{k}:={v}')
+            return cmd
+        else:
+            return ['ros2', 'run', info['package'], info['executable']]
+
     def _handle_list(self, request, response):
         self.get_logger().info('GetNodeList: listing all nodes')
         nodes = []
-        for name in NODE_REGISTRY:
+        for name, info in NODE_REGISTRY.items():
             status = 'running' if name in self._processes and self._processes[name].poll() is None else 'stopped'
-            nodes.append({'name': name, 'status': status})
-        # node_manager itself is always running
-        nodes.append({'name': 'node_manager', 'status': 'running'})
+            nodes.append({'name': name, 'status': status, 'type': info['type']})
+        nodes.append({'name': 'node_manager', 'status': 'running', 'type': 'node'})
 
         response.success = True
         response.message = 'OK'
@@ -67,11 +77,11 @@ class NodeManager(Node):
             return response
 
         info = NODE_REGISTRY[name]
-        cmd = ['ros2', 'run', info['package'], info['executable']]
+        cmd = self._build_cmd(name, info)
         self.get_logger().info(f'NodeStart: starting {name} with {" ".join(cmd)}')
 
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             self._processes[name] = proc
             self.get_logger().info(f'NodeStart: node {name} started (pid={proc.pid})')
             response.success = True
@@ -110,9 +120,9 @@ class NodeManager(Node):
 
         proc = self._processes[name]
         self.get_logger().info(f'NodeStop: stopping {name} (pid={proc.pid})')
-        proc.terminate()
+        proc.send_signal(signal.SIGINT)
         try:
-            proc.wait(timeout=5)
+            proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
@@ -155,9 +165,9 @@ class NodeManager(Node):
         for name, proc in list(self._processes.items()):
             if proc.poll() is None:
                 self.get_logger().info(f'Shutting down managed node: {name}')
-                proc.terminate()
+                proc.send_signal(signal.SIGINT)
                 try:
-                    proc.wait(timeout=3)
+                    proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     proc.kill()
         super().destroy_node()

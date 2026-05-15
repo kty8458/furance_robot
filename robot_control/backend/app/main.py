@@ -16,7 +16,6 @@ from app.ws.logs import router as logs_ws_router
 from app.ros2.factory import create_ros2_components
 from app.services.status_service import StatusService
 from app.services.log_service import LogService
-from app.services.ros2_manager import LaunchProcessManager
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,6 @@ async def lifespan(app: FastAPI):
     # Startup
     status_service = StatusService()
     log_service = LogService()
-    launch_manager = LaunchProcessManager()
     components = create_ros2_components()
 
     # Start real ROS2 runtime if available
@@ -40,7 +38,6 @@ async def lifespan(app: FastAPI):
     app.state.ros2 = components
     app.state.status_service = status_service
     app.state.log_service = log_service
-    app.state.launch_manager = launch_manager
 
     logger.info(
         "Application started (ROS2_MODE=%s)",
