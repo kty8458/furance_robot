@@ -1,7 +1,14 @@
 import api from '.'
 
 export const navigationApi = {
-  getMaps: () => api.get('/maps'),
-  getWaypoints: (mapId) => api.get(`/maps/${mapId}/waypoints`),
-  move: (mapId, waypointId, speed) => api.post('/robot/robot_001/move', { map_id: mapId, waypoint_id: waypointId, speed }),
+  refreshToken: () => api.post('/navigation/token/refresh'),
+  getMaps: () => api.get('/navigation/maps'),
+  getPositions: (mapName) => api.get('/navigation/positions', { params: { map_name: mapName } }),
+  getGraphPaths: (mapName) => api.get('/navigation/graph-paths', { params: { map_name: mapName } }),
+  getRecordPaths: (mapName) => api.get('/navigation/record-paths', { params: { map_name: mapName } }),
+  startTask: (params) => api.post('/navigation/task/start', params),
+  stopTask: () => api.post('/navigation/task/stop'),
+  getTaskStatus: () => api.get('/navigation/task/status'),
+  getQueueStatus: () => api.get('/navigation/task/queue-status'),
+  recharge: (mapName, pointName) => api.post('/navigation/recharge', { map_name: mapName, point_name: pointName }),
 }

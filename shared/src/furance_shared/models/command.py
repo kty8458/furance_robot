@@ -12,12 +12,6 @@ class ArmMoveMethod(StrEnum):
     MOVEJ = "moveJ"
 
 
-class MoveCommand(BaseModel):
-    map_id: str
-    waypoint_id: str
-    speed: float = Field(gt=0, le=2.0)
-
-
 class GrabCommand(BaseModel):
     target: str
 

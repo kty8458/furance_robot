@@ -110,6 +110,7 @@ npm run dev  # http://localhost:3000
 cd dispatch/backend
 pip install -e ".[dev]"
 uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+ROS2_MODE=real python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # 5. 调度系统前端 (另开终端)
 cd dispatch/frontend
@@ -874,3 +875,5 @@ mkdir -p dispatch/backend/data
 ### Q: 测试中示教测试报 Permission denied
 
 默认 `teach_data_dir` 为 `/opt/furance_robot/data/teach`，测试会自动使用临时目录。手动运行时设置 `TEACH_DATA_DIR=/tmp/teach`。
+
+---

@@ -16,6 +16,8 @@ from app.ws.logs import router as logs_ws_router
 from app.ros2.factory import create_ros2_components
 from app.services.status_service import StatusService
 from app.services.log_service import LogService
+from app.services.chassis_client import ChassisClient, MockChassisClient
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,20 @@ async def lifespan(app: FastAPI):
     app.state.status_service = status_service
     app.state.log_service = log_service
 
+    # Chassis client (HTTP direct, no ROS2)
+    settings = get_settings()
+    try:
+        chassis_client = ChassisClient(
+            base_url=settings.chassis_base_url,
+            user_code=settings.chassis_user_code,
+            password=settings.chassis_password,
+            timeout=settings.chassis_timeout,
+        )
+    except Exception:
+        logger.warning("Failed to create ChassisClient, using mock")
+        chassis_client = MockChassisClient()
+    app.state.chassis_client = chassis_client
+
     logger.info(
         "Application started (ROS2_MODE=%s)",
         os.environ.get("ROS2_MODE", "mock"),
@@ -46,6 +62,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    await chassis_client.close()
     if components.runtime is not None:
         await components.log_collector.stop()
         await components.joint_state_listener.stop()

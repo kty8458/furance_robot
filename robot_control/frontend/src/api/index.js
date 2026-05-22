@@ -8,7 +8,7 @@ api.interceptors.response.use(
     const body = response.data
     if (body && typeof body === 'object' && 'code' in body) {
       if (body.code === 0) {
-        return { data: body.data }
+        return { data: body.data, message: body.message }
       }
       return Promise.reject(new Error(body.message || '请求失败'))
     }

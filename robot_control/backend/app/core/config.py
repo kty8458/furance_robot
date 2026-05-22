@@ -16,6 +16,11 @@ class Settings(BaseSettings):
 
     teach_data_dir: str = "data/teach"
 
+    chassis_base_url: str = "http://192.168.1.102:8888/yhs-robot"
+    chassis_user_code: str = "admin"
+    chassis_password: str = "admin123"
+    chassis_timeout: float = 15.0
+
     model_config = {"env_prefix": "", "case_sensitive": False}
 
 

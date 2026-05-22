@@ -1,14 +1,8 @@
 from furance_shared.models.command import (
-    MoveCommand, GrabCommand, PlaceCommand, GripperCommand,
+    GrabCommand, PlaceCommand, GripperCommand,
     LiftCommand, ChargeCommand, EnableCommand, HomeCommand,
     ArmMoveCommand, ArmMoveMethod, TeachSaveCommand, TeachExecCommand,
 )
-
-
-def test_move_command():
-    cmd = MoveCommand(map_id="map_001", waypoint_id="wp_01", speed=0.5)
-    assert cmd.map_id == "map_001"
-    assert cmd.speed == 0.5
 
 
 def test_grab_command():
