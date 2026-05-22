@@ -92,6 +92,12 @@ def launch_setup(context, *args, **kwargs):
         [FindPackageShare(moveit_config_package), "config", "moveit.rviz"]
     )
 
+    robot_state_publisher_node = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        parameters=[robot_description],
+    )
+
     rviz_node = Node(
         package="rviz2",
         executable="rviz2",
@@ -107,7 +113,7 @@ def launch_setup(context, *args, **kwargs):
         ],
     )
 
-    return [rviz_node]
+    return [robot_state_publisher_node, rviz_node]
 
 
 def generate_launch_description():

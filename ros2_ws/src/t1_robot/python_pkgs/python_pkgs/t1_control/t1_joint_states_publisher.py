@@ -50,7 +50,8 @@ class JointStateBridge(Node):
 
     def motor_callback(self, msg):
         try:
-            self.sj_joint = math.radians(msg.angle) if hasattr(msg, 'angle') else 0.0
+            if hasattr(msg, 'pos'):
+                self.sj_joint = msg.pos / 100000.0
             if hasattr(msg, 'head_back_angle'):
                 self.tou2_joint = math.radians(msg.head_back_angle)
         except Exception as e:
@@ -76,6 +77,7 @@ class JointStateBridge(Node):
                 elif name in RIGHT_JOINT_MAP:
                     self.right_joints[RIGHT_JOINT_MAP[name]] = pos
                 elif name == 'SJ_Joint':
+                    # 若上游以 mm 发布则换算为 m；URDF prismatic 量程通常 < 2m
                     self.sj_joint = pos
                 elif name == 'tou_Joint':
                     self.tou_joint = pos
