@@ -51,6 +51,7 @@ def launch_setup(context, *args, **kwargs):
     moveit_config_file = LaunchConfiguration("moveit_config_file")
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_sim = LaunchConfiguration("use_sim")
+    rviz = LaunchConfiguration("rviz")
 
     robot_description_content = Command(
         [
@@ -189,8 +190,8 @@ def launch_setup(context, *args, **kwargs):
     )
 
     controller = Node(
-        package='python_pkgs' if use_sim.perform(context) == "true" else 'arm_controller',
-        executable='sim_arm_controller' if use_sim.perform(context) == "true" else 'moveit_arm_controller',
+        package='python_pkgs',
+        executable='sim_arm_controller' if use_sim.perform(context) == "true" else 'real_arm_controller',
         output='screen',
     )
 
@@ -208,6 +209,27 @@ def launch_setup(context, *args, **kwargs):
         node_robot_state_publisher,
         move_service,
     ]
+
+    # 调试模式：启动 RViz
+    if rviz.perform(context) == "true":
+        rviz_config_file = PathJoinSubstitution(
+            [FindPackageShare(moveit_config_package), "config", "moveit.rviz"]
+        )
+        rviz_node = Node(
+            package="rviz2",
+            executable="rviz2",
+            name="rviz2_moveit",
+            output="log",
+            arguments=["-d", rviz_config_file],
+            parameters=[
+                robot_description,
+                robot_description_semantic,
+                ompl_planning_pipeline_config,
+                robot_description_kinematics,
+                {"robot_description_planning": robot_description_planning},
+            ],
+        )
+        nodes_to_start.append(rviz_node)
 
     return nodes_to_start
 
@@ -261,6 +283,13 @@ def generate_launch_description():
             "use_sim",
             default_value="true",
             description="Use sim arm controller instead of real hardware.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "rviz",
+            default_value="false",
+            description="启动 RViz 控制台 (调试模式 true / 部署模式 false).",
         )
     )
 
