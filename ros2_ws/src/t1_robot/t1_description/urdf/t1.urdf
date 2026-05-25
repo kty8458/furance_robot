@@ -635,7 +635,7 @@
     <child
       link="ARM-R-J2_Link" />
     <axis
-      xyz="-1 0 0" />
+      xyz="1 0 0" />
     <limit
       lower="-0.12"
       upper="2.61"
@@ -751,7 +751,7 @@
     <child
       link="ARM-R-J4_Link" />
     <axis
-      xyz="0 1 0" />
+      xyz="0 -1 0" />
     <limit
       lower="-0.34"
       upper="3.14"
@@ -809,7 +809,7 @@
     <child
       link="ARM-R-J5_Link" />
     <axis
-      xyz="-1 0 0" />
+      xyz="1 0 0" />
     <limit
       lower="-3.05"
       upper="3.05"
@@ -867,7 +867,7 @@
     <child
       link="ARM-R-J6_Link" />
     <axis
-      xyz="0 0 -1" />
+      xyz="0 0 1" />
     <limit
       lower="-0.52"
       upper="0.52"
@@ -983,7 +983,7 @@
     <child
       link="ARM-L-J1_Link" />
     <axis
-      xyz="0 -1 0" />
+      xyz="0 1 0" />
     <limit
       lower="-1.57"
       upper="2.09"
@@ -1215,7 +1215,7 @@
     <child
       link="ARM-L-J5_Link" />
     <axis
-      xyz="-1 0 0" />
+      xyz="1 0 0" />
     <limit
       lower="-3.05"
       upper="3.05"
@@ -1273,7 +1273,7 @@
     <child
       link="ARM-L-J6_Link" />
     <axis
-      xyz="0 0 -1" />
+      xyz="0 0 1" />
     <limit
       lower="-0.52"
       upper="0.52"
