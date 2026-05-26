@@ -114,21 +114,21 @@
 
           <!-- Arm select + method + coordinate -->
           <el-row :gutter="12" style="margin-bottom: 12px" align="middle">
-            <el-col :span="5">
+            <el-col :span="6">
               <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">手臂</div>
               <el-select v-model="jogForm.arm" style="width: 100%">
                 <el-option label="左臂" value="left" />
                 <el-option label="右臂" value="right" />
               </el-select>
             </el-col>
-            <el-col :span="5">
+            <el-col :span="6">
               <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">模式</div>
               <el-select v-model="jogForm.method" style="width: 100%">
                 <el-option label="moveJ" value="moveJ" />
                 <el-option label="moveP" value="movep" />
               </el-select>
             </el-col>
-            <el-col :span="5" v-if="jogForm.method === 'movep'">
+            <el-col :span="6" v-if="jogForm.method === 'movep'">
               <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">坐标系</div>
               <el-select v-model="jogForm.coordinate" style="width: 100%">
                 <el-option label="base_link" value="base_link" />
@@ -136,31 +136,49 @@
                 <el-option label="tool0" value="tool0" />
               </el-select>
             </el-col>
-            <el-col :span="9">
+          </el-row>
+
+          <!-- moveJ step row -->
+          <el-row v-if="jogForm.method === 'moveJ'" :gutter="12" style="margin-bottom: 12px" align="middle">
+            <el-col :span="16">
               <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">
-                步长: {{ jogForm.step.toFixed(3) }}{{ jogForm.method === 'moveJ' ? '°' : '' }}
+                步长: {{ jogForm.step.toFixed(3) }}°
               </div>
-              <el-slider
-                v-model="jogForm.step"
-                :min="jogForm.method === 'moveJ' ? 0.001 : 0.0001"
-                :max="jogForm.method === 'moveJ' ? 2 : 0.01"
-                :step="jogForm.method === 'moveJ' ? 0.001 : 0.0001"
-                :show-tooltip="false"
-              />
+              <el-slider v-model="jogForm.step" :min="0.001" :max="2" :step="0.001" :show-tooltip="false" />
             </el-col>
-            <el-col :span="5">
+            <el-col :span="8">
               <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">手动输入</div>
-              <el-input-number
-                v-model="jogForm.step"
-                :min="jogForm.method === 'moveJ' ? 0.001 : 0.0001"
-                :max="jogForm.method === 'moveJ' ? 2 : 0.01"
-                :step="jogForm.method === 'moveJ' ? 0.001 : 0.0001"
-                :precision="jogForm.method === 'moveJ' ? 3 : 4"
-                size="small"
-                style="width: 100%"
-              />
+              <el-input-number v-model="jogForm.step" :min="0.001" :max="2" :step="0.001" :precision="3" size="small" style="width: 100%" />
             </el-col>
           </el-row>
+
+          <!-- moveP step rows: XYZ (mm) + RPY (deg) -->
+          <template v-else>
+            <el-row :gutter="12" style="margin-bottom: 8px" align="middle">
+              <el-col :span="16">
+                <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">
+                  坐标步长 (X/Y/Z): {{ jogForm.stepXyz.toFixed(1) }} mm
+                </div>
+                <el-slider v-model="jogForm.stepXyz" :min="1" :max="5" :step="0.1" :show-tooltip="false" />
+              </el-col>
+              <el-col :span="8">
+                <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">手动输入</div>
+                <el-input-number v-model="jogForm.stepXyz" :min="1" :max="5" :step="0.1" :precision="1" size="small" style="width: 100%" />
+              </el-col>
+            </el-row>
+            <el-row :gutter="12" style="margin-bottom: 12px" align="middle">
+              <el-col :span="16">
+                <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">
+                  角度步长 (R/P/Y): {{ jogForm.stepRpy.toFixed(2) }}°
+                </div>
+                <el-slider v-model="jogForm.stepRpy" :min="0.1" :max="2" :step="0.05" :show-tooltip="false" />
+              </el-col>
+              <el-col :span="8">
+                <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">手动输入</div>
+                <el-input-number v-model="jogForm.stepRpy" :min="0.1" :max="2" :step="0.05" :precision="2" size="small" style="width: 100%" />
+              </el-col>
+            </el-row>
+          </template>
 
           <!-- moveJ: 7 joint +/- buttons -->
           <div v-if="jogForm.method === 'moveJ'" class="jog-grid">
@@ -233,7 +251,7 @@ const { status } = useStatus()
 
 const poseLabels = ['X', 'Y', 'Z', 'Roll', 'Pitch', 'Yaw']
 
-const jogForm = ref({ arm: 'left', method: 'moveJ', coordinate: 'base_link', step: 0.05 })
+const jogForm = ref({ arm: 'left', method: 'moveJ', coordinate: 'base_link', step: 0.05, stepXyz: 2, stepRpy: 0.5 })
 const teachForm = ref({ arm: 'left', name: '' })
 const teachList = ref([])
 
@@ -241,10 +259,9 @@ let jogTimer = null
 let jogPending = false
 const JOG_INTERVAL = 150
 
-// Reset step when method changes
+// Reset moveJ step when switching back to moveJ
 watch(() => jogForm.value.method, (method) => {
   if (method === 'moveJ') jogForm.value.step = 0.05
-  else jogForm.value.step = 0.001
 })
 
 onMounted(refreshTeachList)
@@ -286,7 +303,14 @@ function stopJog() {
 
 async function sendJog(mode, index, direction) {
   const side = jogForm.value.arm
-  const step = jogForm.value.step * direction
+  let step
+  if (mode === 'joint') {
+    step = jogForm.value.step * direction
+  } else {
+    // pose: index 0/1/2 = X/Y/Z (mm), 3/4/5 = R/P/Y (deg)
+    const base = index < 3 ? jogForm.value.stepXyz : jogForm.value.stepRpy
+    step = base * direction
+  }
   jogPending = true
   try {
     if (mode === 'joint') {

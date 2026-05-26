@@ -19,6 +19,50 @@ LEFT_JOINT_NAMES = [f"ARM-L-J{i}_Joint" for i in range(1, 8)]
 RIGHT_JOINT_NAMES = [f"ARM-R-J{i}_Joint" for i in range(1, 8)]
 
 
+def _rpy_deg_to_quat(roll_deg: float, pitch_deg: float, yaw_deg: float) -> tuple[float, float, float, float]:
+    """XYZ intrinsic RPY (degrees) -> quaternion (qx, qy, qz, qw)."""
+    r = math.radians(roll_deg) * 0.5
+    p = math.radians(pitch_deg) * 0.5
+    y = math.radians(yaw_deg) * 0.5
+    cr, sr = math.cos(r), math.sin(r)
+    cp, sp = math.cos(p), math.sin(p)
+    cy, sy = math.cos(y), math.sin(y)
+    qw = cr * cp * cy + sr * sp * sy
+    qx = sr * cp * cy - cr * sp * sy
+    qy = cr * sp * cy + sr * cp * sy
+    qz = cr * cp * sy - sr * sp * cy
+    return qx, qy, qz, qw
+
+
+def _pose_dict_to_xyz_quat(pose: dict) -> tuple[float, float, float, float, float, float, float]:
+    """Frontend pose dict {x, y, z, roll, pitch, yaw} (mm + deg) or {x, y, z, qx, qy, qz, qw} (m)
+    -> (x, y, z, qx, qy, qz, qw) in meters / quaternion.
+
+    Heuristic: if any of qx/qy/qz/qw is supplied we treat as meters + quaternion;
+    otherwise we treat as mm + RPY degrees (the frontend / teach-point format).
+    """
+    has_quat = any(k in pose for k in ("qx", "qy", "qz", "qw"))
+    if has_quat:
+        return (
+            float(pose.get("x", 0.0)),
+            float(pose.get("y", 0.0)),
+            float(pose.get("z", 0.0)),
+            float(pose.get("qx", 0.0)),
+            float(pose.get("qy", 0.0)),
+            float(pose.get("qz", 0.0)),
+            float(pose.get("qw", 1.0)),
+        )
+    x_m = float(pose.get("x", 0.0)) / 1000.0
+    y_m = float(pose.get("y", 0.0)) / 1000.0
+    z_m = float(pose.get("z", 0.0)) / 1000.0
+    qx, qy, qz, qw = _rpy_deg_to_quat(
+        float(pose.get("roll", 0.0)),
+        float(pose.get("pitch", 0.0)),
+        float(pose.get("yaw", 0.0)),
+    )
+    return x_m, y_m, z_m, qx, qy, qz, qw
+
+
 class MoveItServiceClientBase(ABC):
     @abstractmethod
     async def move_p(self, lor: str, target_pose: dict, to_frame: str,
@@ -110,13 +154,14 @@ class RealMoveItServiceClient(MoveItServiceClientBase):
 
         pose = PoseStamped()
         pose.header.frame_id = target_pose.get("frame_id", reference_frame)
-        pose.pose.position.x = float(target_pose.get("x", 0.0))
-        pose.pose.position.y = float(target_pose.get("y", 0.0))
-        pose.pose.position.z = float(target_pose.get("z", 0.0))
-        pose.pose.orientation.x = float(target_pose.get("qx", 0.0))
-        pose.pose.orientation.y = float(target_pose.get("qy", 0.0))
-        pose.pose.orientation.z = float(target_pose.get("qz", 0.0))
-        pose.pose.orientation.w = float(target_pose.get("qw", 1.0))
+        x, y, z, qx, qy, qz, qw = _pose_dict_to_xyz_quat(target_pose)
+        pose.pose.position.x = x
+        pose.pose.position.y = y
+        pose.pose.position.z = z
+        pose.pose.orientation.x = qx
+        pose.pose.orientation.y = qy
+        pose.pose.orientation.z = qz
+        pose.pose.orientation.w = qw
         req.target_pose = pose
 
         return await self._bridge_future(client.call_async(req))
@@ -134,13 +179,14 @@ class RealMoveItServiceClient(MoveItServiceClientBase):
         req.lor = lor
         for wp in waypoints:
             pose = Pose()
-            pose.position.x = float(wp.get("x", 0.0))
-            pose.position.y = float(wp.get("y", 0.0))
-            pose.position.z = float(wp.get("z", 0.0))
-            pose.orientation.x = float(wp.get("qx", 0.0))
-            pose.orientation.y = float(wp.get("qy", 0.0))
-            pose.orientation.z = float(wp.get("qz", 0.0))
-            pose.orientation.w = float(wp.get("qw", 1.0))
+            x, y, z, qx, qy, qz, qw = _pose_dict_to_xyz_quat(wp)
+            pose.position.x = x
+            pose.position.y = y
+            pose.position.z = z
+            pose.orientation.x = qx
+            pose.orientation.y = qy
+            pose.orientation.z = qz
+            pose.orientation.w = qw
             req.waypoints.append(pose)
 
         return await self._bridge_future(client.call_async(req))
