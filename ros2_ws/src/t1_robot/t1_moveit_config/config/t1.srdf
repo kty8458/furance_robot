@@ -81,7 +81,7 @@
     <disable_collisions link1="ARM-L-J1_Link" link2="ARM-R-J4_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J1_Link" link2="ARM-R-J5_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J1_Link" link2="ARM-R-J6_Link" reason="Never"/>
-    <disable_collisions link1="ARM-L-J1_Link" link2="ARM-R-J7_LINK" reason="Never"/>
+    <disable_collisions link1="ARM-L-J1_Link" link2="ARM-R-J7_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J1_Link" link2="RH_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J1_Link" link2="RQ_drive_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J1_Link" link2="RQ_steer_Link" reason="Never"/>
@@ -105,7 +105,7 @@
     <disable_collisions link1="ARM-L-J2_Link" link2="ARM-R-J4_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J2_Link" link2="ARM-R-J5_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J2_Link" link2="ARM-R-J6_Link" reason="Never"/>
-    <disable_collisions link1="ARM-L-J2_Link" link2="ARM-R-J7_LINK" reason="Never"/>
+    <disable_collisions link1="ARM-L-J2_Link" link2="ARM-R-J7_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J2_Link" link2="RH_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J2_Link" link2="RQ_drive_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J2_Link" link2="RQ_steer_Link" reason="Never"/>
@@ -128,7 +128,7 @@
     <disable_collisions link1="ARM-L-J3_Link" link2="ARM-R-J4_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J3_Link" link2="ARM-R-J5_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J3_Link" link2="ARM-R-J6_Link" reason="Never"/>
-    <disable_collisions link1="ARM-L-J3_Link" link2="ARM-R-J7_LINK" reason="Never"/>
+    <disable_collisions link1="ARM-L-J3_Link" link2="ARM-R-J7_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J3_Link" link2="RH_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J3_Link" link2="RQ_drive_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J3_Link" link2="RQ_steer_Link" reason="Never"/>
@@ -150,7 +150,7 @@
     <disable_collisions link1="ARM-L-J4_Link" link2="ARM-R-J4_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J4_Link" link2="ARM-R-J5_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J4_Link" link2="ARM-R-J6_Link" reason="Never"/>
-    <disable_collisions link1="ARM-L-J4_Link" link2="ARM-R-J7_LINK" reason="Never"/>
+    <disable_collisions link1="ARM-L-J4_Link" link2="ARM-R-J7_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J4_Link" link2="RH_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J4_Link" link2="RQ_drive_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J4_Link" link2="RQ_steer_Link" reason="Never"/>
@@ -171,7 +171,7 @@
     <disable_collisions link1="ARM-L-J5_Link" link2="ARM-R-J4_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J5_Link" link2="ARM-R-J5_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J5_Link" link2="ARM-R-J6_Link" reason="Never"/>
-    <disable_collisions link1="ARM-L-J5_Link" link2="ARM-R-J7_LINK" reason="Never"/>
+    <disable_collisions link1="ARM-L-J5_Link" link2="ARM-R-J7_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J5_Link" link2="RH_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J5_Link" link2="RQ_drive_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J5_Link" link2="RQ_steer_Link" reason="Never"/>
@@ -189,7 +189,7 @@
     <disable_collisions link1="ARM-L-J6_Link" link2="ARM-R-J4_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J6_Link" link2="ARM-R-J5_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J6_Link" link2="ARM-R-J6_Link" reason="Never"/>
-    <disable_collisions link1="ARM-L-J6_Link" link2="ARM-R-J7_LINK" reason="Never"/>
+    <disable_collisions link1="ARM-L-J6_Link" link2="ARM-R-J7_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J6_Link" link2="RH_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J6_Link" link2="RQ_drive_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J6_Link" link2="RQ_steer_Link" reason="Never"/>
@@ -205,7 +205,7 @@
     <disable_collisions link1="ARM-L-J7_Link" link2="ARM-R-J3_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J7_Link" link2="ARM-R-J4_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J7_Link" link2="ARM-R-J6_Link" reason="Never"/>
-    <disable_collisions link1="ARM-L-J7_Link" link2="ARM-R-J7_LINK" reason="Never"/>
+    <disable_collisions link1="ARM-L-J7_Link" link2="ARM-R-J7_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J7_Link" link2="RH_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J7_Link" link2="RQ_drive_Link" reason="Never"/>
     <disable_collisions link1="ARM-L-J7_Link" link2="RQ_steer_Link" reason="Never"/>
@@ -220,7 +220,7 @@
     <disable_collisions link1="ARM-R-J1_Link" link2="ARM-R-J4_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J1_Link" link2="ARM-R-J5_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J1_Link" link2="ARM-R-J6_Link" reason="Never"/>
-    <disable_collisions link1="ARM-R-J1_Link" link2="ARM-R-J7_LINK" reason="Never"/>
+    <disable_collisions link1="ARM-R-J1_Link" link2="ARM-R-J7_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J1_Link" link2="RH_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J1_Link" link2="RQ_drive_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J1_Link" link2="RQ_steer_Link" reason="Never"/>
@@ -237,7 +237,7 @@
     <disable_collisions link1="ARM-R-J2_Link" link2="ARM-R-J4_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J2_Link" link2="ARM-R-J5_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J2_Link" link2="ARM-R-J6_Link" reason="Never"/>
-    <disable_collisions link1="ARM-R-J2_Link" link2="ARM-R-J7_LINK" reason="Never"/>
+    <disable_collisions link1="ARM-R-J2_Link" link2="ARM-R-J7_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J2_Link" link2="RH_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J2_Link" link2="RQ_drive_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J2_Link" link2="RQ_steer_Link" reason="Never"/>
@@ -253,7 +253,7 @@
     <disable_collisions link1="ARM-R-J3_Link" link2="ARM-R-J4_Link" reason="Adjacent"/>
     <disable_collisions link1="ARM-R-J3_Link" link2="ARM-R-J5_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J3_Link" link2="ARM-R-J6_Link" reason="Never"/>
-    <disable_collisions link1="ARM-R-J3_Link" link2="ARM-R-J7_LINK" reason="Never"/>
+    <disable_collisions link1="ARM-R-J3_Link" link2="ARM-R-J7_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J3_Link" link2="RH_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J3_Link" link2="RQ_drive_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J3_Link" link2="RQ_steer_Link" reason="Never"/>
@@ -268,7 +268,7 @@
     <disable_collisions link1="ARM-R-J3_Link" link2="tou_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J4_Link" link2="ARM-R-J5_Link" reason="Adjacent"/>
     <disable_collisions link1="ARM-R-J4_Link" link2="ARM-R-J6_Link" reason="Never"/>
-    <disable_collisions link1="ARM-R-J4_Link" link2="ARM-R-J7_LINK" reason="Never"/>
+    <disable_collisions link1="ARM-R-J4_Link" link2="ARM-R-J7_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J4_Link" link2="RH_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J4_Link" link2="RQ_drive_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J4_Link" link2="RQ_steer_Link" reason="Never"/>
@@ -282,7 +282,7 @@
     <disable_collisions link1="ARM-R-J4_Link" link2="tou2_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J4_Link" link2="tou_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J5_Link" link2="ARM-R-J6_Link" reason="Adjacent"/>
-    <disable_collisions link1="ARM-R-J5_Link" link2="ARM-R-J7_LINK" reason="Never"/>
+    <disable_collisions link1="ARM-R-J5_Link" link2="ARM-R-J7_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J5_Link" link2="RH_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J5_Link" link2="ZH_drive_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J5_Link" link2="ZH_drive_Link1" reason="Never"/>
@@ -291,7 +291,7 @@
     <disable_collisions link1="ARM-R-J5_Link" link2="ZQ_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J5_Link" link2="tou2_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J5_Link" link2="tou_Link" reason="Never"/>
-    <disable_collisions link1="ARM-R-J6_Link" link2="ARM-R-J7_LINK" reason="Adjacent"/>
+    <disable_collisions link1="ARM-R-J6_Link" link2="ARM-R-J7_Link" reason="Adjacent"/>
     <disable_collisions link1="ARM-R-J6_Link" link2="RH_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J6_Link" link2="ZH_drive_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J6_Link" link2="ZH_drive_Link1" reason="Never"/>
@@ -300,14 +300,14 @@
     <disable_collisions link1="ARM-R-J6_Link" link2="ZQ_steer_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J6_Link" link2="tou2_Link" reason="Never"/>
     <disable_collisions link1="ARM-R-J6_Link" link2="tou_Link" reason="Never"/>
-    <disable_collisions link1="ARM-R-J7_LINK" link2="RH_steer_Link" reason="Never"/>
-    <disable_collisions link1="ARM-R-J7_LINK" link2="ZH_drive_Link" reason="Never"/>
-    <disable_collisions link1="ARM-R-J7_LINK" link2="ZH_drive_Link1" reason="Never"/>
-    <disable_collisions link1="ARM-R-J7_LINK" link2="ZH_steer_Link" reason="Never"/>
-    <disable_collisions link1="ARM-R-J7_LINK" link2="ZQ_drive_Link" reason="Never"/>
-    <disable_collisions link1="ARM-R-J7_LINK" link2="ZQ_steer_Link" reason="Never"/>
-    <disable_collisions link1="ARM-R-J7_LINK" link2="tou2_Link" reason="Never"/>
-    <disable_collisions link1="ARM-R-J7_LINK" link2="tou_Link" reason="Never"/>
+    <disable_collisions link1="ARM-R-J7_Link" link2="RH_steer_Link" reason="Never"/>
+    <disable_collisions link1="ARM-R-J7_Link" link2="ZH_drive_Link" reason="Never"/>
+    <disable_collisions link1="ARM-R-J7_Link" link2="ZH_drive_Link1" reason="Never"/>
+    <disable_collisions link1="ARM-R-J7_Link" link2="ZH_steer_Link" reason="Never"/>
+    <disable_collisions link1="ARM-R-J7_Link" link2="ZQ_drive_Link" reason="Never"/>
+    <disable_collisions link1="ARM-R-J7_Link" link2="ZQ_steer_Link" reason="Never"/>
+    <disable_collisions link1="ARM-R-J7_Link" link2="tou2_Link" reason="Never"/>
+    <disable_collisions link1="ARM-R-J7_Link" link2="tou_Link" reason="Never"/>
     <disable_collisions link1="RH_steer_Link" link2="RQ_drive_Link" reason="Never"/>
     <disable_collisions link1="RH_steer_Link" link2="RQ_steer_Link" reason="Never"/>
     <disable_collisions link1="RH_steer_Link" link2="SJ_Link" reason="Never"/>

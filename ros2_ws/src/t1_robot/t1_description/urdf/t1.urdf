@@ -875,7 +875,7 @@
       velocity="0" />
   </joint>
   <link
-    name="ARM-R-J7_LINK">
+    name="ARM-R-J7_Link">
     <inertial>
       <origin
         xyz="0.0529071471120821 -0.0555449496706698 -6.10455033883683E-08"
@@ -896,7 +896,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://t1_description/meshes/ARM-R-J7_LINK.STL" />
+          filename="package://t1_description/meshes/ARM-R-J7_Link.STL" />
       </geometry>
       <material
         name="">
@@ -910,7 +910,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://t1_description/meshes/ARM-R-J7_LINK.STL" />
+          filename="package://t1_description/meshes/ARM-R-J7_Link.STL" />
       </geometry>
     </collision>
   </link>
@@ -923,7 +923,7 @@
     <parent
       link="ARM-R-J6_Link" />
     <child
-      link="ARM-R-J7_LINK" />
+      link="ARM-R-J7_Link" />
     <axis
       xyz="0 -1 0" />
     <limit

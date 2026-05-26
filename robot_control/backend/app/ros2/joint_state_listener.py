@@ -1,5 +1,6 @@
 import logging
 import math
+import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -9,14 +10,43 @@ if TYPE_CHECKING:
     from app.services.status_service import StatusService
 
 try:
-    from sensor_msgs.msg import JointState
+    from interface_pkg.msg import Robotstatus
+    import tf2_ros
+    from rclpy.time import Time
 
     HAS_RCLPY = True
 except ImportError:
     HAS_RCLPY = False
 
-LEFT_JOINT_NAMES = [f"ARM-L-J{i}_Joint" for i in range(1, 8)]
-RIGHT_JOINT_NAMES = [f"ARM-R-J{i}_Joint" for i in range(1, 8)]
+# End-effector TF frames (joint 7 link) per arm side, expressed in base_link.
+LEFT_EE_FRAME = "ARM-L-J7_Link"
+RIGHT_EE_FRAME = "ARM-R-J7_Link"
+BASE_FRAME = "base_link"
+
+
+def _quat_to_rpy_deg(qx: float, qy: float, qz: float, qw: float) -> tuple[float, float, float]:
+    """Convert quaternion to roll/pitch/yaw (XYZ intrinsic) in degrees."""
+    sinr_cosp = 2.0 * (qw * qx + qy * qz)
+    cosr_cosp = 1.0 - 2.0 * (qx * qx + qy * qy)
+    roll = math.atan2(sinr_cosp, cosr_cosp)
+    sinp = 2.0 * (qw * qy - qz * qx)
+    if abs(sinp) >= 1:
+        pitch = math.copysign(math.pi / 2, sinp)
+    else:
+        pitch = math.asin(sinp)
+    siny_cosp = 2.0 * (qw * qz + qx * qy)
+    cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
+    yaw = math.atan2(siny_cosp, cosy_cosp)
+    return math.degrees(roll), math.degrees(pitch), math.degrees(yaw)
+
+
+def _pad_to_seven(values) -> list[float]:
+    arr = [float(v) for v in values]
+    if len(arr) < 7:
+        arr += [0.0] * (7 - len(arr))
+    elif len(arr) > 7:
+        arr = arr[:7]
+    return arr
 
 
 class JointStateListenerBase(ABC):
@@ -38,83 +68,108 @@ class MockJointStateListener(JointStateListenerBase):
 
 
 class RealJointStateListener(JointStateListenerBase):
-    """Subscribes to /joint_states and pushes arm data to StatusService.
+    """Subscribes to /robot_status and publishes arm joint angles + EE pose.
 
-    Extracts left/right arm joint angles from JointState messages and
-    merges them into the existing status data.
+    Joint angles come directly from Robotstatus (already in degrees from
+    hardware). End-effector pose is the TF transform of ARM-{L,R}-J7_Link in
+    base_link — translation m -> mm, orientation -> RPY degrees.
+
+    A separate node will publish /joint_states for MoveIt; this listener
+    intentionally does not subscribe there to avoid topic ownership conflicts.
     """
 
-    JOINT_STATES_TOPIC = "/joint_states"
+    STATUS_TOPIC = "/robot_status"
+    BROADCAST_INTERVAL_S = 0.5
+    DEFAULT_ROBOT_ID = "robot_001"
 
     def __init__(self, runtime):
         if not HAS_RCLPY:
-            raise RuntimeError("rclpy is not installed")
+            raise RuntimeError("rclpy / tf2_ros is not installed")
         self._runtime = runtime
         self._sub = None
         self._status_service: "StatusService | None" = None
+        self._tf_buffer = None
+        self._tf_listener = None
+        self._last_broadcast_ts: float = 0.0
 
     async def start(self, status_service: "StatusService"):
         self._status_service = status_service
         node = self._runtime.node
+        self._tf_buffer = tf2_ros.Buffer()
+        self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, node)
         self._sub = node.create_subscription(
-            JointState,
-            self.JOINT_STATES_TOPIC,
-            self._on_joint_state,
+            Robotstatus,
+            self.STATUS_TOPIC,
+            self._on_status_message,
             10,
         )
-        logger.info("Subscribed to %s", self.JOINT_STATES_TOPIC)
+        logger.info("JointStateListener subscribed to %s and started TF listener", self.STATUS_TOPIC)
 
     async def stop(self):
         if self._sub and self._runtime.is_running:
             self._runtime.node.destroy_subscription(self._sub)
             self._sub = None
-            logger.info("Unsubscribed from %s", self.JOINT_STATES_TOPIC)
+            logger.info("JointStateListener unsubscribed from %s", self.STATUS_TOPIC)
+        self._tf_listener = None
+        self._tf_buffer = None
 
-    def _on_joint_state(self, msg: JointState):
+    def _lookup_ee_pose(self, ee_frame: str) -> dict:
+        zero = {"x": 0.0, "y": 0.0, "z": 0.0, "roll": 0.0, "pitch": 0.0, "yaw": 0.0}
+        if self._tf_buffer is None:
+            return zero
+        try:
+            tr = self._tf_buffer.lookup_transform(BASE_FRAME, ee_frame, Time())
+        except Exception:
+            return zero
+        t = tr.transform.translation
+        q = tr.transform.rotation
+        roll, pitch, yaw = _quat_to_rpy_deg(q.x, q.y, q.z, q.w)
+        return {
+            "x": float(t.x) * 1000.0,
+            "y": float(t.y) * 1000.0,
+            "z": float(t.z) * 1000.0,
+            "roll": roll,
+            "pitch": pitch,
+            "yaw": yaw,
+        }
+
+    def _on_status_message(self, msg):
         if self._status_service is None:
             return
-
-        left_angles = [0.0] * 7
-        right_angles = [0.0] * 7
-
-        name_to_index = {name: i for i, name in enumerate(msg.name)}
-
-        for i, name in enumerate(LEFT_JOINT_NAMES):
-            if name in name_to_index:
-                idx = name_to_index[name]
-                left_angles[i] = math.degrees(msg.position[idx])
-
-        for i, name in enumerate(RIGHT_JOINT_NAMES):
-            if name in name_to_index:
-                idx = name_to_index[name]
-                right_angles[i] = math.degrees(msg.position[idx])
+        now = time.monotonic()
+        if now - self._last_broadcast_ts < self.BROADCAST_INTERVAL_S:
+            return
+        self._last_broadcast_ts = now
 
         arm_data = {
             "arm": {
                 "left": {
-                    "joint_angles": left_angles,
-                    "end_effector": {"x": 0.0, "y": 0.0, "z": 0.0, "roll": 0.0, "pitch": 0.0, "yaw": 0.0},
-                    "coordinate_frame": "base_link",
+                    "joint_angles": _pad_to_seven(msg.left_joint_positions),
+                    "end_effector": self._lookup_ee_pose(LEFT_EE_FRAME),
+                    "coordinate_frame": BASE_FRAME,
                     "status": "idle",
                 },
                 "right": {
-                    "joint_angles": right_angles,
-                    "end_effector": {"x": 0.0, "y": 0.0, "z": 0.0, "roll": 0.0, "pitch": 0.0, "yaw": 0.0},
-                    "coordinate_frame": "base_link",
+                    "joint_angles": _pad_to_seven(msg.right_joint_positions),
+                    "end_effector": self._lookup_ee_pose(RIGHT_EE_FRAME),
+                    "coordinate_frame": BASE_FRAME,
                     "status": "idle",
                 },
             }
         }
 
-        robot_id = "robot_001"
-        existing = self._status_service.get_latest(robot_id) or {}
-        # Ensure required fields for StatusPayload validation
-        defaults = {
+        existing = self._status_service.get_latest(self.DEFAULT_ROBOT_ID) or {}
+        # Preserve fields owned by other listeners (enabled / error_code from
+        # topic_listener, chassis position / gripper from their own sources).
+        merged = {
             "position": existing.get("position", {"x": 0.0, "y": 0.0, "theta": 0.0}),
-            "gripper": existing.get("gripper", {}),
+            "gripper": existing.get("gripper") or {},
+            "enabled": existing.get("enabled", False),
+            "error_code": existing.get("error_code", 0),
+            "task_status": existing.get("task_status", "idle"),
+            **arm_data,
         }
-        merged = {**defaults, **existing, **arm_data}
 
         self._runtime.call_async_in_loop(
-            self._status_service.push_status(robot_id, merged)
+            self._status_service.push_status(self.DEFAULT_ROBOT_ID, merged)
         )
