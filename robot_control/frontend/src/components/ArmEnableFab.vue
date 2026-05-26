@@ -33,7 +33,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { VideoPlay, VideoPause, CircleClose } from '@element-plus/icons-vue'
 import { robotApi } from '../api/robot'
 import { useStatus } from '../composables/useStatus'
@@ -46,17 +46,6 @@ const enabled = computed(() => !!status.value?.enabled)
 
 async function handleToggle() {
   const next = !enabled.value
-  if (!next) {
-    try {
-      await ElMessageBox.confirm('确认停止机械臂使能？', '停止使能', {
-        confirmButtonText: '停止',
-        cancelButtonText: '取消',
-        type: 'warning',
-      })
-    } catch {
-      return
-    }
-  }
   loading.value = true
   try {
     await robotApi.enable(next)

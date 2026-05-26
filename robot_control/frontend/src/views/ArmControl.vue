@@ -143,7 +143,7 @@
               <el-slider
                 v-model="jogForm.step"
                 :min="jogForm.method === 'moveJ' ? 0.001 : 0.0001"
-                :max="jogForm.method === 'moveJ' ? 0.5 : 0.01"
+                :max="jogForm.method === 'moveJ' ? 2 : 0.01"
                 :step="jogForm.method === 'moveJ' ? 0.001 : 0.0001"
                 :show-tooltip="false"
               />
@@ -153,7 +153,7 @@
               <el-input-number
                 v-model="jogForm.step"
                 :min="jogForm.method === 'moveJ' ? 0.001 : 0.0001"
-                :max="jogForm.method === 'moveJ' ? 0.5 : 0.01"
+                :max="jogForm.method === 'moveJ' ? 2 : 0.01"
                 :step="jogForm.method === 'moveJ' ? 0.001 : 0.0001"
                 :precision="jogForm.method === 'moveJ' ? 3 : 4"
                 size="small"

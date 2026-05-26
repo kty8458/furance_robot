@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -64,6 +65,25 @@ class RealMoveItServiceClient(MoveItServiceClientBase):
         self._runtime = runtime
         self._timeout = timeout
         self._clients: dict[str, Any] = {}
+        # Cache of latest /joint_states by joint name (radians). Populated lazily
+        # the first time move_j needs a trajectory start point.
+        self._joint_positions: dict[str, float] = {}
+        self._joint_state_sub = None
+
+    def _ensure_joint_state_sub(self):
+        if self._joint_state_sub is not None:
+            return
+        from sensor_msgs.msg import JointState
+
+        def _cb(msg):
+            for i, name in enumerate(msg.name):
+                if i < len(msg.position):
+                    self._joint_positions[name] = float(msg.position[i])
+
+        self._joint_state_sub = self._runtime.node.create_subscription(
+            JointState, "/joint_states", _cb, 10,
+        )
+        logger.info("MoveItClient subscribed to /joint_states for trajectory start state")
 
     def _get_or_create_client(self, service_name: str, srv_type):
         if service_name not in self._clients:
@@ -127,7 +147,12 @@ class RealMoveItServiceClient(MoveItServiceClientBase):
 
     async def move_j(self, lor: str, joint_positions: list[float],
                      duration: float = 3.0) -> dict[str, Any]:
-        """Send a single-waypoint JointTrajectory to /execute_trajectory.
+        """Send a JointTrajectory (current state → target) to /execute_trajectory.
+
+        MoveIt's trajectory_execution_manager validates that the trajectory's
+        start point matches the current robot state within
+        ``allowed_start_tolerance`` (default 0.05 rad). We therefore prepend a
+        zero-time start waypoint taken from the latest /joint_states reading.
 
         The C++ server picks left/right MoveGroup based on the first joint name
         prefix (ARM-L / ARM-R), so we use the proper joint names per side.
@@ -146,15 +171,41 @@ class RealMoveItServiceClient(MoveItServiceClientBase):
 
         names = LEFT_JOINT_NAMES if lor == "left" else RIGHT_JOINT_NAMES
 
+        # Frontend / hardware status report joint angles in degrees; MoveIt /
+        # URDF expect radians.
+        target_rad = [math.radians(float(p)) for p in joint_positions]
+
+        # Resolve current joint positions to use as the trajectory start point.
+        self._ensure_joint_state_sub()
+        # Give the subscription a brief window to populate on first call.
+        for _ in range(20):
+            if all(n in self._joint_positions for n in names):
+                break
+            await asyncio.sleep(0.05)
+        if not all(n in self._joint_positions for n in names):
+            logger.error("No /joint_states received for %s", names)
+            return {"success": False, "message": "Current joint state unavailable"}
+
+        start_rad = [self._joint_positions[n] for n in names]
+
         traj = JointTrajectory()
         traj.joint_names = names
-        point = JointTrajectoryPoint()
-        point.positions = [float(p) for p in joint_positions]
-        dur = Duration()
-        dur.sec = int(duration)
-        dur.nanosec = int((duration - int(duration)) * 1e9)
-        point.time_from_start = dur
-        traj.points.append(point)
+
+        start_point = JointTrajectoryPoint()
+        start_point.positions = start_rad
+        start_dur = Duration()
+        start_dur.sec = 0
+        start_dur.nanosec = 0
+        start_point.time_from_start = start_dur
+        traj.points.append(start_point)
+
+        end_point = JointTrajectoryPoint()
+        end_point.positions = target_rad
+        end_dur = Duration()
+        end_dur.sec = int(duration)
+        end_dur.nanosec = int((duration - int(duration)) * 1e9)
+        end_point.time_from_start = end_dur
+        traj.points.append(end_point)
 
         req = ExecuteTrajectory.Request()
         req.trajectory = traj

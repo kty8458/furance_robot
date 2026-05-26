@@ -245,15 +245,25 @@ async def test_real_move_j_uses_left_joint_names(fake_runtime, fake_ros_modules)
 
     captured = {}
     _patch_real_client_with_stub_service(client, captured)
+    # Prime cached joint state so move_j has a valid start point.
+    for n in LEFT_JOINT_NAMES:
+        client._joint_positions[n] = 0.0
+    client._joint_state_sub = object()  # skip subscription creation
 
-    res = await client.move_j(lor="left", joint_positions=[0.1] * 7, duration=2.5)
+    res = await client.move_j(lor="left", joint_positions=[180.0] * 7, duration=2.5)
     assert res["success"] is True
     req = captured["req"]
     assert req.trajectory.joint_names == LEFT_JOINT_NAMES
-    assert len(req.trajectory.points) == 1
-    assert req.trajectory.points[0].positions == [0.1] * 7
-    assert req.trajectory.points[0].time_from_start.sec == 2
-    assert req.trajectory.points[0].time_from_start.nanosec == int(0.5 * 1e9)
+    assert len(req.trajectory.points) == 2
+    # First point is the current state (radians, time=0).
+    import math
+    assert req.trajectory.points[0].positions == [0.0] * 7
+    assert req.trajectory.points[0].time_from_start.sec == 0
+    assert req.trajectory.points[0].time_from_start.nanosec == 0
+    # Second point is the target (deg -> rad).
+    assert req.trajectory.points[1].positions == pytest.approx([math.pi] * 7)
+    assert req.trajectory.points[1].time_from_start.sec == 2
+    assert req.trajectory.points[1].time_from_start.nanosec == int(0.5 * 1e9)
 
 
 @pytest.mark.asyncio
@@ -262,6 +272,9 @@ async def test_real_move_j_uses_right_joint_names(fake_runtime, fake_ros_modules
         client = RealMoveItServiceClient(fake_runtime, timeout=2.0)
     captured = {}
     _patch_real_client_with_stub_service(client, captured)
+    for n in RIGHT_JOINT_NAMES:
+        client._joint_positions[n] = 0.0
+    client._joint_state_sub = object()
     await client.move_j(lor="right", joint_positions=[0.0] * 7)
     assert captured["req"].trajectory.joint_names == RIGHT_JOINT_NAMES
 

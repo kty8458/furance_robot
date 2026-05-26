@@ -1,4 +1,5 @@
 import logging
+import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -42,6 +43,7 @@ class RealRos2TopicListener(Ros2TopicListenerBase):
 
     STATUS_TOPIC = "/robot_status"
     DEFAULT_ROBOT_ID = "robot_001"
+    BROADCAST_INTERVAL_S = 0.5  # throttle hardware ~10Hz down to 2Hz for the UI
 
     def __init__(self, runtime):
         if not HAS_RCLPY:
@@ -49,6 +51,7 @@ class RealRos2TopicListener(Ros2TopicListenerBase):
         self._runtime = runtime
         self._sub = None
         self._status_service: "StatusService | None" = None
+        self._last_broadcast_ts: float = 0.0
 
     async def start(self, status_service: "StatusService"):
         self._status_service = status_service
@@ -94,6 +97,10 @@ class RealRos2TopicListener(Ros2TopicListenerBase):
     def _on_status_message(self, msg):
         if self._status_service is None:
             return
+        now = time.monotonic()
+        if now - self._last_broadcast_ts < self.BROADCAST_INTERVAL_S:
+            return
+        self._last_broadcast_ts = now
         try:
             # Robotstatus carries arm/alarm/enable info only; chassis position and
             # gripper come from other sources. Fill required fields with defaults so
