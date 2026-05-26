@@ -20,19 +20,9 @@
             抓取
           </el-button>
 
-          <el-button type="warning" @click="showPlaceDialog = true" style="width: 100%; margin-bottom: 10px; height: 44px; font-size: 14px">
+          <el-button type="warning" @click="showPlaceDialog = true" style="width: 100%; height: 44px; font-size: 14px">
             <el-icon><Goods /></el-icon>
             放置
-          </el-button>
-
-          <el-button :type="status?.enabled ? 'danger' : 'success'" @click="handleEnable" style="width: 100%; margin-bottom: 10px; height: 44px; font-size: 14px">
-            <el-icon><CircleCheck /></el-icon>
-            {{ status?.enabled ? '禁用' : '使能' }}
-          </el-button>
-
-          <el-button type="info" @click="handleClearError" style="width: 100%; height: 44px; font-size: 14px">
-            <el-icon><CircleClose /></el-icon>
-            清除错误
           </el-button>
         </el-card>
       </el-col>
@@ -143,14 +133,11 @@
 <script setup>
 import { ref } from 'vue'
 import { robotApi } from '../api/robot'
-import { useStatus } from '../composables/useStatus'
 import { ElMessage } from 'element-plus'
 import {
   Position, Goods, SwitchButton, Connection,
-  Location, CircleCheck, CircleClose, SuccessFilled
+  Location, SuccessFilled,
 } from '@element-plus/icons-vue'
-
-const { status } = useStatus()
 
 const showGrabDialog = ref(false)
 const showPlaceDialog = ref(false)
@@ -223,24 +210,6 @@ async function handleCharge(action) {
     ElMessage.success(`充电${action === 'start' ? '开始' : '停止'}指令已发送`)
   } catch (error) {
     ElMessage.error(error.message || '充电控制失败')
-  }
-}
-
-async function handleEnable() {
-  try {
-    await robotApi.enable(!status.value?.enabled, false)
-    ElMessage.success(`${!status.value?.enabled ? '使能' : '禁用'}成功`)
-  } catch (error) {
-    ElMessage.error(error.message || '使能操作失败')
-  }
-}
-
-async function handleClearError() {
-  try {
-    await robotApi.enable(status.value?.enabled || true, true)
-    ElMessage.success('错误已清除')
-  } catch (error) {
-    ElMessage.error(error.message || '清除错误失败')
   }
 }
 </script>

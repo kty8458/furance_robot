@@ -4,6 +4,7 @@ from furance_shared.models.command import (
     LiftCommand, ChargeCommand, EnableCommand,
 )
 from app.ros2.service_client import Ros2ServiceClientBase
+from app.ros2.arm_enable_client import ArmEnableClientBase
 
 
 ROS2_SERVICE_MAP = {
@@ -13,7 +14,6 @@ ROS2_SERVICE_MAP = {
     "gripper": "/GripperCommand",
     "lift": "/LiftCommand",
     "charge": "/ChargeCommand",
-    "enable": "/EnableCommand",
 }
 
 
@@ -24,8 +24,13 @@ def _check_result(result: dict) -> ApiResponse:
 
 
 class RobotService:
-    def __init__(self, ros2_client: Ros2ServiceClientBase):
+    def __init__(
+        self,
+        ros2_client: Ros2ServiceClientBase,
+        arm_enable_client: ArmEnableClientBase | None = None,
+    ):
         self._ros2 = ros2_client
+        self._arm_enable = arm_enable_client
 
     async def home(self, robot_id: str) -> ApiResponse:
         result = await self._ros2.call_service("/HomeCommand", {})
@@ -52,5 +57,21 @@ class RobotService:
         return _check_result(result)
 
     async def enable(self, robot_id: str, cmd: EnableCommand) -> ApiResponse:
-        result = await self._ros2.call_service("/EnableCommand", cmd.model_dump())
+        if self._arm_enable is None:
+            return ApiResponse(code=1001, message="ArmEnableClient 未初始化")
+        # Enabling while the controller is in an alarm state is rejected by the
+        # hardware ("disabled or enable failed!"), so always clear errors first
+        # when transitioning to enabled. clear_error flag forces a clear even on
+        # disable.
+        if cmd.enable or cmd.clear_error:
+            result = await self._arm_enable.clear_error()
+            if result.get("success") is False:
+                return _check_result(result)
+        result = await self._arm_enable.enable(cmd.enable)
+        return _check_result(result)
+
+    async def clear_error(self, robot_id: str) -> ApiResponse:
+        if self._arm_enable is None:
+            return ApiResponse(code=1001, message="ArmEnableClient 未初始化")
+        result = await self._arm_enable.clear_error()
         return _check_result(result)

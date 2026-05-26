@@ -11,28 +11,8 @@ def generate_launch_description():
     nodes = [
         Node(
             package='furance_sim',
-            executable='navigation_node',
-            name='navigation_node',
-            output='screen',
-        ),
-        Node(
-            package='furance_sim',
-            executable='arm_node',
-            name='arm_node',
-            output='screen',
-            parameters=[{'teach_dir': os.path.join(furance_root, 'robot_control', 'backend', 'data', 'teach')}]
-                       if furance_root else [],
-        ),
-        Node(
-            package='furance_sim',
             executable='gripper_node',
             name='gripper_node',
-            output='screen',
-        ),
-        Node(
-            package='furance_sim',
-            executable='status_node',
-            name='status_node',
             output='screen',
         ),
         Node(

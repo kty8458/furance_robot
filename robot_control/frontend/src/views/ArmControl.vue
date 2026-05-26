@@ -18,11 +18,6 @@
                 <el-tag :type="armEnabled('left') ? 'success' : 'danger'" size="large" style="width: 100%">
                   {{ armEnabled('left') ? '已使能' : '未使能' }}
                 </el-tag>
-                <el-button
-                  :type="armEnabled('left') ? 'danger' : 'success'"
-                  style="width: 100%; margin-top: 8px; height: 40px"
-                  @click="toggleEnable('left')"
-                >{{ armEnabled('left') ? '禁用' : '使能' }}</el-button>
               </div>
             </el-col>
             <el-col :span="12">
@@ -31,17 +26,15 @@
                 <el-tag :type="armEnabled('right') ? 'success' : 'danger'" size="large" style="width: 100%">
                   {{ armEnabled('right') ? '已使能' : '未使能' }}
                 </el-tag>
-                <el-button
-                  :type="armEnabled('right') ? 'danger' : 'success'"
-                  style="width: 100%; margin-top: 8px; height: 40px"
-                  @click="toggleEnable('right')"
-                >{{ armEnabled('right') ? '禁用' : '使能' }}</el-button>
               </div>
             </el-col>
           </el-row>
           <div style="margin-top: 10px; font-family: monospace; font-size: 12px; color: #9ca3af">
             左臂: {{ formatAngles(currentAngles('left')) }}<br>
             右臂: {{ formatAngles(currentAngles('right')) }}
+          </div>
+          <div style="margin-top: 8px; font-size: 12px; color: #6b7b8d">
+            使能 / 停止请使用右下角悬浮按钮
           </div>
         </el-card>
 
@@ -261,16 +254,6 @@ onUnmounted(stopJog)
 
 function armEnabled(side) {
   return status.value?.enabled ?? false
-}
-
-async function toggleEnable(side) {
-  try {
-    const newEnabled = !status.value?.enabled
-    await robotApi.enable(newEnabled, false)
-    ElMessage.success(newEnabled ? '已使能' : '已禁用')
-  } catch (error) {
-    ElMessage.error(error.message || '使能操作失败')
-  }
 }
 
 // -- Current joint angles from status --

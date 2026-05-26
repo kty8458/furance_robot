@@ -40,7 +40,16 @@ class ArmService:
                 return ApiResponse(code=1001, message=result.get("message", "MoveL 失败"))
             return ApiResponse(data=result)
 
-        # Fallback to GenericCommand for moveJ and other methods
+        if cmd.method.value == "moveJ" and self._moveit:
+            result = await self._moveit.move_j(
+                lor=cmd.arm.value,
+                joint_positions=cmd.joint_angles or [],
+            )
+            if result.get("success") is False:
+                return ApiResponse(code=1001, message=result.get("message", "MoveJ 失败"))
+            return ApiResponse(data=result)
+
+        # Fallback to legacy ROS2 service (used in mock mode without moveit_client)
         result = await self._ros2.call_service("/ArmMoveCommand", cmd.model_dump())
         if result.get("success") is False:
             return ApiResponse(code=1001, message=result.get("message", "ROS2 服务调用失败"))

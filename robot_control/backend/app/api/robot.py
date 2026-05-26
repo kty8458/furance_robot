@@ -47,5 +47,17 @@ async def charge(robot_id: str, cmd: ChargeCommand, request: Request):
 
 @router.post("/enable", response_model=ApiResponse)
 async def enable(robot_id: str, cmd: EnableCommand, request: Request):
-    service = RobotService(request.app.state.ros2.service_client)
+    service = RobotService(
+        request.app.state.ros2.service_client,
+        request.app.state.ros2.arm_enable_client,
+    )
     return await service.enable(robot_id, cmd)
+
+
+@router.post("/clear-error", response_model=ApiResponse)
+async def clear_error(robot_id: str, request: Request):
+    service = RobotService(
+        request.app.state.ros2.service_client,
+        request.app.state.ros2.arm_enable_client,
+    )
+    return await service.clear_error(robot_id)

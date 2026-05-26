@@ -9,5 +9,6 @@ export const robotApi = {
   gripper: (arm, action, force) => api.post(`/robot/${ROBOT_ID}/gripper`, { arm, action, force }),
   lift: (direction, height) => api.post(`/robot/${ROBOT_ID}/lift`, { direction, height }),
   charge: (action) => api.post(`/robot/${ROBOT_ID}/charge`, { action }),
-  enable: (enable, clearError) => api.post(`/robot/${ROBOT_ID}/enable`, { enable, clear_error: clearError }),
+  enable: (enable) => api.post(`/robot/${ROBOT_ID}/enable`, { enable, clear_error: false }),
+  clearError: () => api.post(`/robot/${ROBOT_ID}/clear-error`),
 }

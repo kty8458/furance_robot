@@ -10,12 +10,9 @@ from furance_interfaces.srv import GenericCommand
 
 # Node entries: type='node' uses `ros2 run`, type='launch' uses `ros2 launch`
 NODE_REGISTRY = {
-    'navigation_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'navigation_node'},
-    'arm_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'arm_node'},
     'gripper_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'gripper_node'},
-    'status_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'status_node'},
     'command_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'command_node'},
-    't1_moveit': {'type': 'launch', 'package': 't1_moveit_config', 'launch_file': 't1_moveit_headless.launch.py', 'args': {'use_sim': 'true'}},
+    't1_moveit': {'type': 'launch', 'package': 't1_moveit_config', 'launch_file': 't1_moveit_headless.launch.py', 'args': {'use_sim': 'false', 'rviz': 'false'}},
 }
 
 SELF_MANAGED = True

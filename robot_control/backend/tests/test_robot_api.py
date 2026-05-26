@@ -57,6 +57,13 @@ async def test_enable_command(client):
 
 
 @pytest.mark.asyncio
+async def test_clear_error_endpoint(client):
+    resp = await client.post("/api/v1/robot/robot_001/clear-error")
+    assert resp.status_code == 200
+    assert resp.json()["code"] == 0
+
+
+@pytest.mark.asyncio
 async def test_invalid_params(client):
     resp = await client.post("/api/v1/robot/robot_001/gripper", json={"arm": "invalid"})
     assert resp.status_code == 422

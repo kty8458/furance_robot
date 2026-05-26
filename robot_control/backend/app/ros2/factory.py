@@ -31,6 +31,11 @@ from app.ros2.moveit_client import (
     RealMoveItServiceClient,
     MoveItServiceClientBase,
 )
+from app.ros2.arm_enable_client import (
+    ArmEnableClientBase,
+    MockArmEnableClient,
+    RealArmEnableClient,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +76,7 @@ class Ros2Components:
     topic_listener: Ros2TopicListenerBase
     joint_state_listener: JointStateListenerBase
     moveit_client: MoveItServiceClientBase
+    arm_enable_client: ArmEnableClientBase
     runtime: object | None  # Ros2Runtime when real mode, None when mock
 
 
@@ -98,6 +104,7 @@ def create_ros2_components(settings: Settings | None = None) -> Ros2Components:
                 topic_listener=RealRos2TopicListener(runtime),
                 joint_state_listener=RealJointStateListener(runtime),
                 moveit_client=RealMoveItServiceClient(runtime, timeout=settings.ros2_service_timeout),
+                arm_enable_client=RealArmEnableClient(runtime, timeout=settings.ros2_service_timeout),
             )
             logger.info("ROS2 components created in REAL mode (domain_id=%d)", settings.ros2_domain_id)
             return components
@@ -114,6 +121,7 @@ def create_ros2_components(settings: Settings | None = None) -> Ros2Components:
         topic_listener=MockRos2TopicListener(),
         joint_state_listener=MockJointStateListener(),
         moveit_client=MockMoveItServiceClient(),
+        arm_enable_client=MockArmEnableClient(),
     )
     logger.info("ROS2 components created in MOCK mode")
     return components

@@ -12,9 +12,11 @@
       </el-menu>
     </el-aside>
     <el-main class="tech-main"><router-view /></el-main>
+    <ArmEnableFab />
   </el-container>
 </template>
 
 <script setup>
 import { Monitor, Operation, SetUp, MapLocation, Cpu, Document } from '@element-plus/icons-vue'
+import ArmEnableFab from './components/ArmEnableFab.vue'
 </script>

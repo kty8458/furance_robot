@@ -1,4 +1,3 @@
-import json
 import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
@@ -9,7 +8,7 @@ if TYPE_CHECKING:
     from app.services.status_service import StatusService
 
 try:
-    from std_msgs.msg import String as StringMsg
+    from interface_pkg.msg import Robotstatus
 
     HAS_RCLPY = True
 except ImportError:
@@ -35,18 +34,18 @@ class MockRos2TopicListener(Ros2TopicListenerBase):
 
 
 class RealRos2TopicListener(Ros2TopicListenerBase):
-    """Subscribes to /robot_status topic and pushes data to StatusService.
+    """Subscribes to /robot_status (interface_pkg/msg/Robotstatus) and pushes to StatusService.
 
-    Topic: /robot_status
-    Type: std_msgs/String
-    Payload: JSON-encoded StatusPayload dict
+    The hardware-side arm controller publishes Robotstatus; this listener flattens
+    it into a dict that StatusService can broadcast over WebSocket.
     """
 
     STATUS_TOPIC = "/robot_status"
+    DEFAULT_ROBOT_ID = "robot_001"
 
     def __init__(self, runtime):
         if not HAS_RCLPY:
-            raise RuntimeError("rclpy is not installed")
+            raise RuntimeError("interface_pkg / rclpy not available")
         self._runtime = runtime
         self._sub = None
         self._status_service: "StatusService | None" = None
@@ -55,12 +54,12 @@ class RealRos2TopicListener(Ros2TopicListenerBase):
         self._status_service = status_service
         node = self._runtime.node
         self._sub = node.create_subscription(
-            StringMsg,
+            Robotstatus,
             self.STATUS_TOPIC,
             self._on_status_message,
             10,
         )
-        logger.info("Subscribed to %s", self.STATUS_TOPIC)
+        logger.info("Subscribed to %s (interface_pkg/msg/Robotstatus)", self.STATUS_TOPIC)
 
     async def stop(self):
         if self._sub and self._runtime.is_running:
@@ -68,17 +67,53 @@ class RealRos2TopicListener(Ros2TopicListenerBase):
             self._sub = None
             logger.info("Unsubscribed from %s", self.STATUS_TOPIC)
 
-    def _on_status_message(self, msg: StringMsg):
-        """Callback for /robot_status messages. Bridges to asyncio."""
+    @staticmethod
+    def _build_arm_state(joint_positions, tcp_pose) -> dict:
+        joints = list(joint_positions)
+        # StatusPayload's ArmState requires exactly 7 joints; pad/truncate defensively.
+        if len(joints) < 7:
+            joints = joints + [0.0] * (7 - len(joints))
+        elif len(joints) > 7:
+            joints = joints[:7]
+
+        pose = list(tcp_pose) + [0.0] * max(0, 6 - len(tcp_pose))
+        return {
+            "joint_angles": [float(j) for j in joints],
+            "end_effector": {
+                "x": float(pose[0]),
+                "y": float(pose[1]),
+                "z": float(pose[2]),
+                "roll": float(pose[3]),
+                "pitch": float(pose[4]),
+                "yaw": float(pose[5]),
+            },
+            "coordinate_frame": "base_link",
+            "status": "idle",
+        }
+
+    def _on_status_message(self, msg):
         if self._status_service is None:
             return
         try:
-            data = json.loads(msg.data)
-            robot_id = data.get("robot_id", "robot_001")
+            # Robotstatus carries arm/alarm/enable info only; chassis position and
+            # gripper come from other sources. Fill required fields with defaults so
+            # StatusPayload validates, and surface alarms via error_code.
+            data = {
+                "position": {"x": 0.0, "y": 0.0, "theta": 0.0},
+                "gripper": {
+                    "left": {"state": "open", "force": 0.0},
+                    "right": {"state": "open", "force": 0.0},
+                },
+                "enabled": bool(msg.is_enabled),
+                "error_code": 1 if bool(msg.is_alarming) else 0,
+                "task_status": "idle",
+                "arm": {
+                    "left": self._build_arm_state(msg.left_joint_positions, msg.left_tcp_pose),
+                    "right": self._build_arm_state(msg.right_joint_positions, msg.right_tcp_pose),
+                },
+            }
             self._runtime.call_async_in_loop(
-                self._status_service.push_status(robot_id, data)
+                self._status_service.push_status(self.DEFAULT_ROBOT_ID, data)
             )
-        except json.JSONDecodeError:
-            logger.warning("Invalid JSON on %s: %s", self.STATUS_TOPIC, msg.data[:200])
         except Exception:
-            logger.exception("Error processing status message")
+            logger.exception("Error processing Robotstatus message")

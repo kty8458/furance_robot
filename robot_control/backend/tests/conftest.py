@@ -12,6 +12,9 @@ from app.ros2.factory import Ros2Components
 from app.ros2.service_client import MockRos2ServiceClient
 from app.ros2.log_collector import MockRos2LogCollector
 from app.ros2.topic_listener import MockRos2TopicListener
+from app.ros2.joint_state_listener import MockJointStateListener
+from app.ros2.moveit_client import MockMoveItServiceClient
+from app.ros2.arm_enable_client import MockArmEnableClient
 
 
 @pytest.fixture
@@ -34,6 +37,9 @@ def app(tmp_path):
         service_client=MockRos2ServiceClient(),
         log_collector=MockRos2LogCollector(),
         topic_listener=MockRos2TopicListener(),
+        joint_state_listener=MockJointStateListener(),
+        moveit_client=MockMoveItServiceClient(),
+        arm_enable_client=MockArmEnableClient(),
     )
     application.state.status_service = StatusService()
     application.state.log_service = LogService()

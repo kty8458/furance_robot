@@ -1,11 +1,13 @@
 from pydantic_settings import BaseSettings
+from pydantic import Field
+import os
 
 
 class Settings(BaseSettings):
     server_host: str = "0.0.0.0"
     server_port: int = 8000
 
-    ros2_domain_id: int = 0
+    ros2_domain_id: int = Field(default_factory=lambda: int(os.environ.get("ROS_DOMAIN_ID", "0")))
     ros2_service_timeout: float = 30.0
 
     ws_status_interval: int = 30

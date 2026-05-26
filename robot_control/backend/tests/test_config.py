@@ -2,7 +2,8 @@ import pytest
 from app.core.config import Settings
 
 
-def test_default_settings():
+def test_default_settings(monkeypatch):
+    monkeypatch.delenv("ROS_DOMAIN_ID", raising=False)
     s = Settings()
     assert s.server_host == "0.0.0.0"
     assert s.server_port == 8000
@@ -11,6 +12,12 @@ def test_default_settings():
     assert s.ws_status_interval == 30
     assert s.log_level == "INFO"
     assert s.log_retention_days == 30
+
+
+def test_ros2_domain_id_from_env(monkeypatch):
+    monkeypatch.setenv("ROS_DOMAIN_ID", "42")
+    s = Settings()
+    assert s.ros2_domain_id == 42
 
 
 def test_settings_from_env(monkeypatch):

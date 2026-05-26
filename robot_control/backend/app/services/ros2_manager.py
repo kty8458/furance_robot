@@ -64,10 +64,7 @@ class Ros2Manager:
         result = await self._ros2.call_service("/GetNodeList", {})
         if self._is_mock:
             return ApiResponse(data=[
-                {"name": "arm_controller", "status": "stopped", "type": "node"},
                 {"name": "gripper_controller", "status": "stopped", "type": "node"},
-                {"name": "navigation_node", "status": "stopped", "type": "node"},
-                {"name": "status_publisher", "status": "stopped", "type": "node"},
                 {"name": "t1_moveit", "status": "stopped", "type": "launch"},
             ])
         return _check_result(result)

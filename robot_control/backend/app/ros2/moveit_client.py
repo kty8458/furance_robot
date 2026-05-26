@@ -14,6 +14,10 @@ except ImportError:
     HAS_RCLPY = False
 
 
+LEFT_JOINT_NAMES = [f"ARM-L-J{i}_Joint" for i in range(1, 8)]
+RIGHT_JOINT_NAMES = [f"ARM-R-J{i}_Joint" for i in range(1, 8)]
+
+
 class MoveItServiceClientBase(ABC):
     @abstractmethod
     async def move_p(self, lor: str, target_pose: dict, to_frame: str,
@@ -22,6 +26,11 @@ class MoveItServiceClientBase(ABC):
 
     @abstractmethod
     async def move_l(self, lor: str, waypoints: list[dict]) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    async def move_j(self, lor: str, joint_positions: list[float],
+                     duration: float = 3.0) -> dict[str, Any]:
         ...
 
 
@@ -33,13 +42,20 @@ class MockMoveItServiceClient(MoveItServiceClientBase):
     async def move_l(self, lor: str, waypoints: list[dict]) -> dict[str, Any]:
         return {"success": True, "message": "mock: MoveL ok"}
 
+    async def move_j(self, lor: str, joint_positions: list[float],
+                     duration: float = 3.0) -> dict[str, Any]:
+        if len(joint_positions) != 7:
+            return {"success": False, "message": "moveJ requires 7 joint angles"}
+        return {"success": True, "message": "mock: MoveJ ok"}
+
 
 class RealMoveItServiceClient(MoveItServiceClientBase):
-    """Direct ROS2 service client for MoveIt move_pose and move_line.
+    """Direct ROS2 service client for MoveIt move_pose / move_line / execute_trajectory.
 
     Services:
-      /move_pose  (control_interfaces/srv/MoveP)
-      /move_line  (control_interfaces/srv/MoveL)
+      /move_pose           (control_interfaces/srv/MoveP)   -> move_p
+      /move_line           (control_interfaces/srv/MoveL)   -> move_l
+      /execute_trajectory  (control_interfaces/srv/ExecuteTrajectory) -> move_j
     """
 
     def __init__(self, runtime, timeout: float = 30.0):
@@ -62,7 +78,6 @@ class RealMoveItServiceClient(MoveItServiceClientBase):
         from geometry_msgs.msg import PoseStamped
 
         client = self._get_or_create_client("move_pose", MoveP)
-
         if not client.wait_for_service(timeout_sec=5.0):
             logger.error("MoveP service not available after 5s")
             return {"success": False, "message": "MoveP service not available"}
@@ -75,44 +90,76 @@ class RealMoveItServiceClient(MoveItServiceClientBase):
 
         pose = PoseStamped()
         pose.header.frame_id = target_pose.get("frame_id", reference_frame)
-        pose.pose.position.x = target_pose.get("x", 0.0)
-        pose.pose.position.y = target_pose.get("y", 0.0)
-        pose.pose.position.z = target_pose.get("z", 0.0)
-        pose.pose.orientation.x = target_pose.get("qx", 0.0)
-        pose.pose.orientation.y = target_pose.get("qy", 0.0)
-        pose.pose.orientation.z = target_pose.get("qz", 0.0)
-        pose.pose.orientation.w = target_pose.get("qw", 1.0)
+        pose.pose.position.x = float(target_pose.get("x", 0.0))
+        pose.pose.position.y = float(target_pose.get("y", 0.0))
+        pose.pose.position.z = float(target_pose.get("z", 0.0))
+        pose.pose.orientation.x = float(target_pose.get("qx", 0.0))
+        pose.pose.orientation.y = float(target_pose.get("qy", 0.0))
+        pose.pose.orientation.z = float(target_pose.get("qz", 0.0))
+        pose.pose.orientation.w = float(target_pose.get("qw", 1.0))
         req.target_pose = pose
 
-        ros_future = client.call_async(req)
-        return await self._bridge_future(ros_future)
+        return await self._bridge_future(client.call_async(req))
 
     async def move_l(self, lor: str, waypoints: list[dict]) -> dict[str, Any]:
         from control_interfaces.srv import MoveL
         from geometry_msgs.msg import Pose
 
         client = self._get_or_create_client("move_line", MoveL)
-
         if not client.wait_for_service(timeout_sec=5.0):
             logger.error("MoveL service not available after 5s")
             return {"success": False, "message": "MoveL service not available"}
 
         req = MoveL.Request()
         req.lor = lor
-
-        for wp_dict in waypoints:
+        for wp in waypoints:
             pose = Pose()
-            pose.position.x = wp_dict.get("x", 0.0)
-            pose.position.y = wp_dict.get("y", 0.0)
-            pose.pose.position.z = wp_dict.get("z", 0.0)
-            pose.orientation.x = wp_dict.get("qx", 0.0)
-            pose.orientation.y = wp_dict.get("qy", 0.0)
-            pose.orientation.z = wp_dict.get("qz", 0.0)
-            pose.orientation.w = wp_dict.get("qw", 1.0)
+            pose.position.x = float(wp.get("x", 0.0))
+            pose.position.y = float(wp.get("y", 0.0))
+            pose.position.z = float(wp.get("z", 0.0))
+            pose.orientation.x = float(wp.get("qx", 0.0))
+            pose.orientation.y = float(wp.get("qy", 0.0))
+            pose.orientation.z = float(wp.get("qz", 0.0))
+            pose.orientation.w = float(wp.get("qw", 1.0))
             req.waypoints.append(pose)
 
-        ros_future = client.call_async(req)
-        return await self._bridge_future(ros_future)
+        return await self._bridge_future(client.call_async(req))
+
+    async def move_j(self, lor: str, joint_positions: list[float],
+                     duration: float = 3.0) -> dict[str, Any]:
+        """Send a single-waypoint JointTrajectory to /execute_trajectory.
+
+        The C++ server picks left/right MoveGroup based on the first joint name
+        prefix (ARM-L / ARM-R), so we use the proper joint names per side.
+        """
+        from control_interfaces.srv import ExecuteTrajectory
+        from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+        from builtin_interfaces.msg import Duration
+
+        if len(joint_positions) != 7:
+            return {"success": False, "message": "moveJ requires 7 joint angles"}
+
+        client = self._get_or_create_client("execute_trajectory", ExecuteTrajectory)
+        if not client.wait_for_service(timeout_sec=5.0):
+            logger.error("ExecuteTrajectory service not available after 5s")
+            return {"success": False, "message": "ExecuteTrajectory service not available"}
+
+        names = LEFT_JOINT_NAMES if lor == "left" else RIGHT_JOINT_NAMES
+
+        traj = JointTrajectory()
+        traj.joint_names = names
+        point = JointTrajectoryPoint()
+        point.positions = [float(p) for p in joint_positions]
+        dur = Duration()
+        dur.sec = int(duration)
+        dur.nanosec = int((duration - int(duration)) * 1e9)
+        point.time_from_start = dur
+        traj.points.append(point)
+
+        req = ExecuteTrajectory.Request()
+        req.trajectory = traj
+
+        return await self._bridge_future(client.call_async(req))
 
     async def _bridge_future(self, ros_future) -> dict[str, Any]:
         loop = asyncio.get_event_loop()
@@ -124,7 +171,7 @@ class RealMoveItServiceClient(MoveItServiceClientBase):
             try:
                 response = fut.result()
                 result = {
-                    "success": response.success,
+                    "success": bool(response.success),
                     "message": getattr(response, "message", ""),
                 }
                 loop.call_soon_threadsafe(aio_future.set_result, result)
