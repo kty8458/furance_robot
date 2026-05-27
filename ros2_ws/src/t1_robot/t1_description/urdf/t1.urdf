@@ -512,7 +512,7 @@
     name="SJ_Joint"
     type="prismatic">
     <origin
-      xyz="0.13104 0 0.775"
+      xyz="0.13104 0 0.725"
       rpy="0 0 0" />
     <parent
       link="base_link" />
@@ -904,6 +904,19 @@
           rgba="0.729411764705882 0.4 0 1" />
       </material>
     </visual>
+    <visual>
+      <origin
+        xyz="0.18 -0.05 0"
+        rpy="0 0 0" />
+      <geometry>
+        <box size="0.15 0.24 0.24" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.5 0.5 0.5 0.5" />
+      </material>
+    </visual>
     <collision>
       <origin
         xyz="0 0 0"
@@ -911,6 +924,14 @@
       <geometry>
         <mesh
           filename="package://t1_description/meshes/ARM-R-J7_Link.STL" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0.18 -0.05 0"
+        rpy="0 0 0" />
+      <geometry>
+        <box size="0.15 0.24 0.24" />
       </geometry>
     </collision>
   </link>
@@ -1310,6 +1331,19 @@
           rgba="0.729411764705882 0.4 0 1" />
       </material>
     </visual>
+    <visual>
+      <origin
+        xyz="0.18 -0.05 0"
+        rpy="0 0 0" />
+      <geometry>
+        <box size="0.15 0.24 0.24" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.5 0.5 0.5 0.5" />
+      </material>
+    </visual>
     <collision>
       <origin
         xyz="0 0 0"
@@ -1317,6 +1351,14 @@
       <geometry>
         <mesh
           filename="package://t1_description/meshes/ARM-L-J7_Link.STL" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin
+        xyz="0.18 -0.05 0"
+        rpy="0 0 0" />
+      <geometry>
+        <box size="0.15 0.24 0.24" />
       </geometry>
     </collision>
   </link>
