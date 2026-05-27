@@ -1,0 +1,54 @@
+{
+  "name": "test1",
+  "description": "",
+  "steps": [
+    {
+      "id": "step_1",
+      "type": "move",
+      "label": "",
+      "config": {
+        "mode": "point"
+      }
+    },
+    {
+      "id": "step_2",
+      "type": "upper_limb",
+      "label": "",
+      "config": {
+        "mode": "preset",
+        "arm": "left",
+        "method": "moveJ",
+        "preset_name": "",
+        "reference_frame": "base_link",
+        "position": {}
+      }
+    },
+    {
+      "id": "step_3",
+      "type": "upper_body",
+      "label": "",
+      "config": {
+        "waist_speed": 20,
+        "ascend_speed": 20,
+        "head_speed": 10
+      }
+    },
+    {
+      "id": "step_4",
+      "type": "vision",
+      "label": "",
+      "config": {
+        "scene": ""
+      }
+    },
+    {
+      "id": "step_5",
+      "type": "sleep",
+      "label": "",
+      "config": {
+        "duration": 1
+      }
+    }
+  ],
+  "version": 1
+}

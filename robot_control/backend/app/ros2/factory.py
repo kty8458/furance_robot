@@ -36,6 +36,16 @@ from app.ros2.arm_enable_client import (
     MockArmEnableClient,
     RealArmEnableClient,
 )
+from app.ros2.upper_body_client import (
+    MockUpperBodyClient,
+    RealUpperBodyClient,
+    UpperBodyClientBase,
+)
+from app.ros2.camera_client import (
+    CameraClientBase,
+    MockCameraClient,
+    RealCameraClient,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +87,8 @@ class Ros2Components:
     joint_state_listener: JointStateListenerBase
     moveit_client: MoveItServiceClientBase
     arm_enable_client: ArmEnableClientBase
+    upper_body_client: UpperBodyClientBase
+    camera_client: CameraClientBase
     runtime: object | None  # Ros2Runtime when real mode, None when mock
 
 
@@ -105,6 +117,8 @@ def create_ros2_components(settings: Settings | None = None) -> Ros2Components:
                 joint_state_listener=RealJointStateListener(runtime),
                 moveit_client=RealMoveItServiceClient(runtime, timeout=settings.ros2_service_timeout),
                 arm_enable_client=RealArmEnableClient(runtime, timeout=settings.ros2_service_timeout),
+                upper_body_client=RealUpperBodyClient(runtime, timeout=settings.ros2_service_timeout),
+                camera_client=RealCameraClient(runtime, timeout=settings.ros2_service_timeout),
             )
             logger.info("ROS2 components created in REAL mode (domain_id=%d)", settings.ros2_domain_id)
             return components
@@ -122,6 +136,8 @@ def create_ros2_components(settings: Settings | None = None) -> Ros2Components:
         joint_state_listener=MockJointStateListener(),
         moveit_client=MockMoveItServiceClient(),
         arm_enable_client=MockArmEnableClient(),
+        upper_body_client=MockUpperBodyClient(),
+        camera_client=MockCameraClient(),
     )
     logger.info("ROS2 components created in MOCK mode")
     return components

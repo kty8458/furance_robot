@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     log_retention_days: int = 30
 
     teach_data_dir: str = "data/teach"
+    workflow_data_dir: str = "data/workflows"
 
     chassis_base_url: str = "http://192.168.1.102:8888/yhs-robot"
     chassis_user_code: str = "admin"

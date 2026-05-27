@@ -21,6 +21,11 @@ class ErrorCode(IntEnum):
     TEACH_NAME_EXISTS = 3004
     TEACH_NAME_NOT_FOUND = 3005
 
+    # 工序类 4xxx
+    WORKFLOW_NOT_FOUND = 4001
+    WORKFLOW_NAME_EXISTS = 4002
+    WORKFLOW_STEP_FAILED = 4003
+
 
 class FuranceError(Exception):
     def __init__(self, code: ErrorCode, message: str):

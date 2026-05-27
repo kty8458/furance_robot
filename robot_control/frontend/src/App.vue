@@ -9,6 +9,8 @@
         <el-menu-item index="/navigation"><el-icon><MapLocation /></el-icon><span>导航</span></el-menu-item>
         <el-menu-item index="/ros2"><el-icon><Cpu /></el-icon><span>ROS2节点</span></el-menu-item>
         <el-menu-item index="/logs"><el-icon><Document /></el-icon><span>运行日志</span></el-menu-item>
+        <el-menu-item index="/workflow"><el-icon><List /></el-icon><span>工作流</span></el-menu-item>
+        <el-menu-item index="/camera"><el-icon><View /></el-icon><span>相机</span></el-menu-item>
       </el-menu>
     </el-aside>
     <el-main class="tech-main"><router-view /></el-main>
@@ -17,6 +19,6 @@
 </template>
 
 <script setup>
-import { Monitor, Operation, SetUp, MapLocation, Cpu, Document } from '@element-plus/icons-vue'
+import { Monitor, Operation, SetUp, MapLocation, Cpu, Document, List, View } from '@element-plus/icons-vue'
 import ArmEnableFab from './components/ArmEnableFab.vue'
 </script>

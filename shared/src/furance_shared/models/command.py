@@ -71,3 +71,21 @@ class TeachExecCommand(BaseModel):
     arm: ArmSide
     name: str = Field(min_length=1, max_length=64)
     method: ArmMoveMethod = ArmMoveMethod.MOVEJ
+
+
+class WaistControlCommand(BaseModel):
+    waist_angle: float = Field(ge=0, le=600)
+    waist_speed: float = Field(default=20.0, gt=0)
+    reserve: float = 0.0
+
+
+class AscendControlCommand(BaseModel):
+    ascend_pos: float
+    ascend_speed: float = Field(default=20.0, gt=0)
+    reserve: float = 0.0
+
+
+class HeadControlCommand(BaseModel):
+    head_angle: float = Field(ge=0, le=35)
+    head_speed: float = Field(default=10.0, gt=0)
+    reserve: float = 0.0

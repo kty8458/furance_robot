@@ -38,6 +38,76 @@
           </div>
         </el-card>
 
+        <!-- Upper body control (waist + head) -->
+        <el-card class="tech-card" style="margin-bottom: 16px">
+          <template #header>
+            <div class="tech-card-header">
+              <el-icon><Operation /></el-icon>
+              <span style="margin-left: 8px">上身控制</span>
+            </div>
+          </template>
+          <div style="display: flex; flex-direction: column; gap: 10px">
+            <!-- Waist -->
+            <div>
+              <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">
+                腰部升降: {{ upperBody.waist_angle }} (0-600)
+              </div>
+              <el-row :gutter="8" align="middle">
+                <el-col :span="14">
+                  <el-slider v-model="upperBody.waist_angle" :min="0" :max="600" :step="1" :show-tooltip="false" />
+                </el-col>
+                <el-col :span="4">
+                  <el-input-number v-model="upperBody.waist_angle" :min="0" :max="600" size="small" controls-position="right" style="width: 100%" />
+                </el-col>
+                <el-col :span="4">
+                  <span style="font-size: 11px; color: #6b7b8d">速度</span>
+                  <el-input-number v-model="upperBody.waist_speed" :min="1" size="small" controls-position="right" style="width: 100%" />
+                </el-col>
+                <el-col :span="2">
+                  <el-button size="small" type="primary" @click="handleWaistControl" :loading="upperBody.waistLoading">执行</el-button>
+                </el-col>
+              </el-row>
+            </div>
+            <!-- Head pan -->
+            <div>
+              <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">头部偏转</div>
+              <el-row :gutter="8" align="middle">
+                <el-col :span="14">
+                  <el-input-number v-model="upperBody.ascend_pos" :min="-180" :max="180" size="small" controls-position="right" style="width: 100%" />
+                </el-col>
+                <el-col :span="4">
+                  <span style="font-size: 11px; color: #6b7b8d">速度</span>
+                  <el-input-number v-model="upperBody.ascend_speed" :min="1" size="small" controls-position="right" style="width: 100%" />
+                </el-col>
+                <el-col :span="2">
+                  <el-button size="small" type="primary" @click="handleAscendControl" :loading="upperBody.ascendLoading">执行</el-button>
+                </el-col>
+              </el-row>
+            </div>
+            <!-- Head tilt -->
+            <div>
+              <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">
+                头部俯仰: {{ upperBody.head_angle }} (0-35°)
+              </div>
+              <el-row :gutter="8" align="middle">
+                <el-col :span="14">
+                  <el-slider v-model="upperBody.head_angle" :min="0" :max="35" :step="0.5" :show-tooltip="false" />
+                </el-col>
+                <el-col :span="4">
+                  <el-input-number v-model="upperBody.head_angle" :min="0" :max="35" :step="0.5" size="small" controls-position="right" style="width: 100%" />
+                </el-col>
+                <el-col :span="4">
+                  <span style="font-size: 11px; color: #6b7b8d">速度</span>
+                  <el-input-number v-model="upperBody.head_speed" :min="1" size="small" controls-position="right" style="width: 100%" />
+                </el-col>
+                <el-col :span="2">
+                  <el-button size="small" type="primary" @click="handleHeadControl" :loading="upperBody.headLoading">执行</el-button>
+                </el-col>
+              </el-row>
+            </div>
+          </div>
+        </el-card>
+
         <!-- Teach management -->
         <el-card class="tech-card">
           <template #header>
@@ -242,6 +312,7 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { armApi } from '../api/arm'
+import { upperBodyApi } from '../api/upperBody'
 import { useStatus } from '../composables/useStatus'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { SetUp, Files, Position, ArrowDown } from '@element-plus/icons-vue'
@@ -254,6 +325,18 @@ const poseLabels = ['X', 'Y', 'Z', 'Roll', 'Pitch', 'Yaw']
 const jogForm = ref({ arm: 'left', method: 'moveJ', coordinate: 'base_link', step: 0.05, stepXyz: 2, stepRpy: 0.5 })
 const teachForm = ref({ arm: 'left', name: '' })
 const teachList = ref([])
+
+const upperBody = ref({
+  waist_angle: 300,
+  waist_speed: 20,
+  waistLoading: false,
+  ascend_pos: 100,
+  ascend_speed: 20,
+  ascendLoading: false,
+  head_angle: 15,
+  head_speed: 10,
+  headLoading: false,
+})
 
 let jogTimer = null
 let jogPending = false
@@ -408,6 +491,56 @@ function formatAngles(angles) {
 function formatEE(ee) {
   if (!ee) return '--'
   return `(${ee.x?.toFixed(3) ?? '?'}, ${ee.y?.toFixed(3) ?? '?'}, ${ee.z?.toFixed(3) ?? '?'})`
+}
+
+// -- Upper body control --
+
+async function handleWaistControl() {
+  upperBody.value.waistLoading = true
+  try {
+    await upperBodyApi.waist({
+      waist_angle: upperBody.value.waist_angle,
+      waist_speed: upperBody.value.waist_speed,
+      reserve: 0,
+    })
+    ElMessage.success(`腰部已设至 ${upperBody.value.waist_angle}`)
+  } catch (error) {
+    ElMessage.error(error.message || '腰部控制失败')
+  } finally {
+    upperBody.value.waistLoading = false
+  }
+}
+
+async function handleAscendControl() {
+  upperBody.value.ascendLoading = true
+  try {
+    await upperBodyApi.ascend({
+      ascend_pos: upperBody.value.ascend_pos,
+      ascend_speed: upperBody.value.ascend_speed,
+      reserve: 0,
+    })
+    ElMessage.success(`头部偏转已设至 ${upperBody.value.ascend_pos}`)
+  } catch (error) {
+    ElMessage.error(error.message || '头部偏转失败')
+  } finally {
+    upperBody.value.ascendLoading = false
+  }
+}
+
+async function handleHeadControl() {
+  upperBody.value.headLoading = true
+  try {
+    await upperBodyApi.head({
+      head_angle: upperBody.value.head_angle,
+      head_speed: upperBody.value.head_speed,
+      reserve: 0,
+    })
+    ElMessage.success(`头部俯仰已设至 ${upperBody.value.head_angle}°`)
+  } catch (error) {
+    ElMessage.error(error.message || '头部俯仰失败')
+  } finally {
+    upperBody.value.headLoading = false
+  }
 }
 </script>
 

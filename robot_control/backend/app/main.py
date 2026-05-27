@@ -11,6 +11,9 @@ from app.api.robot import router as robot_router
 from app.api.arm import router as arm_router
 from app.api.navigation import router as nav_router
 from app.api.ros2_nodes import router as ros2_router
+from app.api.upper_body import router as upper_body_router
+from app.api.workflow import router as workflow_router
+from app.api.camera import router as camera_router
 from app.ws.status import router as status_ws_router
 from app.ws.logs import router as logs_ws_router
 from app.ros2.factory import create_ros2_components
@@ -77,6 +80,9 @@ def create_app(static_dir: str | None = None) -> FastAPI:
     app.include_router(arm_router)
     app.include_router(nav_router)
     app.include_router(ros2_router)
+    app.include_router(upper_body_router)
+    app.include_router(workflow_router)
+    app.include_router(camera_router)
     app.include_router(status_ws_router)
     app.include_router(logs_ws_router)
 

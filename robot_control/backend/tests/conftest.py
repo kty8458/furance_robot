@@ -15,6 +15,8 @@ from app.ros2.topic_listener import MockRos2TopicListener
 from app.ros2.joint_state_listener import MockJointStateListener
 from app.ros2.moveit_client import MockMoveItServiceClient
 from app.ros2.arm_enable_client import MockArmEnableClient
+from app.ros2.upper_body_client import MockUpperBodyClient
+from app.ros2.camera_client import MockCameraClient
 
 
 @pytest.fixture
@@ -40,9 +42,13 @@ def app(tmp_path):
         joint_state_listener=MockJointStateListener(),
         moveit_client=MockMoveItServiceClient(),
         arm_enable_client=MockArmEnableClient(),
+        upper_body_client=MockUpperBodyClient(),
+        camera_client=MockCameraClient(),
     )
     application.state.status_service = StatusService()
     application.state.log_service = LogService()
+    from app.services.chassis_client import MockChassisClient
+    application.state.chassis_client = MockChassisClient()
     yield application
     # Cleanup env
     os.environ.pop("TEACH_DATA_DIR", None)
