@@ -26,12 +26,12 @@ class Settings(BaseSettings):
         RobotConfig(
             id="robot_001",
             name="1号机器人",
-            control_url="http://192.168.1.100:8000",
-            ws_url="ws://192.168.1.100:8000/ws/v1/status",
+            control_url="http://127.0.0.1:9001",
+            ws_url="ws://127.0.0.1:9001/ws/v1/status",
         )
     ]
 
-    sampler: SamplerConfig = SamplerConfig(ws_url="ws://192.168.1.200:9000")
+    sampler: SamplerConfig = SamplerConfig(ws_url="ws://127.0.0.1:9002/ws")
 
     l2: L2Config = L2Config()
 
