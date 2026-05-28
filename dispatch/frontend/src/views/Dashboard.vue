@@ -1,144 +1,80 @@
 <template>
-  <div class="tech-page">
+  <div>
+    <h2 class="page-title">状态显示</h2>
     <el-row :gutter="20">
-      <el-col :span="12">
-        <el-card class="tech-card">
+      <el-col :span="12" v-for="robot in robots" :key="robot.id">
+        <el-card class="status-card" :class="{ offline: robot.status === 'offline' }">
           <template #header>
-            <div class="tech-card-header">
-              <el-icon><Monitor /></el-icon>
-              <span style="margin-left: 8px">机器人状态</span>
+            <div class="card-header">
+              <span>{{ robot.name }} ({{ robot.id }})</span>
+              <el-tag :type="robot.status === 'offline' ? 'danger' : 'success'" size="small">
+                {{ robot.status === 'offline' ? '离线' : '在线' }}
+              </el-tag>
             </div>
           </template>
-
-          <el-select v-model="selectedRobot" placeholder="选择机器人" style="width: 100%; margin-bottom: 15px" @change="loadRobotStatus">
-            <el-option v-for="robot in robots" :key="robot.id" :label="robot.name" :value="robot.id" />
-          </el-select>
-
-          <el-descriptions v-if="robotStatus" :column="1" border>
-            <el-descriptions-item label="位置">
-              <div v-if="robotStatus.position">
-                X: {{ robotStatus.position.x.toFixed(2) }}, Y: {{ robotStatus.position.y.toFixed(2) }}
-              </div>
-              <span v-else>--</span>
-            </el-descriptions-item>
-            <el-descriptions-item label="电量">
-              <el-progress :percentage="robotStatus.battery || 0" :status="robotStatus.battery < 20 ? 'exception' : 'normal'" :stroke-width="8" style="width: 120px" />
-            </el-descriptions-item>
-            <el-descriptions-item label="任务状态">
-              <el-tag :type="getStatusType(robotStatus.task_status)">
-                {{ robotStatus.task_status || '空闲' }}
-              </el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item label="使能状态">
-              <el-tag :type="robotStatus.enabled ? 'success' : 'danger'">
-                {{ robotStatus.enabled ? '已使能' : '未使能' }}
-              </el-tag>
-            </el-descriptions-item>
-          </el-descriptions>
-          <el-empty v-else description="请选择机器人" />
-        </el-card>
-      </el-col>
-
-      <el-col :span="12">
-        <el-card class="tech-card">
-          <template #header>
-            <div class="tech-card-header">
-              <el-icon><Setting /></el-icon>
-              <span style="margin-left: 8px">制样机状态</span>
-            </div>
-          </template>
-
-          <el-descriptions v-if="samplerStatus" :column="1" border>
-            <el-descriptions-item label="状态">
-              <el-tag :type="getSamplerStatusType(samplerStatus.status)">
-                {{ samplerStatus.status || '未知' }}
-              </el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item label="进度">
-              <el-progress :percentage="samplerStatus.progress || 0" :stroke-width="8" />
-            </el-descriptions-item>
-          </el-descriptions>
-          <el-empty v-else description="暂无数据" />
+          <div v-if="robot.status_data" class="status-grid">
+            <div class="status-item"><label>电量</label><span>{{ robot.status_data.battery }}%</span></div>
+            <div class="status-item"><label>充电</label><span>{{ robot.status_data.charging ? '是' : '否' }}</span></div>
+            <div class="status-item"><label>使能</label><span>{{ robot.status_data.enabled ? '已使能' : '未使能' }}</span></div>
+            <div class="status-item"><label>任务</label><span>{{ robot.status_data.task_status }}</span></div>
+            <div class="status-item"><label>位置</label><span>x:{{ robot.status_data.position?.x?.toFixed(2) }} y:{{ robot.status_data.position?.y?.toFixed(2) }}</span></div>
+            <div class="status-item"><label>夹爪L</label><span>{{ robot.status_data.gripper?.left?.state }}</span></div>
+            <div class="status-item"><label>夹爪R</label><span>{{ robot.status_data.gripper?.right?.state }}</span></div>
+            <div class="status-item"><label>手臂L</label><span>{{ robot.status_data.arm?.left?.status }}</span></div>
+            <div class="status-item"><label>手臂R</label><span>{{ robot.status_data.arm?.right?.status }}</span></div>
+            <div class="status-item"><label>错误码</label><span>{{ robot.status_data.error_code }}</span></div>
+          </div>
+          <div v-else class="no-data">等待数据...</div>
         </el-card>
       </el-col>
     </el-row>
+
+    <h3 style="margin-top: 24px;">制样机状态</h3>
+    <el-card class="status-card">
+      <div class="status-grid">
+        <div class="status-item"><label>状态</label><span>{{ samplerData.status }}</span></div>
+        <div class="status-item"><label>进度</label><span>{{ samplerData.progress }}%</span></div>
+      </div>
+    </el-card>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Monitor, Setting } from '@element-plus/icons-vue'
-import { robotApi } from '../api/robot'
-import { samplerApi } from '../api/sampler'
+import api from '../api/index.js'
 
 const robots = ref([])
-const selectedRobot = ref('')
-const robotStatus = ref(null)
-const samplerStatus = ref(null)
-let refreshTimer = null
+const samplerData = ref({ status: 'idle', progress: 0 })
+let timer = null
 
-async function loadRobots() {
+async function fetchData() {
   try {
-    const response = await robotApi.listRobots()
-    robots.value = response.data.robots || []
-    if (robots.value.length > 0 && !selectedRobot.value) {
-      selectedRobot.value = robots.value[0].id
-      loadRobotStatus()
-    }
-  } catch (error) {
-    ElMessage.error('加载机器人列表失败')
-  }
-}
-
-async function loadRobotStatus() {
-  if (!selectedRobot.value) return
+    const r = await api.get('/dispatch/robots')
+    robots.value = r.data?.robots || []
+  } catch (e) { /* ignore */ }
   try {
-    const response = await robotApi.getStatus(selectedRobot.value)
-    robotStatus.value = response.data
-  } catch (error) {
-    ElMessage.error('加载机器人状态失败')
-  }
-}
-
-async function loadSamplerStatus() {
-  try {
-    const response = await samplerApi.getStatus()
-    samplerStatus.value = response.data
-  } catch (error) {
-    // 静默失败
-  }
-}
-
-function getStatusType(status) {
-  switch (status) {
-    case 'running': return 'warning'
-    case 'completed': return 'success'
-    case 'error': return 'danger'
-    default: return 'info'
-  }
-}
-
-function getSamplerStatusType(status) {
-  switch (status) {
-    case 'running': return 'success'
-    case 'idle': return 'info'
-    case 'error': return 'danger'
-    case 'completed': return 'success'
-    default: return 'info'
-  }
+    const s = await api.get('/dispatch/sampler/status')
+    if (s.data) samplerData.value = s.data
+  } catch (e) { /* ignore */ }
 }
 
 onMounted(() => {
-  loadRobots()
-  loadSamplerStatus()
-  refreshTimer = setInterval(() => {
-    loadRobotStatus()
-    loadSamplerStatus()
-  }, 5000)
+  fetchData()
+  timer = setInterval(fetchData, 5000)
 })
 
 onUnmounted(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
+  if (timer) clearInterval(timer)
 })
 </script>
+
+<style scoped>
+.page-title { color: #00d4ff; margin-bottom: 20px; }
+.status-card { background: #0a1628; border: 1px solid #1a3a5c; margin-bottom: 16px; }
+.status-card.offline { opacity: 0.6; }
+.card-header { display: flex; justify-content: space-between; align-items: center; color: #b0c4de; }
+.status-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.status-item label { display: block; font-size: 12px; color: #6b7b8d; }
+.status-item span { color: #e0e8f0; font-size: 14px; }
+.no-data { color: #6b7b8d; text-align: center; padding: 20px; }
+</style>
