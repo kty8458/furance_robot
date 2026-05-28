@@ -10,6 +10,8 @@ class WsFrameType(StrEnum):
     STATUS = "status"
     ERROR = "error"
     LOG = "log"
+    WORKFLOW_STEP = "workflow_step"
+    ALARM = "alarm"
 
 
 class StatusPayload(BaseModel):
