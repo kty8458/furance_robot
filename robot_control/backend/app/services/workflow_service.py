@@ -141,44 +141,45 @@ class WorkflowService:
                 logger.info("Workflow '%s' step %d/%d: %s (%s)",
                             workflow.name, i + 1, len(workflow.steps), step.label, step.type)
 
-                self._push_step(robot_id, {
+                await self._push_step(robot_id, {
                     "execution_id": execution_id,
                     "workflow_name": workflow.name,
-                    "step_index": i,
-                    "step_label": step.label,
-                    "step_type": step.type,
+                    "step_id": step.id,
+                    "step_index": i + 1,
+                    "total_steps": len(workflow.steps),
                     "status": "running",
+                    "message": f"Executing: {step.label}",
                 })
 
                 try:
                     result = await self._dispatch_step(step, nav_lookup, context, robot_id)
                     step_results.append(result)
 
-                    self._push_step(robot_id, {
+                    await self._push_step(robot_id, {
                         "execution_id": execution_id,
                         "workflow_name": workflow.name,
-                        "step_index": i,
-                        "step_label": step.label,
-                        "step_type": step.type,
+                        "step_id": step.id,
+                        "step_index": i + 1,
+                        "total_steps": len(workflow.steps),
                         "status": "completed" if result.success else "failed",
                         "message": result.message,
                     })
                 except Exception as exc:
                     logger.exception("Workflow step '%s' error", step.label)
                     step_results.append(StepResult(step_id=step.id, success=False, message=str(exc)))
-                    self._push_step(robot_id, {
+                    await self._push_step(robot_id, {
                         "execution_id": execution_id,
                         "workflow_name": workflow.name,
-                        "step_index": i,
-                        "step_label": step.label,
-                        "step_type": step.type,
+                        "step_id": step.id,
+                        "step_index": i + 1,
+                        "total_steps": len(workflow.steps),
                         "status": "failed",
                         "message": str(exc),
                     })
         finally:
             self._active_executions.pop(execution_id, None)
 
-    def cancel_workflow(self) -> bool:
+    async def cancel_workflow(self) -> bool:
         """Cancel all active workflow executions.
 
         Returns True if any executions were cancelled.
@@ -193,17 +194,17 @@ class WorkflowService:
 
         if self._chassis is not None:
             try:
-                asyncio.create_task(self._chassis.stop_task())
+                await self._chassis.stop_task()
             except Exception:
                 logger.exception("Failed to stop chassis task during workflow cancellation")
 
         if self._arm_enable is not None:
             try:
-                self._arm_enable.enable(False)
+                await self._arm_enable.enable(False)
             except Exception:
                 logger.exception("Failed to disable arm during workflow cancellation")
             try:
-                self._arm_enable.clear_error()
+                await self._arm_enable.clear_error()
             except Exception:
                 logger.exception("Failed to clear arm error during workflow cancellation")
 
@@ -220,11 +221,11 @@ class WorkflowService:
             "active": active,
         }
 
-    def _push_step(self, robot_id: str, payload: dict) -> None:
+    async def _push_step(self, robot_id: str, payload: dict) -> None:
         """Push a workflow step status update via status_service if available."""
         if self._status_service is not None:
             try:
-                self._status_service.push_workflow_step(robot_id, payload)
+                await self._status_service.push_workflow_step(robot_id, payload)
             except Exception:
                 logger.exception("Failed to push workflow step status")
 

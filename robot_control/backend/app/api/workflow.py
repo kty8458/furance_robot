@@ -23,7 +23,9 @@ def _get_workflow_service(request: Request) -> WorkflowService:
         upper_body_client=ros2.upper_body_client,
         chassis_client=request.app.state.chassis_client,
         arm_service=arm_service,
+        arm_enable_client=ros2.arm_enable_client,
         workflow_dir=settings.workflow_data_dir,
+        status_service=request.app.state.status_service,
     )
 
 
@@ -75,11 +77,22 @@ async def delete_workflow(robot_id: str, name: str, request: Request):
 @router.post("/{name}/execute", response_model=ApiResponse)
 async def execute_workflow(robot_id: str, name: str, req: WorkflowExecuteRequest, request: Request):
     try:
-        result = await _get_workflow_service(request).execute_workflow(robot_id, name, req)
-        return ApiResponse(
-            code=0 if result.success else 4003,
-            message=result.message,
-            data=result.model_dump(),
-        )
+        service = _get_workflow_service(request)
+        execution_id = service.start_execution(robot_id, name, req)
+        return ApiResponse(data={"execution_id": execution_id, "status": "started"})
     except FuranceError as e:
         raise HTTPException(status_code=404, detail=e.to_dict())
+
+
+@router.post("/{name}/cancel", response_model=ApiResponse)
+async def cancel_workflow(robot_id: str, name: str, request: Request):
+    service = _get_workflow_service(request)
+    cancelled = await service.cancel_workflow()
+    return ApiResponse(data={"cancelled": cancelled})
+
+
+@router.get("/executions/{execution_id}", response_model=ApiResponse)
+async def get_execution_status(robot_id: str, execution_id: str, request: Request):
+    service = _get_workflow_service(request)
+    status = service.get_execution_status(execution_id)
+    return ApiResponse(data=status)
