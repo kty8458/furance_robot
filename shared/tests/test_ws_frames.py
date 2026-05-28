@@ -1,6 +1,8 @@
 from furance_shared.protocol.ws_frames import (
     WsFrameType, StatusPayload, ErrorPayload, LogPayload,
     StatusFrame, ErrorFrame, LogFrame,
+    WorkflowStepPayload, WorkflowStepFrame,
+    AlarmPayload, AlarmFrame,
 )
 from furance_shared.models.robot import Position, GripperInfo, GripperState, ArmState
 
@@ -52,3 +54,73 @@ def test_frame_serialization():
     data = frame.model_dump()
     assert data["type"] == "error"
     assert data["payload"]["error_code"] == 1001
+
+
+def test_workflow_step_frame():
+    frame = WorkflowStepFrame(
+        robot_id="robot_001",
+        payload=WorkflowStepPayload(
+            workflow_name="test_wf",
+            execution_id="exec-001",
+            step_id="step_1",
+            step_index=1,
+            total_steps=3,
+            status="running",
+            message="Moving arm",
+        ),
+    )
+    assert frame.type == WsFrameType.WORKFLOW_STEP
+    assert frame.payload.workflow_name == "test_wf"
+    assert frame.payload.status == "running"
+
+
+def test_workflow_step_frame_serialization():
+    frame = WorkflowStepFrame(
+        robot_id="robot_001",
+        payload=WorkflowStepPayload(
+            workflow_name="test_wf",
+            execution_id="exec-001",
+            step_id="step_2",
+            step_index=2,
+            total_steps=3,
+            status="completed",
+            message="Done",
+        ),
+    )
+    data = frame.model_dump()
+    assert data["type"] == "workflow_step"
+    assert data["payload"]["step_index"] == 2
+
+
+def test_alarm_frame():
+    frame = AlarmFrame(
+        robot_id="robot_001",
+        payload=AlarmPayload(
+            alarm_id="alarm-001",
+            level="critical",
+            category="arm",
+            title="Arm motor overheat",
+            message="Left arm J3 temperature exceeds threshold",
+            source="robot_control",
+        ),
+    )
+    assert frame.type == WsFrameType.ALARM
+    assert frame.payload.level == "critical"
+    assert frame.payload.category == "arm"
+
+
+def test_alarm_frame_serialization():
+    frame = AlarmFrame(
+        robot_id="robot_001",
+        payload=AlarmPayload(
+            alarm_id="alarm-002",
+            level="warning",
+            category="battery",
+            title="Low battery",
+            message="Battery at 15%",
+            source="robot_control",
+        ),
+    )
+    data = frame.model_dump()
+    assert data["type"] == "alarm"
+    assert data["payload"]["level"] == "warning"

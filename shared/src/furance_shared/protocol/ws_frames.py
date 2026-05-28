@@ -1,5 +1,5 @@
 from furance_shared.utils.enum import StrEnum
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -67,3 +67,37 @@ class LogFrame(BaseModel):
     robot_id: str
     timestamp: Optional[int] = None
     payload: LogPayload
+
+
+class WorkflowStepPayload(BaseModel):
+    workflow_name: str
+    execution_id: str
+    step_id: str
+    step_index: int
+    total_steps: int
+    status: Literal["running", "completed", "failed", "cancelled"]
+    message: str = ""
+    data: dict = {}
+
+
+class WorkflowStepFrame(BaseModel):
+    type: WsFrameType = WsFrameType.WORKFLOW_STEP
+    robot_id: str
+    timestamp: Optional[int] = None
+    payload: WorkflowStepPayload
+
+
+class AlarmPayload(BaseModel):
+    alarm_id: str
+    level: Literal["warning", "critical"]
+    category: str
+    title: str
+    message: str
+    source: str
+
+
+class AlarmFrame(BaseModel):
+    type: WsFrameType = WsFrameType.ALARM
+    robot_id: str
+    timestamp: Optional[int] = None
+    payload: AlarmPayload
