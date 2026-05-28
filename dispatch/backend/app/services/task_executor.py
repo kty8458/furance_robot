@@ -118,6 +118,8 @@ class TaskExecutor:
                 f"/api/v1/robot/{robot_id}/workflows/executions/{wf_execution_id}",
             )
             if status_resp.code != 0:
+                raise Exception(f"Failed to poll workflow status: {status_resp.message}")
+            if not status_resp.data.get("active", True):
                 break
 
             await asyncio.sleep(1.0)

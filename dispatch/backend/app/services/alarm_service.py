@@ -15,6 +15,13 @@ class AlarmService:
 
     async def create_alarm(self, robot_id: str, source: str, level: str, category: str,
                            title: str, message: str) -> dict:
+        existing = await self._db.fetch_one(
+            "SELECT id FROM alarms WHERE robot_id = ? AND title = ? AND ack_status = 'unack'",
+            (robot_id, title),
+        )
+        if existing:
+            return {"id": existing["id"], "duplicate": True}
+
         alarm_id = str(uuid.uuid4())
         now = time.time()
         await self._db.execute(

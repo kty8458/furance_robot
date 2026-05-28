@@ -1,11 +1,10 @@
-import asyncio
 import logging
 import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api.robots import router as robots_router
@@ -37,9 +36,6 @@ async def lifespan(app: FastAPI):
     db = Database(db_path)
     await db.init()
     app.state.db = db
-
-    # WS broadcast connections
-    app.state.ws_connections: list[WebSocket] = []
 
     # Services
     robot_proxy = RobotProxyService()

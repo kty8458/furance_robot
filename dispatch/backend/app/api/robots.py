@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 from furance_shared.protocol.http_schema import ApiResponse
@@ -19,9 +21,10 @@ async def list_robots(request: Request):
     for robot in robots:
         status_row = await db.fetch_one("SELECT * FROM robot_status WHERE robot_id = ?", (robot["id"],))
         robot["status_data"] = None
+        robot["status"] = "offline"
         if status_row:
-            import json
             robot["status_data"] = json.loads(status_row["status_json"])
+            robot["status"] = "online"
     return ApiResponse(data={"robots": robots})
 
 
@@ -31,7 +34,6 @@ async def get_robot_status(robot_id: str, request: Request):
     status_row = await db.fetch_one("SELECT * FROM robot_status WHERE robot_id = ?", (robot_id,))
     if not status_row:
         return ApiResponse(code=3002, message=f"Robot {robot_id} status not found")
-    import json
     return ApiResponse(data={
         "robot_id": robot_id,
         "status": json.loads(status_row["status_json"]),

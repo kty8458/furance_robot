@@ -1,3 +1,6 @@
+import json
+import time
+
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from furance_shared.protocol.http_schema import ApiResponse
@@ -12,7 +15,6 @@ class SamplerCommand(BaseModel):
 
 @router.post("/command", response_model=ApiResponse)
 async def sampler_command(cmd: SamplerCommand, request: Request):
-    import time
     service = request.app.state.sampler_service
     if cmd.command == "start":
         result = await service.start()
@@ -28,7 +30,7 @@ async def sampler_command(cmd: SamplerCommand, request: Request):
         await db.execute(
             "INSERT OR REPLACE INTO sampler_status (id, status, progress, status_json, last_update) VALUES (1, ?, ?, ?, ?)",
             (result.data.get("status", "idle"), result.data.get("progress", 0),
-             str(result.data), now),
+             json.dumps(result.data), now),
         )
     return result
 
@@ -39,7 +41,6 @@ async def sampler_status(request: Request):
     row = await db.fetch_one("SELECT * FROM sampler_status WHERE id = 1")
     if not row:
         return ApiResponse(data={"status": "idle", "progress": 0})
-    import json
     return ApiResponse(data={
         "status": row["status"],
         "progress": row["progress"],

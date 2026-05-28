@@ -24,7 +24,13 @@ class StatusMonitor:
         client.on("alarm", lambda frame, rid=robot_id: self._on_alarm(rid, frame))
         client.on("workflow_step", lambda frame, rid=robot_id: self._on_workflow_step(rid, frame))
         self._clients[robot_id] = client
-        asyncio.ensure_future(client.connect())
+        asyncio.create_task(self._connect_client(robot_id, client))
+
+    async def _connect_client(self, robot_id: str, client: RobotWsClient):
+        try:
+            await client.connect()
+        except Exception as e:
+            logger.exception("WebSocket connection failed for robot %s: %s", robot_id, e)
 
     async def _on_status(self, robot_id: str, frame: dict):
         now = time.time()
@@ -88,6 +94,7 @@ class StatusMonitor:
                 "SELECT * FROM robot_status WHERE robot_id = ?", (robot["id"],)
             )
             robot["status_data"] = json.loads(status_row["status_json"]) if status_row else None
+            robot["status"] = "online" if status_row else "offline"
             result.append(robot)
         return result
 
