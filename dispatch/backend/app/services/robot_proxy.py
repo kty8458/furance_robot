@@ -15,8 +15,22 @@ class RobotProxyService:
         for robot in settings.robots:
             self._clients[robot.id] = RobotHttpClient(robot.control_url)
 
+    def set_db(self, db):
+        self._db = db
+
+    async def _get_or_create_client(self, robot_id: str) -> RobotHttpClient | None:
+        if robot_id in self._clients:
+            return self._clients[robot_id]
+        if hasattr(self, '_db') and self._db:
+            robot = await self._db.fetch_one("SELECT * FROM robots WHERE id = ?", (robot_id,))
+            if robot:
+                client = RobotHttpClient(robot["control_url"])
+                self._clients[robot_id] = client
+                return client
+        return None
+
     async def forward(self, robot_id: str, path: str, json: dict | None = None) -> ApiResponse:
-        client = self._clients.get(robot_id)
+        client = await self._get_or_create_client(robot_id)
         if not client:
             return ApiResponse(code=3002, message=f"Robot {robot_id} not found")
         try:
@@ -26,7 +40,7 @@ class RobotProxyService:
             return ApiResponse(code=1001, message=f"Robot {robot_id} 连接超时，控制系统不可达")
 
     async def forward_get(self, robot_id: str, path: str) -> ApiResponse:
-        client = self._clients.get(robot_id)
+        client = await self._get_or_create_client(robot_id)
         if not client:
             return ApiResponse(code=3002, message=f"Robot {robot_id} not found")
         try:

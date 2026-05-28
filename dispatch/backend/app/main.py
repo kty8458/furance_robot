@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI):
 
     # Services
     robot_proxy = RobotProxyService()
+    robot_proxy.set_db(db)
     sampler_service = SamplerService()
     alarm_service = AlarmService(db)
     status_monitor = StatusMonitor(db, alarm_service)
