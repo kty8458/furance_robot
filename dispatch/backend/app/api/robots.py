@@ -1,14 +1,8 @@
-import json
-import time
-
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 from furance_shared.protocol.http_schema import ApiResponse
-from app.services.robot_proxy import RobotProxyService
 
-router = APIRouter(prefix="/api/v1/dispatch", tags=["status"])
-
-_proxy = RobotProxyService()
+router = APIRouter(prefix="/api/v1/dispatch/robots", tags=["robots"])
 
 
 class RobotRegister(BaseModel):
@@ -18,30 +12,34 @@ class RobotRegister(BaseModel):
     ws_url: str
 
 
-@router.get("/robots", response_model=ApiResponse)
+@router.get("", response_model=ApiResponse)
 async def list_robots(request: Request):
     db = request.app.state.db
     robots = await db.fetch_all("SELECT * FROM robots")
-    if not robots:
-        return ApiResponse(data={"robots": []})
-    # Attach latest status from robot_status table
     for robot in robots:
         status_row = await db.fetch_one("SELECT * FROM robot_status WHERE robot_id = ?", (robot["id"],))
+        robot["status_data"] = None
         if status_row:
-            robot["status"] = {
-                "battery": status_row["battery"],
-                "charging": bool(status_row["charging"]),
-                "enabled": bool(status_row["enabled"]),
-                "error_code": status_row["error_code"],
-                "task_status": status_row["task_status"],
-                "updated_at": status_row["updated_at"],
-            }
-        else:
-            robot["status"] = None
+            import json
+            robot["status_data"] = json.loads(status_row["status_json"])
     return ApiResponse(data={"robots": robots})
 
 
-@router.post("/robots", response_model=ApiResponse)
+@router.get("/{robot_id}/status", response_model=ApiResponse)
+async def get_robot_status(robot_id: str, request: Request):
+    db = request.app.state.db
+    status_row = await db.fetch_one("SELECT * FROM robot_status WHERE robot_id = ?", (robot_id,))
+    if not status_row:
+        return ApiResponse(code=3002, message=f"Robot {robot_id} status not found")
+    import json
+    return ApiResponse(data={
+        "robot_id": robot_id,
+        "status": json.loads(status_row["status_json"]),
+        "updated_at": status_row["updated_at"],
+    })
+
+
+@router.post("", response_model=ApiResponse)
 async def register_robot(req: RobotRegister, request: Request):
     db = request.app.state.db
     existing = await db.fetch_one("SELECT id FROM robots WHERE id = ?", (req.id,))
@@ -51,10 +49,12 @@ async def register_robot(req: RobotRegister, request: Request):
         "INSERT INTO robots (id, name, control_url, ws_url) VALUES (?, ?, ?, ?)",
         (req.id, req.name, req.control_url, req.ws_url),
     )
+    if hasattr(request.app.state, 'status_monitor'):
+        await request.app.state.status_monitor.register_robot(req.id, req.ws_url)
     return ApiResponse(data={"id": req.id, "name": req.name})
 
 
-@router.delete("/robots/{robot_id}", response_model=ApiResponse)
+@router.delete("/{robot_id}", response_model=ApiResponse)
 async def delete_robot(robot_id: str, request: Request):
     db = request.app.state.db
     existing = await db.fetch_one("SELECT id FROM robots WHERE id = ?", (robot_id,))
