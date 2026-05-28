@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,8 @@ class WorkflowService:
         chassis_client=None,
         arm_service=None,
         workflow_dir: str = "data/workflows",
+        arm_enable_client=None,
+        status_service=None,
     ):
         self._ros2 = ros2_client
         self._moveit = moveit_client
@@ -42,6 +45,9 @@ class WorkflowService:
         self._chassis = chassis_client
         self._arm_service = arm_service
         self._workflow_dir = Path(workflow_dir)
+        self._arm_enable = arm_enable_client
+        self._status_service = status_service
+        self._active_executions: dict[str, asyncio.Event] = {}
 
     # -- CRUD --
 
@@ -99,7 +105,130 @@ class WorkflowService:
         if file_path.exists():
             file_path.unlink()
 
-    # -- Execution engine --
+    # -- Async execution engine (with cancellation) --
+
+    def start_execution(self, robot_id: str, name: str, execute_req: WorkflowExecuteRequest) -> str:
+        """Start workflow execution as a background task.
+
+        Returns execution_id (UUID string) for status tracking and cancellation.
+        """
+        workflow = self.get_workflow(robot_id, name)
+        execution_id = str(uuid.uuid4())
+        cancel_event = asyncio.Event()
+        self._active_executions[execution_id] = cancel_event
+        asyncio.create_task(self._run_workflow(execution_id, robot_id, workflow, execute_req, cancel_event))
+        return execution_id
+
+    async def _run_workflow(
+        self,
+        execution_id: str,
+        robot_id: str,
+        workflow: Workflow,
+        execute_req: WorkflowExecuteRequest,
+        cancel_event: asyncio.Event,
+    ) -> None:
+        try:
+            nav_lookup = {np.step_id: np for np in execute_req.nav_params}
+            context: dict[str, dict] = {}
+            step_results: list[StepResult] = []
+
+            for i, step in enumerate(workflow.steps):
+                if cancel_event.is_set():
+                    logger.info("Workflow '%s' execution '%s' cancelled at step %d/%d",
+                                workflow.name, execution_id, i + 1, len(workflow.steps))
+                    break
+
+                logger.info("Workflow '%s' step %d/%d: %s (%s)",
+                            workflow.name, i + 1, len(workflow.steps), step.label, step.type)
+
+                self._push_step(robot_id, {
+                    "execution_id": execution_id,
+                    "workflow_name": workflow.name,
+                    "step_index": i,
+                    "step_label": step.label,
+                    "step_type": step.type,
+                    "status": "running",
+                })
+
+                try:
+                    result = await self._dispatch_step(step, nav_lookup, context, robot_id)
+                    step_results.append(result)
+
+                    self._push_step(robot_id, {
+                        "execution_id": execution_id,
+                        "workflow_name": workflow.name,
+                        "step_index": i,
+                        "step_label": step.label,
+                        "step_type": step.type,
+                        "status": "completed" if result.success else "failed",
+                        "message": result.message,
+                    })
+                except Exception as exc:
+                    logger.exception("Workflow step '%s' error", step.label)
+                    step_results.append(StepResult(step_id=step.id, success=False, message=str(exc)))
+                    self._push_step(robot_id, {
+                        "execution_id": execution_id,
+                        "workflow_name": workflow.name,
+                        "step_index": i,
+                        "step_label": step.label,
+                        "step_type": step.type,
+                        "status": "failed",
+                        "message": str(exc),
+                    })
+        finally:
+            self._active_executions.pop(execution_id, None)
+
+    def cancel_workflow(self) -> bool:
+        """Cancel all active workflow executions.
+
+        Returns True if any executions were cancelled.
+        """
+        if not self._active_executions:
+            return False
+
+        cancelled = False
+        for cancel_event in self._active_executions.values():
+            cancel_event.set()
+            cancelled = True
+
+        if self._chassis is not None:
+            try:
+                asyncio.create_task(self._chassis.stop_task())
+            except Exception:
+                logger.exception("Failed to stop chassis task during workflow cancellation")
+
+        if self._arm_enable is not None:
+            try:
+                self._arm_enable.enable(False)
+            except Exception:
+                logger.exception("Failed to disable arm during workflow cancellation")
+            try:
+                self._arm_enable.clear_error()
+            except Exception:
+                logger.exception("Failed to clear arm error during workflow cancellation")
+
+        return cancelled
+
+    def get_execution_status(self, execution_id: str) -> dict:
+        """Return execution status for a given execution_id.
+
+        Returns dict with 'active' bool and 'execution_id' str.
+        """
+        active = execution_id in self._active_executions
+        return {
+            "execution_id": execution_id,
+            "active": active,
+        }
+
+    def _push_step(self, robot_id: str, payload: dict) -> None:
+        """Push a workflow step status update via status_service if available."""
+        if self._status_service is not None:
+            try:
+                self._status_service.push_workflow_step(robot_id, payload)
+            except Exception:
+                logger.exception("Failed to push workflow step status")
+
+    # -- Execution engine (legacy, synchronous-style) --
 
     async def execute_workflow(
         self, robot_id: str, name: str, execute_req: WorkflowExecuteRequest
