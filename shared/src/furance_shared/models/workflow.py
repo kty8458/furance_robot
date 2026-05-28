@@ -75,7 +75,9 @@ class StepResult(BaseModel):
 
 
 class WorkflowExecuteResponse(BaseModel):
-    success: bool
+    execution_id: str = ""
+    status: Literal["started", "running", "completed", "failed", "cancelled"] = "started"
+    success: bool = True
     message: str = ""
     step_results: list[StepResult] = []
     error_step_id: Optional[str] = None
