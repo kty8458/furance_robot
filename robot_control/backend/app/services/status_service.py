@@ -1,7 +1,9 @@
 import asyncio
 import time
 from fastapi import WebSocket
-from furance_shared.protocol.ws_frames import StatusFrame, ErrorFrame, WsFrameType
+from furance_shared.protocol.ws_frames import (
+    StatusFrame, ErrorFrame, WorkflowStepFrame, AlarmFrame, WsFrameType,
+)
 from furance_shared.models.robot import Position, GripperInfo, GripperState, ArmState
 
 
@@ -46,6 +48,22 @@ class StatusService:
         for ws in dead:
             if ws in self._connections:
                 self._connections.remove(ws)
+
+    async def push_workflow_step(self, robot_id: str, payload: dict):
+        frame = WorkflowStepFrame(
+            robot_id=robot_id,
+            timestamp=int(time.time() * 1000),
+            payload=payload,
+        )
+        await self._broadcast(frame.model_dump())
+
+    async def push_alarm(self, robot_id: str, payload: dict):
+        frame = AlarmFrame(
+            robot_id=robot_id,
+            timestamp=int(time.time() * 1000),
+            payload=payload,
+        )
+        await self._broadcast(frame.model_dump())
 
     @property
     def connection_count(self) -> int:
