@@ -168,13 +168,35 @@ async def execute_workflow(robot_id: str, name: str):
         {"id": "step_3", "label": "夹爪闭合", "total_steps": 4, "index": 3},
         {"id": "step_4", "label": "等待完成", "total_steps": 4, "index": 4},
     ]
-    active_executions[execution_id] = {"name": name, "status": "running"}
+    active_executions[execution_id] = {
+        "execution_id": execution_id,
+        "name": name,
+        "status": "running",
+        "active": True,
+        "current_step_index": 0,
+        "current_step_id": None,
+        "current_step_label": None,
+        "total_steps": len(workflow_steps),
+        "started_at": time.time(),
+        "completed_at": None,
+        "error_msg": None,
+    }
     asyncio.create_task(_run_mock_workflow(execution_id, name, workflow_steps))
     return {"code": 0, "message": "ok", "data": {"execution_id": execution_id, "status": "started"}}
 
 
 async def _run_mock_workflow(execution_id: str, name: str, steps: list[dict]):
+    state = active_executions[execution_id]
     for step in steps:
+        if state.get("status") == "cancelled":
+            state["active"] = False
+            state["completed_at"] = time.time()
+            return
+
+        state["current_step_index"] = step["index"]
+        state["current_step_id"] = step["id"]
+        state["current_step_label"] = step["label"]
+
         # Push "running"
         await _broadcast({
             "type": "workflow_step",
@@ -192,9 +214,16 @@ async def _run_mock_workflow(execution_id: str, name: str, steps: list[dict]):
             },
         })
 
-        # Simulate work
+        # Simulate work in 0.2s ticks so cancel responds quickly
         duration = random.uniform(config.step_duration_min, config.step_duration_max)
-        await asyncio.sleep(duration)
+        elapsed = 0.0
+        while elapsed < duration:
+            if state.get("status") == "cancelled":
+                state["active"] = False
+                state["completed_at"] = time.time()
+                return
+            await asyncio.sleep(0.2)
+            elapsed += 0.2
 
         # Random error
         if random.random() < config.error_probability:
@@ -213,7 +242,10 @@ async def _run_mock_workflow(execution_id: str, name: str, steps: list[dict]):
                     "data": {},
                 },
             })
-            active_executions[execution_id]["status"] = "failed"
+            state["status"] = "failed"
+            state["active"] = False
+            state["error_msg"] = f"Step failed: {step['label']}"
+            state["completed_at"] = time.time()
             return
 
         # Random alarm
@@ -250,7 +282,9 @@ async def _run_mock_workflow(execution_id: str, name: str, steps: list[dict]):
             },
         })
 
-    active_executions[execution_id]["status"] = "completed"
+    state["status"] = "completed"
+    state["active"] = False
+    state["completed_at"] = time.time()
 
 
 @mock_app.post("/api/v1/robot/{robot_id}/workflows/{name}/cancel")

@@ -11,9 +11,9 @@
   --tech-green: #00ff88;
   --tech-orange: #ff8c00;
   --tech-red: #ff3b5c;
-  --tech-text: #c8d6e5;
-  --tech-text-bright: #e8f0fe;
-  --tech-text-muted: #6b7b8d;
+  --tech-text: #e8f0fe;
+  --tech-text-bright: #ffffff;
+  --tech-text-muted: #a8b8cc;
   --tech-grid: #1a2332;
 }
 
@@ -159,10 +159,25 @@ body {
 .tech-card .el-card__header {
   border-bottom: 1px solid var(--tech-border) !important;
   padding: 14px 20px !important;
+  color: var(--tech-cyan) !important;
+  font-weight: 600;
+  letter-spacing: 1px;
 }
 
 .tech-card .el-card__body {
   color: var(--tech-text);
+}
+
+/* Element Plus card header default — applies to all cards even without tech-card class */
+.el-card__header {
+  color: var(--tech-text-bright) !important;
+  font-weight: 600;
+}
+
+.el-card__header span {
+  color: var(--tech-cyan) !important;
+  font-size: 14px;
+  letter-spacing: 1px;
 }
 
 /* ── Card Header ── */

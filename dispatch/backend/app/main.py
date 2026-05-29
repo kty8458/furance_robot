@@ -62,6 +62,17 @@ async def lifespan(app: FastAPI):
     for robot in robots:
         await status_monitor.register_robot(robot["id"], robot["ws_url"])
 
+    # Sweep orphaned executions left running/pending from a previous backend process
+    orphan_now = time.time()
+    await db.execute(
+        "UPDATE task_executions SET status = ?, completed_at = ?, error_msg = ? WHERE status IN ('running', 'pending')",
+        ("failed", orphan_now, "Backend restarted while running"),
+    )
+    await db.execute(
+        "UPDATE execution_step_logs SET status = ?, completed_at = ?, error_msg = ? WHERE status = ?",
+        ("failed", orphan_now, "Backend restarted while running", "running"),
+    )
+
     # Seed default alarm rules if empty
     rules = await db.fetch_all("SELECT id FROM alarm_rules")
     if not rules:

@@ -65,3 +65,25 @@ async def delete_robot(robot_id: str, request: Request):
     await db.execute("DELETE FROM robots WHERE id = ?", (robot_id,))
     await db.execute("DELETE FROM robot_status WHERE robot_id = ?", (robot_id,))
     return ApiResponse(data={"deleted": robot_id})
+
+
+@router.get("/{robot_id}/workflows", response_model=ApiResponse)
+async def list_robot_workflows(robot_id: str, request: Request):
+    proxy = request.app.state.robot_proxy
+    return await proxy.forward_get(robot_id, f"/api/v1/robot/{robot_id}/workflows")
+
+
+@router.get("/{robot_id}/workflows/{name}", response_model=ApiResponse)
+async def get_robot_workflow(robot_id: str, name: str, request: Request):
+    proxy = request.app.state.robot_proxy
+    return await proxy.forward_get(robot_id, f"/api/v1/robot/{robot_id}/workflows/{name}")
+
+
+@router.post("/{robot_id}/workflows/{name}/execute", response_model=ApiResponse)
+async def execute_robot_workflow(robot_id: str, name: str, request: Request):
+    proxy = request.app.state.robot_proxy
+    return await proxy.forward(
+        robot_id,
+        f"/api/v1/robot/{robot_id}/workflows/{name}/execute",
+        {"nav_params": []},
+    )

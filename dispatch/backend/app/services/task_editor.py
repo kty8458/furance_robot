@@ -18,7 +18,23 @@ class TaskEditor:
         return {"id": template.id, "name": template.name}
 
     async def list_all(self) -> list[dict]:
-        return await self._db.fetch_all("SELECT * FROM task_templates ORDER BY updated_at DESC")
+        rows = await self._db.fetch_all("SELECT * FROM task_templates ORDER BY updated_at DESC")
+        for row in rows:
+            row["robot_id"] = self._derive_robot_id(row.get("steps_json", "[]"))
+        return rows
+
+    @staticmethod
+    def _derive_robot_id(steps_json: str) -> str | None:
+        try:
+            steps = json.loads(steps_json)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        for step in steps:
+            cfg = step.get("config") or {}
+            rid = cfg.get("robot_id")
+            if rid:
+                return rid
+        return None
 
     async def get(self, template_id: str) -> dict | None:
         return await self._db.fetch_one("SELECT * FROM task_templates WHERE id = ?", (template_id,))

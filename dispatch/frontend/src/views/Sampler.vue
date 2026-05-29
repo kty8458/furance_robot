@@ -15,7 +15,7 @@
     </el-card>
     <el-card class="exec-card" style="margin-top: 16px;">
       <template #header><span>功能待定</span></template>
-      <p style="color: #6b7b8d;">制样机详细控制功能待后续确定</p>
+      <p style="color: var(--tech-text-muted);">制样机详细控制功能待后续确定</p>
     </el-card>
   </div>
 </template>
@@ -46,6 +46,6 @@ onMounted(fetchStatus)
 .page-title { color: #00d4ff; margin-bottom: 20px; }
 .exec-card { background: #0a1628; border: 1px solid #1a3a5c; }
 .status-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-.status-item label { display: block; font-size: 12px; color: #6b7b8d; }
-.status-item span { color: #e0e8f0; font-size: 14px; }
+.status-item label { display: block; font-size: 12px; color: var(--tech-text-muted); margin-bottom: 4px; }
+.status-item span { color: var(--tech-text-bright); font-size: 15px; font-weight: 500; }
 </style>
