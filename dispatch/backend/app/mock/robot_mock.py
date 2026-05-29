@@ -53,7 +53,18 @@ config = MockConfig()
 connections: list[WebSocket] = []
 active_executions: dict[str, dict] = {}
 
-mock_app = FastAPI(title="Mock Robot Control System")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    status_task = asyncio.create_task(status_pusher())
+    log_task = asyncio.create_task(log_pusher())
+    logger.info("Mock robot background pushers started")
+    yield
+    status_task.cancel()
+    log_task.cancel()
+
+
+mock_app = FastAPI(title="Mock Robot Control System", lifespan=lifespan)
 
 
 # Background task: push status periodically
