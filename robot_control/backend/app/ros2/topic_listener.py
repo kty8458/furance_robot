@@ -43,7 +43,7 @@ class RealRos2TopicListener(Ros2TopicListenerBase):
 
     STATUS_TOPIC = "/robot_status"
     DEFAULT_ROBOT_ID = "robot_001"
-    BROADCAST_INTERVAL_S = 0.5  # throttle hardware ~10Hz down to 2Hz for the UI
+    BROADCAST_INTERVAL_S = 1.0  # throttle to 1Hz, matching chassis poller
 
     def __init__(self, runtime):
         if not HAS_RCLPY:
