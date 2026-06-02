@@ -3,7 +3,6 @@ import logging
 import httpx
 from furance_shared.protocol.http_schema import ApiResponse
 from app.clients.robot_http import RobotHttpClient
-from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -11,9 +10,6 @@ logger = logging.getLogger(__name__)
 class RobotProxyService:
     def __init__(self):
         self._clients: dict[str, RobotHttpClient] = {}
-        settings = get_settings()
-        for robot in settings.robots:
-            self._clients[robot.id] = RobotHttpClient(robot.control_url)
 
     def set_db(self, db):
         self._db = db
