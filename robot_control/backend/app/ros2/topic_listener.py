@@ -112,6 +112,10 @@ class RealRos2TopicListener(Ros2TopicListenerBase):
             }
             data = {
                 "position": existing.get("position", {"x": 0.0, "y": 0.0, "theta": 0.0}),
+                "current_map": existing.get("current_map", ""),
+                "battery": existing.get("battery", 0),
+                "charging": existing.get("charging", False),
+                "lift_height": existing.get("lift_height", 0.0),
                 "gripper": existing.get("gripper") or {
                     "left": {"state": "open", "force": 0.0},
                     "right": {"state": "open", "force": 0.0},
