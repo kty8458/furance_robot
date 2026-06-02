@@ -20,6 +20,7 @@ from app.ros2.factory import create_ros2_components
 from app.services.status_service import StatusService
 from app.services.log_service import LogService
 from app.services.chassis_client import ChassisClient, MockChassisClient
+from app.services.chassis_poller import ChassisStatusPoller
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,11 @@ async def lifespan(app: FastAPI):
         chassis_client = MockChassisClient()
     app.state.chassis_client = chassis_client
 
+    # Chassis status poller (poll hardware status every 1s)
+    chassis_poller = ChassisStatusPoller(chassis_client, status_service)
+    await chassis_poller.start()
+    app.state.chassis_poller = chassis_poller
+
     logger.info(
         "Application started (ROS2_MODE=%s)",
         os.environ.get("ROS2_MODE", "mock"),
@@ -66,6 +72,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     await chassis_client.close()
+    await chassis_poller.stop()
     if components.runtime is not None:
         await components.log_collector.stop()
         await components.joint_state_listener.stop()
