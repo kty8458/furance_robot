@@ -22,7 +22,7 @@ class StatusService:
     def get_latest(self, robot_id: str) -> dict | None:
         return self._latest.get(robot_id)
 
-    def update_ros2_cache(self, robot_id: str, data: dict):
+    async def update_ros2_cache(self, robot_id: str, data: dict):
         """Store ROS2-originated data (arm, gripper, enabled, error_code).
         Called by topic_listener and joint_state_listener.
         Does NOT push — ChassisStatusPoller is the sole pusher."""
