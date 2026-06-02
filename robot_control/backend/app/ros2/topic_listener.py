@@ -102,31 +102,17 @@ class RealRos2TopicListener(Ros2TopicListenerBase):
             return
         self._last_broadcast_ts = now
         try:
-            # Robotstatus carries alarm/enable info. Joint angles and end-effector
-            # pose are owned by the joint_state_listener (which uses /joint_states
-            # + TF), so we merge rather than overwrite the arm field.
-            existing = self._status_service.get_latest(self.DEFAULT_ROBOT_ID) or {}
-            arm = existing.get("arm") or {
+            arm = {
                 "left": self._build_arm_state(msg.left_joint_positions, msg.left_tcp_pose),
                 "right": self._build_arm_state(msg.right_joint_positions, msg.right_tcp_pose),
             }
             data = {
-                "position": existing.get("position", {"x": 0.0, "y": 0.0, "theta": 0.0}),
-                "current_map": existing.get("current_map", ""),
-                "battery": existing.get("battery", 0),
-                "charging": existing.get("charging", False),
-                "lift_height": existing.get("lift_height", 0.0),
-                "gripper": existing.get("gripper") or {
-                    "left": {"state": "open", "force": 0.0},
-                    "right": {"state": "open", "force": 0.0},
-                },
                 "enabled": bool(msg.is_enabled),
                 "error_code": 1 if bool(msg.is_alarming) else 0,
-                "task_status": "idle",
                 "arm": arm,
             }
             self._runtime.call_async_in_loop(
-                self._status_service.push_status(self.DEFAULT_ROBOT_ID, data)
+                self._status_service.update_ros2_cache(self.DEFAULT_ROBOT_ID, data)
             )
         except Exception:
             logger.exception("Error processing Robotstatus message")

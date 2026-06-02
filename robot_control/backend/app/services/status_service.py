@@ -11,6 +11,7 @@ class StatusService:
     def __init__(self):
         self._connections: list[WebSocket] = []
         self._latest: dict[str, dict] = {}
+        self._ros2_cache: dict[str, dict] = {}
 
     def add_connection(self, ws: WebSocket):
         self._connections.append(ws)
@@ -20,6 +21,17 @@ class StatusService:
 
     def get_latest(self, robot_id: str) -> dict | None:
         return self._latest.get(robot_id)
+
+    def update_ros2_cache(self, robot_id: str, data: dict):
+        """Store ROS2-originated data (arm, gripper, enabled, error_code).
+        Called by topic_listener and joint_state_listener.
+        Does NOT push — ChassisStatusPoller is the sole pusher."""
+        cache = self._ros2_cache.get(robot_id) or {}
+        cache.update(data)
+        self._ros2_cache[robot_id] = cache
+
+    def get_ros2_cache(self, robot_id: str) -> dict:
+        return self._ros2_cache.get(robot_id) or {}
 
     async def push_status(self, robot_id: str, status_data: dict):
         self._latest[robot_id] = status_data

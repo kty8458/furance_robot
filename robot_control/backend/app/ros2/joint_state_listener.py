@@ -158,18 +158,6 @@ class RealJointStateListener(JointStateListenerBase):
             }
         }
 
-        existing = self._status_service.get_latest(self.DEFAULT_ROBOT_ID) or {}
-        # Preserve fields owned by other listeners (enabled / error_code from
-        # topic_listener, chassis position / gripper from their own sources).
-        merged = {
-            "position": existing.get("position", {"x": 0.0, "y": 0.0, "theta": 0.0}),
-            "gripper": existing.get("gripper") or {},
-            "enabled": existing.get("enabled", False),
-            "error_code": existing.get("error_code", 0),
-            "task_status": existing.get("task_status", "idle"),
-            **arm_data,
-        }
-
         self._runtime.call_async_in_loop(
-            self._status_service.push_status(self.DEFAULT_ROBOT_ID, merged)
+            self._status_service.update_ros2_cache(self.DEFAULT_ROBOT_ID, arm_data)
         )

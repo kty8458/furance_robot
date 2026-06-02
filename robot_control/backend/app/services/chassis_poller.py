@@ -54,7 +54,7 @@ class ChassisStatusPoller:
             await asyncio.sleep(POLL_INTERVAL)
 
     async def _merge_and_push(self, chassis_data: dict):
-        existing = self._status_service.get_latest(DEFAULT_ROBOT_ID) or {}
+        ros2 = self._status_service.get_ros2_cache(DEFAULT_ROBOT_ID)
 
         position = {
             "x": float(chassis_data.get("world_x", 0.0)),
@@ -64,18 +64,18 @@ class ChassisStatusPoller:
 
         merged = {
             "position": position,
-            "current_map": chassis_data.get("map_name", existing.get("current_map", "")),
-            "battery": int(chassis_data.get("battery_percentage", existing.get("battery", 0))),
+            "current_map": chassis_data.get("map_name", ""),
+            "battery": int(chassis_data.get("battery_percentage", 0)),
             "charging": bool(chassis_data.get("charge", 0)),
-            "lift_height": existing.get("lift_height", 0.0),
-            "gripper": existing.get("gripper", {
+            "lift_height": ros2.get("lift_height", 0.0),
+            "gripper": ros2.get("gripper", {
                 "left": {"state": "open", "force": 0.0},
                 "right": {"state": "open", "force": 0.0},
             }),
-            "enabled": existing.get("enabled", False),
-            "error_code": existing.get("error_code", 0),
-            "task_status": existing.get("task_status", "idle"),
-            "arm": existing.get("arm", {}),
+            "enabled": ros2.get("enabled", False),
+            "error_code": ros2.get("error_code", 0),
+            "task_status": ros2.get("task_status", "idle"),
+            "arm": ros2.get("arm", {}),
         }
 
         await self._status_service.push_status(DEFAULT_ROBOT_ID, merged)
