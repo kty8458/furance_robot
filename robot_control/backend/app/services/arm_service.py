@@ -5,7 +5,7 @@ from furance_shared.utils.errors import BusinessError, ErrorCode
 from app.models.teach import TeachPreset, TeachPresetSummary
 from app.ros2.service_client import Ros2ServiceClientBase, MockRos2ServiceClient
 from app.ros2.moveit_client import MoveItServiceClientBase
-from furance_shared.models.command import ArmMoveCommand, TeachSaveCommand, TeachExecCommand
+from furance_shared.models.command import ArmMoveCommand, TeachSaveCommand, TeachExecCommand, ArmMoveMethod
 from furance_shared.protocol.http_schema import ApiResponse
 
 
@@ -105,9 +105,11 @@ class ArmService:
                 code=ErrorCode.TEACH_NAME_NOT_FOUND,
             )
         preset_data = presets[key]
+        stored_method = preset_data.get("method", "moveJ")
+        method = cmd.method.value if cmd.method else stored_method
         move_cmd = ArmMoveCommand(
             arm=cmd.arm,
-            method=cmd.method,
+            method=method,
             joint_angles=preset_data.get("joint_angles"),
             position=preset_data.get("end_effector"),
             coordinate=preset_data.get("coordinate_frame", "base_link"),

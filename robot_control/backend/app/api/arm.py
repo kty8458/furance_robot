@@ -44,6 +44,7 @@ async def teach_save(robot_id: str, cmd: TeachSaveCommand, request: Request):
         _get_arm_service(request).save_teach(robot_id, TeachPreset(
             arm=cmd.arm, name=cmd.name, joint_angles=joint_angles,
             end_effector=end_effector, coordinate_frame=coordinate_frame,
+            method=cmd.method,
         ))
         return ApiResponse(data={"name": cmd.name})
     except FuranceError as e:
@@ -61,6 +62,7 @@ async def teach_update(robot_id: str, name: str, cmd: TeachSaveCommand, request:
         _get_arm_service(request).save_teach(robot_id, TeachPreset(
             arm=cmd.arm, name=name, joint_angles=joint_angles,
             end_effector=end_effector, coordinate_frame=coordinate_frame,
+            method=cmd.method,
         ), overwrite=True)
         return ApiResponse(data={"name": name})
     except FuranceError as e:

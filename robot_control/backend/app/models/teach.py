@@ -9,6 +9,7 @@ class TeachPreset(BaseModel):
     joint_angles: list[float] = Field(min_length=7, max_length=7)
     end_effector: dict = Field(default_factory=lambda: {"x": 0.0, "y": 0.0, "z": 0.0, "roll": 0.0, "pitch": 0.0, "yaw": 0.0})
     coordinate_frame: str = "base_link"
+    method: str = "moveJ"
 
 
 class TeachPresetSummary(BaseModel):

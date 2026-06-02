@@ -65,12 +65,13 @@ class ArmMoveCommand(BaseModel):
 class TeachSaveCommand(BaseModel):
     arm: ArmSide
     name: str = Field(min_length=1, max_length=64)
+    method: ArmMoveMethod = ArmMoveMethod.MOVEJ
 
 
 class TeachExecCommand(BaseModel):
     arm: ArmSide
     name: str = Field(min_length=1, max_length=64)
-    method: ArmMoveMethod = ArmMoveMethod.MOVEJ
+    method: Optional[ArmMoveMethod] = None
 
 
 class WaistControlCommand(BaseModel):
