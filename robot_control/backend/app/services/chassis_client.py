@@ -172,6 +172,11 @@ class ChassisClient:
         await self._ensure_token()
         return await self._request("POST", "/cmd/recharge", json={"map_name": map_name, "point_name": point_name})
 
+    async def get_hardware_status(self) -> dict[str, Any]:
+        """Poll chassis hardware status (position, battery, charge, map)."""
+        await self._ensure_token()
+        return await self._request("GET", "/real_time_data/robot_hardware_status")
+
 
 class MockChassisClient:
     """Mock chassis client for development without hardware."""
@@ -219,3 +224,17 @@ class MockChassisClient:
 
     async def recharge(self, map_name: str, point_name: str) -> dict[str, Any]:
         return {"success": True, "message": "ok"}
+
+    async def get_hardware_status(self) -> dict[str, Any]:
+        import random
+        return {
+            "success": True, "message": "ok",
+            "data": {
+                "world_x": round(random.uniform(-5, 5), 2),
+                "world_y": round(random.uniform(-5, 5), 2),
+                "theta": round(random.uniform(-3.14, 3.14), 2),
+                "battery_percentage": random.randint(30, 95),
+                "charge": random.choice([0, 1]),
+                "map_name": "workshop_map",
+            },
+        }
