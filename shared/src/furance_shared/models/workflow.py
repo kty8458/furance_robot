@@ -6,6 +6,10 @@ StepType = Literal["move", "upper_limb", "upper_body", "gripper", "vision", "sle
 
 class MoveStepConfig(BaseModel):
     mode: Literal["point", "path"] = "point"
+    map_name: Optional[str] = None
+    point_name: Optional[str] = None
+    path_name: Optional[str] = None
+    path_type: str = "NavigationPointTask"
 
 
 class UpperLimbStepConfig(BaseModel):

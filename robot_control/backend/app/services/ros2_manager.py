@@ -69,10 +69,13 @@ class Ros2Manager:
             ])
         return _check_result(result)
 
-    async def start_node(self, node_name: str) -> ApiResponse:
-        result = await self._ros2.call_service("/NodeStart", {"name": node_name})
+    async def start_node(self, node_name: str, args: dict | None = None) -> ApiResponse:
+        request = {"name": node_name}
+        if args:
+            request["args"] = args
+        result = await self._ros2.call_service("/NodeStart", request)
         if self._is_mock:
-            return ApiResponse(data={"name": node_name, "status": "running"})
+            return ApiResponse(data={"name": node_name, "status": "running", "args": args or {}})
         return _check_result(result)
 
     async def stop_node(self, node_name: str) -> ApiResponse:

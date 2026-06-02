@@ -13,6 +13,7 @@ NODE_REGISTRY = {
     'gripper_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'gripper_node'},
     'command_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'command_node'},
     't1_moveit': {'type': 'launch', 'package': 't1_moveit_config', 'launch_file': 't1_moveit_headless.launch.py', 'args': {'use_sim': 'false', 'rviz': 'false'}},
+    'vision_cameras': {'type': 'launch', 'package': 'python_pkgs', 'launch_file': 'three_cameras.launch.py', 'args': {'enable_camera_1': 'true', 'enable_camera_2': 'false', 'enable_camera_3': 'false', 'enable_rviz': 'false'}},
 }
 
 SELF_MANAGED = True
@@ -44,10 +45,13 @@ class NodeManager(Node):
         self._status_srv = self.create_service(GenericCommand, '/NodeStatus', self._handle_status)
         self._logs_srv = self.create_service(GenericCommand, '/GetNodeLogDir', self._handle_log_dir)
 
-    def _build_cmd(self, name: str, info: dict) -> list[str]:
+    def _build_cmd(self, name: str, info: dict, launch_args: dict | None = None) -> list[str]:
         if info['type'] == 'launch':
             cmd = ['stdbuf', '-oL', 'ros2', 'launch', info['package'], info['launch_file']]
-            for k, v in info.get('args', {}).items():
+            args = dict(info.get('args', {}))
+            if launch_args:
+                args.update(launch_args)
+            for k, v in args.items():
                 cmd.append(f'{k}:={v}')
             return cmd
         else:
@@ -115,7 +119,8 @@ class NodeManager(Node):
             return response
 
         info = NODE_REGISTRY[name]
-        cmd = self._build_cmd(name, info)
+        launch_args = params.get('args', {}) if isinstance(params.get('args', {}), dict) else {}
+        cmd = self._build_cmd(name, info, launch_args)
         self.get_logger().info(f'NodeStart: starting {name} with {" ".join(cmd)}')
 
         try:

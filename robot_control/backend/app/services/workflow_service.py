@@ -132,6 +132,23 @@ class WorkflowService:
             context: dict[str, dict] = {}
             step_results: list[StepResult] = []
 
+            # Pre-validate navigation targets against chassis
+            nav_targets = await self._fetch_nav_targets(robot_id, workflow, nav_lookup)
+            invalid = [t for t in nav_targets if not t["valid"]]
+            if invalid:
+                names = ", ".join(f"{t['step_id']}→{t['name']}" for t in invalid)
+                logger.error("Workflow '%s' invalid nav targets: %s", workflow.name, names)
+                await self._push_step(robot_id, {
+                    "execution_id": execution_id,
+                    "workflow_name": workflow.name,
+                    "step_id": "pre_check",
+                    "step_index": 0,
+                    "total_steps": len(workflow.steps),
+                    "status": "failed",
+                    "message": f"Invalid navigation targets: {names}",
+                })
+                return
+
             for i, step in enumerate(workflow.steps):
                 if cancel_event.is_set():
                     logger.info("Workflow '%s' execution '%s' cancelled at step %d/%d",
@@ -281,24 +298,90 @@ class WorkflowService:
             return StepResult(step_id=step.id, success=False, message=f"Unknown step type: {step.type}")
         return await handler(step, nav_lookup, context, robot_id)
 
+    async def _fetch_nav_targets(
+        self, robot_id: str, workflow: Workflow, nav_lookup: dict,
+    ) -> list[dict]:
+        """Validate navigation targets referenced by move steps exist on the chassis."""
+        targets: list[dict] = []
+        if self._chassis is None:
+            return targets
+
+        move_steps: list[tuple[str, MoveStepConfig]] = []
+        for step in workflow.steps:
+            if step.type == "move":
+                cfg = MoveStepConfig(**step.config)
+                move_steps.append((step.id, cfg))
+
+        if not move_steps:
+            return targets
+
+        try:
+            points_cache: dict[str, set[str]] = {}
+            paths_cache: dict[str, set[str]] = {}
+
+            for step_id, cfg in move_steps:
+                # Merge external nav_params (priority) with step config
+                nav = nav_lookup.get(step_id)
+                map_name = (nav.map_name if nav else None) or cfg.map_name
+                point_name = (nav.point_name if nav else None) or cfg.point_name
+                path_name = (nav.path_name if nav else None) or cfg.path_name
+
+                if not map_name or (not point_name and not path_name):
+                    continue
+
+                if map_name not in points_cache:
+                    result = await self._chassis.get_positions(map_name, "point")
+                    points_cache[map_name] = (
+                        {p.get("name") for p in result.get("data", [])}
+                        if result.get("success") else set()
+                    )
+                    result = await self._chassis.get_record_paths(map_name)
+                    paths_cache[map_name] = (
+                        {p.get("name") for p in result.get("data", [])}
+                        if result.get("success") else set()
+                    )
+
+                if point_name and point_name in points_cache.get(map_name, set()):
+                    targets.append({"step_id": step_id, "name": point_name, "valid": True, "type": "point"})
+                elif path_name and path_name in paths_cache.get(map_name, set()):
+                    targets.append({"step_id": step_id, "name": path_name, "valid": True, "type": "path"})
+                else:
+                    target_name = point_name or path_name
+                    target_type = "point" if point_name else "path"
+                    targets.append({"step_id": step_id, "name": target_name, "valid": False, "type": target_type})
+        except Exception as e:
+            logger.warning("Navigation target validation failed: %s", e)
+
+        return targets
+
     async def _execute_move(self, step, nav_lookup, context, robot_id) -> StepResult:
         if self._chassis is None:
             return StepResult(step_id=step.id, success=False, message="Chassis client not available")
 
-        nav = nav_lookup.get(step.id)
-        if nav is None:
-            return StepResult(step_id=step.id, success=False, message="Navigation params not provided for this step")
-
         config = MoveStepConfig(**step.config)
+        nav = nav_lookup.get(step.id)
+
+        map_name = (nav.map_name if nav else None) or config.map_name
+        point_name = (nav.point_name if nav else None) or config.point_name
+        path_name = (nav.path_name if nav else None) or config.path_name
+        path_type = (nav.path_type if nav else None) or config.path_type
+
+        if not map_name or (not point_name and not path_name):
+            return StepResult(
+                step_id=step.id,
+                success=False,
+                message=f"Move step '{step.id}' missing map_name/point_name (configure in workflow or pass nav_params)",
+            )
+
         task_body = {
-            "map_name": nav.map_name,
+            "map_name": map_name,
             "loop": False,
             "tasks": [{
-                "name": nav.path_type,
+                "name": path_type,
                 "start_param": {
-                    "map_name": nav.map_name,
-                    "position_name": nav.point_name or "",
-                    "path_name": nav.path_name or "",
+                    "map_name": map_name,
+                    "position_name": point_name or "",
+                    "path_name": path_name or "",
                 },
             }],
         }

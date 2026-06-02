@@ -133,7 +133,7 @@ body {
 /* ── Main Content Area ── */
 .tech-main {
   background: var(--tech-bg) !important;
-  padding: 0 !important;
+  padding: 20px !important;
   overflow-y: auto;
 }
 

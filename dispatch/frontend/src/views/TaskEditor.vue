@@ -69,6 +69,41 @@
                   :value="wf.name"
                 />
               </el-select>
+              <el-popover
+                v-if="step._wfDetail"
+                placement="bottom-start"
+                :width="380"
+                trigger="click"
+              >
+                <template #reference>
+                  <el-button size="small" link type="primary" style="margin-left: 4px;">
+                    {{ step._wfDetail.steps?.length || 0 }} 个子任务
+                  </el-button>
+                </template>
+                <div class="wf-steps-list">
+                  <div
+                    v-for="(ws, wsi) in step._wfDetail.steps || []"
+                    :key="ws.id || wsi"
+                    class="wf-step-item"
+                  >
+                    <div class="wf-step-head">
+                      <el-tag :type="wfStepTypeTag(ws.type)" size="small">{{ ws.type }}</el-tag>
+                      <span class="wf-step-label">{{ ws.label || ws.id }}</span>
+                    </div>
+                    <div v-if="formatStepParams(ws.config).length" class="wf-step-params">
+                      <span
+                        v-for="(p, pi) in formatStepParams(ws.config)"
+                        :key="pi"
+                        class="wf-param"
+                      >
+                        <span class="wf-param-k">{{ p.k }}:</span>
+                        <span class="wf-param-v">{{ p.v }}</span>
+                      </span>
+                    </div>
+                  </div>
+                  <div v-if="!step._wfDetail.steps?.length" class="muted">暂无子步骤</div>
+                </div>
+              </el-popover>
             </template>
 
             <!-- 制样机 -->
@@ -176,10 +211,31 @@ async function onRobotChange(step) {
   step._loading = false
 }
 
-function onWorkflowChange(step) {
+async function onWorkflowChange(step) {
   const list = workflowsByRobot.value[step.config.robot_id] || []
   const wf = list.find(w => w.name === step.config.workflow_name)
   if (wf) step.label = wf.description || wf.name
+  step._wfDetail = null
+  if (step.config.robot_id && step.config.workflow_name) {
+    try {
+      const r = await api.get(`/dispatch/robots/${step.config.robot_id}/workflows/${step.config.workflow_name}`)
+      step._wfDetail = r.data || null
+    } catch (e) {
+      step._wfDetail = null
+    }
+  }
+}
+
+function wfStepTypeTag(t) {
+  return { move: '', upper_limb: 'primary', gripper: 'warning', sleep: 'info' }[t] || ''
+}
+
+function formatStepParams(cfg) {
+  if (!cfg || typeof cfg !== 'object') return []
+  return Object.entries(cfg).map(([k, v]) => ({
+    k,
+    v: typeof v === 'object' ? JSON.stringify(v) : String(v),
+  }))
 }
 
 async function editTemplate(row) {
@@ -194,6 +250,17 @@ async function editTemplate(row) {
   // preload workflows for any referenced robots
   const robotIds = [...new Set(steps.filter(s => s.type === 'workflow' && s.config?.robot_id).map(s => s.config.robot_id))]
   await Promise.all(robotIds.map(loadWorkflows))
+  // preload workflow details
+  for (const s of steps) {
+    if (s.type === 'workflow' && s.config?.robot_id && s.config?.workflow_name) {
+      try {
+        const r = await api.get(`/dispatch/robots/${s.config.robot_id}/workflows/${s.config.workflow_name}`)
+        s._wfDetail = r.data || null
+      } catch (e) {
+        s._wfDetail = null
+      }
+    }
+  }
   showDialog.value = true
 }
 
@@ -242,4 +309,13 @@ onMounted(() => {
 .page-title { color: var(--tech-cyan); margin-bottom: 20px; }
 .tech-table { background: var(--tech-bg-card); }
 .step-row { display: flex; align-items: center; margin-bottom: 8px; }
+.wf-steps-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
+.wf-step-item { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border: 1px solid var(--tech-border, #1a3a5c); border-radius: 4px; }
+.wf-step-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.wf-step-label { color: var(--tech-text, #e8f0fe); font-weight: 500; }
+.wf-step-params { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; padding-left: 2px; }
+.wf-param { white-space: nowrap; }
+.wf-param-k { color: var(--tech-text-muted, #a8b8cc); margin-right: 3px; }
+.wf-param-v { color: var(--tech-cyan, #00d4ff); }
+.muted { color: var(--tech-text-muted, #a8b8cc); font-size: 13px; }
 </style>
