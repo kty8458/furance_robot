@@ -2,7 +2,7 @@
   <div>
     <h2 class="page-title">状态显示</h2>
     <el-row :gutter="20">
-      <el-col :span="12" v-for="robot in robots" :key="robot.id">
+      <el-col :span="24" v-for="robot in robots" :key="robot.id">
         <el-card class="status-card" :class="{ offline: robot.status === 'offline' }">
           <template #header>
             <div class="card-header">
@@ -24,41 +24,41 @@
             <div class="status-item"><label>手臂R</label><span>{{ robot.status_data.arm?.right?.status }}</span></div>
             <div class="status-item"><label>错误码</label><span>{{ robot.status_data.error_code }}</span></div>
           </div>
-          <div v-if="robot.status_data" style="margin-top: 16px;">
-            <el-collapse>
-              <el-collapse-item title="左臂关节" name="left">
-                <div class="joint-grid" v-if="robot.status_data.arm?.left">
-                  <div class="joint-item" v-for="(v, i) in robot.status_data.arm.left.joint_angles" :key="'lj'+i">
-                    <label>J{{ i+1 }}</label><span>{{ v?.toFixed(2) }}°</span>
-                  </div>
+          <div v-if="robot.status_data" class="arm-section">
+            <div class="arm-side" v-if="robot.status_data.arm?.left">
+              <div class="arm-title">左臂关节</div>
+              <div class="joint-grid">
+                <div class="joint-item" v-for="(v, i) in robot.status_data.arm.left.joint_angles" :key="'lj'+i">
+                  <label>J{{ i+1 }}</label><span>{{ v?.toFixed(2) }}°</span>
                 </div>
-                <div class="ee-pose" v-if="robot.status_data.arm?.left?.end_effector">
-                  <span class="ee-label">末端位姿:</span>
-                  x{{ robot.status_data.arm.left.end_effector.x?.toFixed(1) }}
-                  y{{ robot.status_data.arm.left.end_effector.y?.toFixed(1) }}
-                  z{{ robot.status_data.arm.left.end_effector.z?.toFixed(1) }}
-                  R{{ robot.status_data.arm.left.end_effector.roll?.toFixed(1) }}
-                  P{{ robot.status_data.arm.left.end_effector.pitch?.toFixed(1) }}
-                  Y{{ robot.status_data.arm.left.end_effector.yaw?.toFixed(1) }}
+              </div>
+              <div class="joint-grid" v-if="robot.status_data.arm.left.end_effector">
+                <div class="joint-item"><label>x</label><span>{{ robot.status_data.arm.left.end_effector.x?.toFixed(1) }}</span></div>
+                <div class="joint-item"><label>y</label><span>{{ robot.status_data.arm.left.end_effector.y?.toFixed(1) }}</span></div>
+                <div class="joint-item"><label>z</label><span>{{ robot.status_data.arm.left.end_effector.z?.toFixed(1) }}</span></div>
+                <div class="joint-item"><label>R</label><span>{{ robot.status_data.arm.left.end_effector.roll?.toFixed(1) }}</span></div>
+                <div class="joint-item"><label>P</label><span>{{ robot.status_data.arm.left.end_effector.pitch?.toFixed(1) }}</span></div>
+                <div class="joint-item"><label>Y</label><span>{{ robot.status_data.arm.left.end_effector.yaw?.toFixed(1) }}</span></div>
+                <div class="joint-item"><label>参考坐标系</label><span>{{ robot.status_data.arm.left.coordinate_frame || 'base_link' }}</span></div>
+              </div>
+            </div>
+            <div class="arm-side" v-if="robot.status_data.arm?.right">
+              <div class="arm-title">右臂关节</div>
+              <div class="joint-grid">
+                <div class="joint-item" v-for="(v, i) in robot.status_data.arm.right.joint_angles" :key="'rj'+i">
+                  <label>J{{ i+1 }}</label><span>{{ v?.toFixed(2) }}°</span>
                 </div>
-              </el-collapse-item>
-              <el-collapse-item title="右臂关节" name="right">
-                <div class="joint-grid" v-if="robot.status_data.arm?.right">
-                  <div class="joint-item" v-for="(v, i) in robot.status_data.arm.right.joint_angles" :key="'rj'+i">
-                    <label>J{{ i+1 }}</label><span>{{ v?.toFixed(2) }}°</span>
-                  </div>
-                </div>
-                <div class="ee-pose" v-if="robot.status_data.arm?.right?.end_effector">
-                  <span class="ee-label">末端位姿:</span>
-                  x{{ robot.status_data.arm.right.end_effector.x?.toFixed(1) }}
-                  y{{ robot.status_data.arm.right.end_effector.y?.toFixed(1) }}
-                  z{{ robot.status_data.arm.right.end_effector.z?.toFixed(1) }}
-                  R{{ robot.status_data.arm.right.end_effector.roll?.toFixed(1) }}
-                  P{{ robot.status_data.arm.right.end_effector.pitch?.toFixed(1) }}
-                  Y{{ robot.status_data.arm.right.end_effector.yaw?.toFixed(1) }}
-                </div>
-              </el-collapse-item>
-            </el-collapse>
+              </div>
+              <div class="joint-grid" v-if="robot.status_data.arm.right.end_effector">
+                <div class="joint-item"><label>x</label><span>{{ robot.status_data.arm.right.end_effector.x?.toFixed(1) }}</span></div>
+                <div class="joint-item"><label>y</label><span>{{ robot.status_data.arm.right.end_effector.y?.toFixed(1) }}</span></div>
+                <div class="joint-item"><label>z</label><span>{{ robot.status_data.arm.right.end_effector.z?.toFixed(1) }}</span></div>
+                <div class="joint-item"><label>R</label><span>{{ robot.status_data.arm.right.end_effector.roll?.toFixed(1) }}</span></div>
+                <div class="joint-item"><label>P</label><span>{{ robot.status_data.arm.right.end_effector.pitch?.toFixed(1) }}</span></div>
+                <div class="joint-item"><label>Y</label><span>{{ robot.status_data.arm.right.end_effector.yaw?.toFixed(1) }}</span></div>
+                <div class="joint-item"><label>参考坐标系</label><span>{{ robot.status_data.arm.right.coordinate_frame || 'base_link' }}</span></div>
+              </div>
+            </div>
           </div>
           <div v-else class="no-data">等待数据...</div>
         </el-card>
@@ -113,9 +113,10 @@ onUnmounted(() => {
 .status-item label { display: block; font-size: 12px; color: var(--tech-text-muted); margin-bottom: 4px; }
 .status-item span { color: var(--tech-text-bright); font-size: 15px; font-weight: 500; }
 .no-data { color: var(--tech-text-muted); text-align: center; padding: 20px; }
+.arm-section { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+.arm-side { background: var(--tech-bg-card); border: 1px solid var(--tech-border); border-radius: 6px; padding: 12px; }
+.arm-title { font-size: 13px; color: var(--tech-cyan); font-weight: 600; margin-bottom: 8px; }
 .joint-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 8px; }
 .joint-item label { display: block; font-size: 10px; color: var(--tech-text-muted); }
 .joint-item span { color: var(--tech-text-bright); font-size: 13px; font-family: 'Consolas', monospace; }
-.ee-pose { font-size: 12px; color: var(--tech-text-muted); font-family: 'Consolas', monospace; word-break: break-all; }
-.ee-label { color: var(--tech-cyan); margin-right: 6px; }
 </style>
