@@ -148,7 +148,7 @@
                       </el-col>
                       <el-col :span="8">
                         <div style="font-size: 11px; color: #6b7b8d">手臂</div>
-                        <el-select v-model="step.config.arm" size="small" style="width: 100%">
+                        <el-select v-model="step.config.arm" size="small" style="width: 100%" @change="step.config.preset_name = ''">
                           <el-option label="左臂" value="left" />
                           <el-option label="右臂" value="right" />
                         </el-select>
@@ -163,8 +163,22 @@
                       </el-col>
                     </el-row>
                     <template v-if="step.config.mode === 'preset'">
-                      <div style="font-size: 11px; color: #6b7b8d">预设位名称</div>
-                      <el-input v-model="step.config.preset_name" placeholder="示教点名称" size="small" style="width: 200px" />
+                      <div style="font-size: 11px; color: #6b7b8d">预设位</div>
+                      <el-select
+                        v-model="step.config.preset_name"
+                        size="small"
+                        style="width: 280px"
+                        filterable
+                        placeholder="选择示教点位"
+                        @change="name => onPresetChange(step, name)"
+                      >
+                        <el-option
+                          v-for="p in teachPresets.filter(t => t.arm === step.config.arm)"
+                          :key="p.arm + '_' + p.name"
+                          :label="`${p.name}  (${p.method || 'moveJ'})`"
+                          :value="p.name"
+                        />
+                      </el-select>
                     </template>
                     <template v-else>
                       <div style="font-size: 11px; color: #6b7b8d">参考坐标系</div>
@@ -333,6 +347,7 @@ import { workflowApi } from '../api/workflow'
 import { ElMessage } from 'element-plus'
 import { List, Plus, Edit, Delete, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
 import { navigationApi } from '../api/navigation'
+import { armApi } from '../api/arm'
 
 const stepTypes = [
   { type: 'move', label: '移动', icon: 'MapLocation' },
@@ -357,6 +372,7 @@ const navMaps = ref([])
 const execNavParams = reactive({})
 const execNavPoints = reactive({})
 const manualNavPoints = reactive({})
+const teachPresets = ref([])
 
 let stepCounter = 0
 
@@ -383,7 +399,25 @@ const hasMoveSteps = computed(() => {
   return currentWorkflow.value?.steps?.some(s => s.type === 'move')
 })
 
-onMounted(refreshList)
+onMounted(() => {
+  refreshList()
+  loadTeachPresets()
+})
+
+async function loadTeachPresets() {
+  try {
+    const r = await armApi.teachList()
+    const payload = r.data
+    teachPresets.value = payload?.data || payload || []
+  } catch {
+    teachPresets.value = []
+  }
+}
+
+function onPresetChange(step, name) {
+  const p = teachPresets.value.find(t => t.arm === step.config.arm && t.name === name)
+  if (p) step.config.method = p.method || 'moveJ'
+}
 
 function stepTagType(type) {
   const map = { move: '', upper_limb: 'success', upper_body: 'warning', gripper: 'danger', vision: 'info', sleep: '' }
