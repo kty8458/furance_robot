@@ -20,6 +20,9 @@ left_arm_controller:
     - ARM-L-J5_Joint
     - ARM-L-J6_Joint
     - ARM-L-J7_Joint
+  constraints:
+    stopped_velocity_tolerance: 0.05
+    goal_time: 0.0
 right_arm_controller:
   type: FollowJointTrajectory
   action_ns: follow_joint_trajectory
@@ -32,6 +35,9 @@ right_arm_controller:
     - ARM-R-J5_Joint
     - ARM-R-J6_Joint
     - ARM-R-J7_Joint
+  constraints:
+    stopped_velocity_tolerance: 0.05
+    goal_time: 0.0
 both_arm_controller:
   type: FollowJointTrajectory
   action_ns: follow_joint_trajectory
@@ -51,3 +57,6 @@ both_arm_controller:
     - ARM-R-J5_Joint
     - ARM-R-J6_Joint
     - ARM-R-J7_Joint
+  constraints:
+    stopped_velocity_tolerance: 0.05
+    goal_time: 0.0
