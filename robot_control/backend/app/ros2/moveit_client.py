@@ -234,6 +234,13 @@ class RealMoveItServiceClient(MoveItServiceClientBase):
 
         start_rad = [self._joint_positions[n] for n in names]
 
+        # 根据实际关节角度变化自动缩放 trajectory 的 time_from_start，
+        # 使 MoveIt 的 allowed_execution_duration_scaling 能给硬件足够窗口。
+        # 物理臂 ~0.3 rad/s，floor 至 caller 传入的 duration，+1s 缓冲。
+        max_delta = max(abs(t - s) for t, s in zip(target_rad, start_rad))
+        scaled_duration = max(duration, max_delta / 0.3 + 1.0)
+        logger.info("move_j max_delta=%.3f rad, scaled_duration=%.1fs", max_delta, scaled_duration)
+
         traj = JointTrajectory()
         traj.joint_names = names
 
@@ -248,8 +255,8 @@ class RealMoveItServiceClient(MoveItServiceClientBase):
         end_point = JointTrajectoryPoint()
         end_point.positions = target_rad
         end_dur = Duration()
-        end_dur.sec = int(duration)
-        end_dur.nanosec = int((duration - int(duration)) * 1e9)
+        end_dur.sec = int(scaled_duration)
+        end_dur.nanosec = int((scaled_duration - int(scaled_duration)) * 1e9)
         end_point.time_from_start = end_dur
         traj.points.append(end_point)
 
