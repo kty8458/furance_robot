@@ -157,17 +157,19 @@ def launch_setup(context, *args, **kwargs):
         "moveit_simple_controller_manager": controllers_yaml,
         "moveit_controller_manager": "moveit_simple_controller_manager/MoveItSimpleControllerManager",
         "trajectory_execution" : {
-            "allowed_execution_duration_scaling": 2.0,  # change execution time scaling here
-            "allowed_goal_duration_margin": 0.5,
-            "allowed_start_tolerance": 0.01,
+            "allowed_execution_duration_scaling": 5.0,
+            "allowed_goal_duration_margin": 5.0,
+            "allowed_start_tolerance": 0.05,
+            "execution_duration_monitoring": False,
         }
     }
 
     trajectory_execution = {
         "moveit_manage_controllers": False,
-        "trajectory_execution.allowed_execution_duration_scaling": 1.2,
-        "trajectory_execution.allowed_goal_duration_margin": 0.5,
-        "trajectory_execution.allowed_start_tolerance": 0.01,
+        "trajectory_execution.allowed_execution_duration_scaling": 5.0,
+        "trajectory_execution.allowed_goal_duration_margin": 5.0,
+        "trajectory_execution.allowed_start_tolerance": 0.05,
+        "trajectory_execution.execution_duration_monitoring": False,
     }
 
     planning_scene_monitor_parameters = {

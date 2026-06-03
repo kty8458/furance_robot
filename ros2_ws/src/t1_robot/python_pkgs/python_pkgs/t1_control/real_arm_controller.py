@@ -17,8 +17,8 @@ RIGHT_JOINT_NAMES = [f'ARM-R-J{i}_Joint' for i in range(1, 8)]
 
 # 位置到达阈值（弧度），所有关节均在此范围内认为到位
 POSITION_THRESHOLD = 0.05  # ~2.9°
-# 单个 waypoint 等待到位的超时（秒）
-WAYPOINT_TIMEOUT = 30.0
+# 单个 waypoint 等待到位的超时（秒） — 大角度运动需要更长时间
+WAYPOINT_TIMEOUT = 60.0
 # 到位检查轮询间隔
 POLL_INTERVAL = 0.1
 
