@@ -1,7 +1,7 @@
 <template>
   <div class="tech-page">
     <el-row :gutter="16">
-      <!-- Left column: status + teach management -->
+      <!-- Left column: enable + upper body -->
       <el-col :xs="24" :sm="12" :md="10">
         <!-- Enable & arm status -->
         <el-card class="tech-card" style="margin-bottom: 16px">
@@ -38,8 +38,8 @@
           </div>
         </el-card>
 
-        <!-- Upper body control (waist + head) -->
-        <el-card class="tech-card" style="margin-bottom: 16px">
+        <!-- Upper body control -->
+        <el-card class="tech-card">
           <template #header>
             <div class="tech-card-header">
               <el-icon><Operation /></el-icon>
@@ -107,72 +107,9 @@
             </div>
           </div>
         </el-card>
-
-        <!-- Teach management -->
-        <el-card class="tech-card">
-          <template #header>
-            <div class="tech-card-header">
-              <el-icon><Files /></el-icon>
-              <span style="margin-left: 8px">示教管理</span>
-            </div>
-          </template>
-          <el-form :inline="true" size="small" style="margin-bottom: 10px">
-            <el-form-item label="手臂">
-              <el-select v-model="teachForm.arm" style="width: 80px">
-                <el-option label="左臂" value="left" />
-                <el-option label="右臂" value="right" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="名称">
-              <el-input v-model="teachForm.name" placeholder="预设位" style="width: 120px" />
-            </el-form-item>
-            <el-form-item>
-              <el-button type="success" size="small" @click="handleTeachSave">保存</el-button>
-            </el-form-item>
-            <el-form-item>
-              <el-button size="small" @click="refreshTeachList">刷新</el-button>
-            </el-form-item>
-          </el-form>
-          <el-table :data="teachList" border size="small" style="width: 100%" max-height="320">
-            <el-table-column prop="name" label="名称" width="80" />
-            <el-table-column prop="arm" label="臂" width="50">
-              <template #default="{ row }">{{ row.arm === 'left' ? '左' : '右' }}</template>
-            </el-table-column>
-            <el-table-column label="角度" min-width="120">
-              <template #default="{ row }">
-                <span class="mono-sm">{{ formatAngles(row.joint_angles) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="末端" min-width="100">
-              <template #default="{ row }">
-                <span class="mono-sm">{{ formatEE(row.end_effector) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="160" fixed="right">
-              <template #default="{ row }">
-                <el-dropdown trigger="click" @command="cmd => handleTeachAction(row, cmd)">
-                  <el-button type="primary" size="small">执行<el-icon><ArrowDown /></el-icon></el-button>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item command="moveJ">moveJ (角度)</el-dropdown-item>
-                      <el-dropdown-item command="movep">moveP (坐标)</el-dropdown-item>
-                      <el-dropdown-item command="moveL">moveL (直线)</el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
-                <el-button type="warning" size="small" @click="handleTeachUpdate(row)" style="margin-left: 4px">
-                  更新
-                </el-button>
-                <el-button type="danger" size="small" @click="handleTeachDelete(row)" style="margin-left: 4px">
-                  删
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
       </el-col>
 
-      <!-- Right column: jog control (tablet-friendly, large buttons) -->
+      <!-- Right column: jog control -->
       <el-col :xs="24" :sm="12" :md="14">
         <el-card class="tech-card">
           <template #header>
@@ -182,23 +119,23 @@
             </div>
           </template>
 
-          <!-- Arm select + method + coordinate -->
+          <!-- Arm + Mode + buttons -->
           <el-row :gutter="12" style="margin-bottom: 12px" align="middle">
-            <el-col :span="6">
+            <el-col :span="4">
               <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">手臂</div>
               <el-select v-model="jogForm.arm" style="width: 100%">
                 <el-option label="左臂" value="left" />
                 <el-option label="右臂" value="right" />
               </el-select>
             </el-col>
-            <el-col :span="6">
+            <el-col :span="4">
               <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">模式</div>
               <el-select v-model="jogForm.method" style="width: 100%">
                 <el-option label="moveJ" value="moveJ" />
                 <el-option label="moveP" value="movep" />
               </el-select>
             </el-col>
-            <el-col :span="6" v-if="jogForm.method === 'movep'">
+            <el-col :span="4" v-if="jogForm.method === 'movep'">
               <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">坐标系</div>
               <el-select v-model="jogForm.coordinate" style="width: 100%">
                 <el-option label="base_link" value="base_link" />
@@ -206,9 +143,15 @@
                 <el-option label="tool0" value="tool0" />
               </el-select>
             </el-col>
+            <el-col :span="6" :offset="jogForm.method === 'movep' ? 6 : 10">
+              <div style="display: flex; gap: 8px; align-items: flex-end; height: 100%; padding-bottom: 2px">
+                <el-button size="small" @click="openTeachManager">示教管理</el-button>
+                <el-button size="small" type="success" @click="showSaveDialog = true">点位保存</el-button>
+              </div>
+            </el-col>
           </el-row>
 
-          <!-- moveJ step row -->
+          <!-- moveJ step -->
           <el-row v-if="jogForm.method === 'moveJ'" :gutter="12" style="margin-bottom: 12px" align="middle">
             <el-col :span="16">
               <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">
@@ -222,7 +165,7 @@
             </el-col>
           </el-row>
 
-          <!-- moveP step rows: XYZ (mm) + RPY (deg) -->
+          <!-- moveP steps -->
           <template v-else>
             <el-row :gutter="12" style="margin-bottom: 8px" align="middle">
               <el-col :span="16">
@@ -250,99 +193,123 @@
             </el-row>
           </template>
 
-          <!-- moveJ: 7 joint +/- buttons -->
+          <!-- moveJ: 7 joint buttons -->
           <div v-if="jogForm.method === 'moveJ'" class="jog-grid">
             <div v-for="i in 7" :key="'jog'+i" class="jog-row">
               <span class="jog-label">J{{ i }}</span>
               <span class="jog-value">{{ currentAngles(jogForm.arm)[i-1]?.toFixed(4) ?? '0.0000' }}°</span>
-              <el-button
-                class="jog-btn jog-minus"
-                size="large"
-                @mousedown="startJog('joint', i-1, -1)"
-                @mouseup="stopJog"
-                @mouseleave="stopJog"
-                @touchstart.prevent="startJog('joint', i-1, -1)"
-                @touchend="stopJog"
-              >-</el-button>
-              <el-button
-                class="jog-btn jog-plus"
-                size="large"
-                type="primary"
-                @mousedown="startJog('joint', i-1, 1)"
-                @mouseup="stopJog"
-                @mouseleave="stopJog"
-                @touchstart.prevent="startJog('joint', i-1, 1)"
-                @touchend="stopJog"
-              >+</el-button>
+              <el-button class="jog-btn jog-minus" size="large" @mousedown="startJog('joint', i-1, -1)" @mouseup="stopJog" @mouseleave="stopJog" @touchstart.prevent="startJog('joint', i-1, -1)" @touchend="stopJog">-</el-button>
+              <el-button class="jog-btn jog-plus" size="large" type="primary" @mousedown="startJog('joint', i-1, 1)" @mouseup="stopJog" @mouseleave="stopJog" @touchstart.prevent="startJog('joint', i-1, 1)" @touchend="stopJog">+</el-button>
             </div>
           </div>
 
-          <!-- moveP: 6 pose +/- buttons (X Y Z R P Y) -->
+          <!-- moveP: 6 pose buttons -->
           <div v-else class="jog-grid">
             <div v-for="(label, idx) in poseLabels" :key="'pose'+idx" class="jog-row">
               <span class="jog-label">{{ label }}</span>
               <span class="jog-value">{{ currentPose(jogForm.arm)[idx]?.toFixed(4) ?? '0.0000' }}{{ idx < 3 ? '' : '°' }}</span>
-              <el-button
-                class="jog-btn jog-minus"
-                size="large"
-                @mousedown="startJog('pose', idx, -1)"
-                @mouseup="stopJog"
-                @mouseleave="stopJog"
-                @touchstart.prevent="startJog('pose', idx, -1)"
-                @touchend="stopJog"
-              >-</el-button>
-              <el-button
-                class="jog-btn jog-plus"
-                size="large"
-                type="primary"
-                @mousedown="startJog('pose', idx, 1)"
-                @mouseup="stopJog"
-                @mouseleave="stopJog"
-                @touchstart.prevent="startJog('pose', idx, 1)"
-                @touchend="stopJog"
-              >+</el-button>
+              <el-button class="jog-btn jog-minus" size="large" @mousedown="startJog('pose', idx, -1)" @mouseup="stopJog" @mouseleave="stopJog" @touchstart.prevent="startJog('pose', idx, -1)" @touchend="stopJog">-</el-button>
+              <el-button class="jog-btn jog-plus" size="large" type="primary" @mousedown="startJog('pose', idx, 1)" @mouseup="stopJog" @mouseleave="stopJog" @touchstart.prevent="startJog('pose', idx, 1)" @touchend="stopJog">+</el-button>
             </div>
           </div>
         </el-card>
       </el-col>
     </el-row>
+
+    <!-- Save Preset Dialog -->
+    <el-dialog v-model="showSaveDialog" title="保存点位" width="360px">
+      <el-form :model="saveForm" label-width="60px">
+        <el-form-item label="名称">
+          <el-input v-model="saveForm.name" placeholder="输入点位名称" />
+        </el-form-item>
+        <el-form-item label="手臂">
+          <span style="color: #00d4ff">{{ jogForm.arm === 'left' ? '左臂' : '右臂' }}</span>
+        </el-form-item>
+        <el-form-item label="模式">
+          <span style="color: #00d4ff">{{ jogForm.method }}</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showSaveDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSavePreset" :loading="saving">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Teach Manager Dialog -->
+    <el-dialog v-model="showTeachDialog" title="示教管理" width="880px" top="2vh">
+      <el-form :inline="true" size="small" style="margin-bottom: 12px">
+        <el-form-item label="手臂筛选">
+          <el-select v-model="teachFilter.arm" style="width: 120px" clearable placeholder="全部">
+            <el-option label="左臂" value="left" />
+            <el-option label="右臂" value="right" />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-button size="small" @click="refreshTeachList">刷新</el-button>
+        </el-form-item>
+      </el-form>
+      <el-table :data="filteredTeachList" border size="small" max-height="460">
+        <el-table-column prop="name" label="名称" width="100" />
+        <el-table-column prop="arm" label="手臂" width="60">
+          <template #default="{ row }">{{ row.arm === 'left' ? '左' : '右' }}</template>
+        </el-table-column>
+        <el-table-column label="角度" min-width="160">
+          <template #default="{ row }">
+            <span class="mono-sm">{{ formatAngles(row.joint_angles) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="末端坐标" min-width="140">
+          <template #default="{ row }">
+            <span class="mono-sm">{{ formatEE(row.end_effector) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="运动模式" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" type="info">{{ row.method || 'moveJ' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" @click="handleTeachExec(row)">执行</el-button>
+            <el-button size="small" type="warning" @click="handleTeachUpdate(row)">更新</el-button>
+            <el-button size="small" type="danger" @click="handleTeachDelete(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { armApi } from '../api/arm'
 import { upperBodyApi } from '../api/upperBody'
 import { useStatus } from '../composables/useStatus'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { SetUp, Files, Position, ArrowDown } from '@element-plus/icons-vue'
-import { robotApi } from '../api/robot'
+import { SetUp, Operation, Position } from '@element-plus/icons-vue'
 
 const { status } = useStatus()
 
 const poseLabels = ['X', 'Y', 'Z', 'Roll', 'Pitch', 'Yaw']
 
 const jogForm = ref({ arm: 'left', method: 'moveJ', coordinate: 'base_link', step: 0.05, stepXyz: 2, stepRpy: 0.5 })
-const teachForm = ref({ arm: 'left', name: '' })
 const teachList = ref([])
+const teachFilter = ref({ arm: '' })
+const showSaveDialog = ref(false)
+const showTeachDialog = ref(false)
+const saveForm = ref({ name: '' })
+const saving = ref(false)
 
 const upperBody = ref({
-  waist_angle: 300,
-  waist_speed: 20,
-  waistLoading: false,
-  ascend_pos: 100,
-  ascend_speed: 20,
-  ascendLoading: false,
-  head_angle: 15,
-  head_speed: 10,
-  headLoading: false,
+  waist_angle: 300, waist_speed: 20, waistLoading: false,
+  ascend_pos: 100, ascend_speed: 20, ascendLoading: false,
+  head_angle: 15, head_speed: 10, headLoading: false,
 })
 
 let jogTimer = null
 let jogPending = false
 const JOG_INTERVAL = 150
 
-// Reset moveJ step when switching back to moveJ
 watch(() => jogForm.value.method, (method) => {
   if (method === 'moveJ') jogForm.value.step = 0.05
 })
@@ -351,13 +318,11 @@ onMounted(refreshTeachList)
 onUnmounted(stopJog)
 
 // -- Arm enable --
-
 function armEnabled(side) {
   return status.value?.enabled ?? false
 }
 
-// -- Current joint angles from status --
-
+// -- Current joint angles --
 function currentAngles(side) {
   const arm = status.value?.arm?.[side]
   if (arm?.joint_angles && Array.isArray(arm.joint_angles)) return arm.joint_angles
@@ -370,14 +335,11 @@ function currentPose(side) {
   return [0, 0, 0, 0, 0, 0]
 }
 
-// -- Jog control with rate limiting --
-
+// -- Jog control --
 function startJog(mode, index, direction) {
   stopJog()
   sendJog(mode, index, direction)
-  jogTimer = setInterval(() => {
-    if (!jogPending) sendJog(mode, index, direction)
-  }, JOG_INTERVAL)
+  jogTimer = setInterval(() => { if (!jogPending) sendJog(mode, index, direction) }, JOG_INTERVAL)
 }
 
 function stopJog() {
@@ -390,7 +352,6 @@ async function sendJog(mode, index, direction) {
   if (mode === 'joint') {
     step = jogForm.value.step * direction
   } else {
-    // pose: index 0/1/2 = X/Y/Z (mm), 3/4/5 = R/P/Y (deg)
     const base = index < 3 ? jogForm.value.stepXyz : jogForm.value.stepRpy
     step = base * direction
   }
@@ -399,35 +360,18 @@ async function sendJog(mode, index, direction) {
     if (mode === 'joint') {
       const angles = [...currentAngles(side)]
       angles[index] = round4(angles[index] + step)
-      await armApi.move({
-        arm: side,
-        method: 'moveJ',
-        coordinate: jogForm.value.coordinate,
-        joint_angles: angles,
-      })
+      await armApi.move({ arm: side, method: 'moveJ', coordinate: jogForm.value.coordinate, joint_angles: angles })
     } else {
       const pose = [...currentPose(side)]
       pose[index] = round4(pose[index] + step)
-      await armApi.move({
-        arm: side,
-        method: jogForm.value.method,
-        coordinate: jogForm.value.coordinate,
-        position: { x: pose[0], y: pose[1], z: pose[2], roll: pose[3], pitch: pose[4], yaw: pose[5] },
-      })
+      await armApi.move({ arm: side, method: jogForm.value.method, coordinate: jogForm.value.coordinate, position: { x: pose[0], y: pose[1], z: pose[2], roll: pose[3], pitch: pose[4], yaw: pose[5] } })
     }
-  } catch {
-    // Silently ignore jog errors
-  } finally {
-    jogPending = false
-  }
+  } catch { /* ignore */ } finally { jogPending = false }
 }
 
 function round4(v) { return Math.round(v * 10000) / 10000 }
 
 // -- Teach management --
-
-onMounted(refreshTeachList)
-
 async function refreshTeachList() {
   try {
     const response = await armApi.teachList()
@@ -438,37 +382,51 @@ async function refreshTeachList() {
   }
 }
 
-async function handleTeachSave() {
-  if (!teachForm.value.name) {
-    ElMessage.warning('请输入预设位名称')
+const filteredTeachList = computed(() => {
+  if (!teachFilter.value.arm) return teachList.value
+  return teachList.value.filter(t => t.arm === teachFilter.value.arm)
+})
+
+function openTeachManager() {
+  refreshTeachList()
+  showTeachDialog.value = true
+}
+
+async function handleSavePreset() {
+  if (!saveForm.value.name) {
+    ElMessage.warning('请输入点位名称')
     return
   }
+  saving.value = true
   try {
-    await armApi.teachSave(teachForm.value.arm, teachForm.value.name)
-    ElMessage.success('保存成功')
-    teachForm.value.name = ''
+    await armApi.teachSave(jogForm.value.arm, saveForm.value.name, jogForm.value.method)
+    ElMessage.success(`点位 "${saveForm.value.name}" 已保存`)
+    saveForm.value.name = ''
+    showSaveDialog.value = false
     refreshTeachList()
   } catch (error) {
     ElMessage.error(error.message || '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function handleTeachExec(row) {
+  try {
+    await armApi.teachExec(row.arm, row.name, null)
+    ElMessage.success(`执行指令已发送 (${row.method || 'moveJ'})`)
+  } catch (error) {
+    ElMessage.error(error.message || '执行失败')
   }
 }
 
 async function handleTeachUpdate(row) {
   try {
-    await armApi.teachUpdate(row.arm, row.name)
+    await armApi.teachUpdate(row.arm, row.name, row.method || 'moveJ')
     ElMessage.success(`预设位 "${row.name}" 已更新`)
     refreshTeachList()
   } catch (error) {
     ElMessage.error(error.message || '更新失败')
-  }
-}
-
-async function handleTeachAction(row, method) {
-  try {
-    await armApi.teachExec(row.arm, row.name, method)
-    ElMessage.success(`执行指令已发送 (${method})`)
-  } catch (error) {
-    ElMessage.error(error.message || '执行失败')
   }
 }
 
@@ -494,114 +452,47 @@ function formatEE(ee) {
 }
 
 // -- Upper body control --
-
 async function handleWaistControl() {
   upperBody.value.waistLoading = true
   try {
-    await upperBodyApi.waist({
-      waist_angle: upperBody.value.waist_angle,
-      waist_speed: upperBody.value.waist_speed,
-      reserve: 0,
-    })
+    await upperBodyApi.waist({ waist_angle: upperBody.value.waist_angle, waist_speed: upperBody.value.waist_speed, reserve: 0 })
     ElMessage.success(`腰部已设至 ${upperBody.value.waist_angle}`)
   } catch (error) {
     ElMessage.error(error.message || '腰部控制失败')
-  } finally {
-    upperBody.value.waistLoading = false
-  }
+  } finally { upperBody.value.waistLoading = false }
 }
 
 async function handleAscendControl() {
   upperBody.value.ascendLoading = true
   try {
-    await upperBodyApi.ascend({
-      ascend_pos: upperBody.value.ascend_pos,
-      ascend_speed: upperBody.value.ascend_speed,
-      reserve: 0,
-    })
+    await upperBodyApi.ascend({ ascend_pos: upperBody.value.ascend_pos, ascend_speed: upperBody.value.ascend_speed, reserve: 0 })
     ElMessage.success(`头部偏转已设至 ${upperBody.value.ascend_pos}`)
   } catch (error) {
     ElMessage.error(error.message || '头部偏转失败')
-  } finally {
-    upperBody.value.ascendLoading = false
-  }
+  } finally { upperBody.value.ascendLoading = false }
 }
 
 async function handleHeadControl() {
   upperBody.value.headLoading = true
   try {
-    await upperBodyApi.head({
-      head_angle: upperBody.value.head_angle,
-      head_speed: upperBody.value.head_speed,
-      reserve: 0,
-    })
+    await upperBodyApi.head({ head_angle: upperBody.value.head_angle, head_speed: upperBody.value.head_speed, reserve: 0 })
     ElMessage.success(`头部俯仰已设至 ${upperBody.value.head_angle}°`)
   } catch (error) {
     ElMessage.error(error.message || '头部俯仰失败')
-  } finally {
-    upperBody.value.headLoading = false
-  }
+  } finally { upperBody.value.headLoading = false }
 }
 </script>
 
 <style scoped>
-.enable-block {
-  text-align: center;
-}
-.jog-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.jog-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.jog-label {
-  width: 32px;
-  font-weight: 600;
-  font-size: 14px;
-  color: #00d4ff;
-  flex-shrink: 0;
-}
-.jog-value {
-  width: 110px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 13px;
-  color: #e5e7eb;
-  flex-shrink: 0;
-}
-.jog-btn {
-  flex: 1;
-  height: 48px;
-  font-size: 22px;
-  font-weight: 700;
-  border-radius: 8px;
-  user-select: none;
-  -webkit-user-select: none;
-  touch-action: manipulation;
-}
-.jog-minus {
-  background: #1a2332;
-  border-color: #ff3b5c44;
-  color: #ff3b5c;
-}
-.jog-minus:hover, .jog-minus:active {
-  background: #2a1520;
-  border-color: #ff3b5c;
-}
-.jog-plus {
-  background: #0d2818;
-  border-color: #00ff8844;
-  color: #00ff88;
-}
-.jog-plus:hover, .jog-plus:active {
-  background: #0d3820;
-  border-color: #00ff88;
-}
-.mono-sm {
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 11px;
-}
+.enable-block { text-align: center; }
+.jog-grid { display: flex; flex-direction: column; gap: 8px; }
+.jog-row { display: flex; align-items: center; gap: 8px; }
+.jog-label { width: 32px; font-weight: 600; font-size: 14px; color: #00d4ff; flex-shrink: 0; }
+.jog-value { width: 110px; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; color: #e5e7eb; flex-shrink: 0; }
+.jog-btn { flex: 1; height: 48px; font-size: 22px; font-weight: 700; border-radius: 8px; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.jog-minus { background: #1a2332; border-color: #ff3b5c44; color: #ff3b5c; }
+.jog-minus:hover, .jog-minus:active { background: #2a1520; border-color: #ff3b5c; }
+.jog-plus { background: #0d2818; border-color: #00ff8844; color: #00ff88; }
+.jog-plus:hover, .jog-plus:active { background: #0d3820; border-color: #00ff88; }
+.mono-sm { font-family: 'Consolas', 'Monaco', monospace; font-size: 11px; }
 </style>
