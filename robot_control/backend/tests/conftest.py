@@ -49,6 +49,22 @@ def app(tmp_path):
     application.state.log_service = LogService()
     from app.services.chassis_client import MockChassisClient
     application.state.chassis_client = MockChassisClient()
+    from app.services.workflow_service import WorkflowService
+    from app.services.arm_service import ArmService
+    application.state.workflow_service = WorkflowService(
+        ros2_client=application.state.ros2.service_client,
+        moveit_client=application.state.ros2.moveit_client,
+        upper_body_client=application.state.ros2.upper_body_client,
+        chassis_client=application.state.chassis_client,
+        arm_service=ArmService(
+            ros2_client=application.state.ros2.service_client,
+            moveit_client=application.state.ros2.moveit_client,
+            teach_dir=str(tmp_path / "teach"),
+        ),
+        arm_enable_client=application.state.ros2.arm_enable_client,
+        workflow_dir=str(tmp_path / "workflows"),
+        status_service=application.state.status_service,
+    )
     yield application
     # Cleanup env
     os.environ.pop("TEACH_DATA_DIR", None)

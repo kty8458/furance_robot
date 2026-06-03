@@ -320,8 +320,12 @@
     <!-- Execution result dialog -->
     <el-dialog v-model="showResultDialog" title="执行结果" width="500px">
       <div v-if="execResult">
-        <el-tag :type="execResult.success ? 'success' : 'danger'" size="large" style="margin-bottom: 12px">
-          {{ execResult.success ? '执行成功' : '执行失败' }}
+        <el-tag
+          :type="execResult.active ? 'warning' : (execResult.success ? 'success' : 'danger')"
+          size="large"
+          style="margin-bottom: 12px"
+        >
+          {{ execResult.active ? '执行中...' : (execResult.success ? '执行成功' : '执行失败') }}
         </el-tag>
         <div v-if="execResult.message" style="margin-bottom: 12px; color: #9ca3af">{{ execResult.message }}</div>
         <el-table :data="execResult.step_results" border size="small">
@@ -335,7 +339,8 @@
         </el-table>
       </div>
       <template #footer>
-        <el-button @click="showResultDialog = false">关闭</el-button>
+        <el-button v-if="execResult?.active" type="danger" @click="handleCancel">取消执行</el-button>
+        <el-button @click="showResultDialog = false" :disabled="execResult?.active">关闭</el-button>
       </template>
     </el-dialog>
   </div>
@@ -417,6 +422,16 @@ async function loadTeachPresets() {
 function onPresetChange(step, name) {
   const p = teachPresets.value.find(t => t.arm === step.config.arm && t.name === name)
   if (p) step.config.method = p.method || 'moveJ'
+}
+
+async function handleCancel() {
+  if (!currentWorkflow.value) return
+  try {
+    await workflowApi.cancel(currentWorkflow.value.name)
+    ElMessage.success('取消请求已发送')
+  } catch (error) {
+    ElMessage.error(error.message || '取消失败')
+  }
 }
 
 function stepTagType(type) {
@@ -663,10 +678,23 @@ async function executeWorkflow() {
           path_type: np.path_type || 'NavigationPointTask',
         }
       })
-    const res = await workflowApi.execute(currentWorkflow.value.name, navParams)
-    execResult.value = res.data?.data || res.data
+    const startRes = await workflowApi.execute(currentWorkflow.value.name, navParams)
+    const executionId = (startRes.data?.data || startRes.data)?.execution_id
+    if (!executionId) {
+      throw new Error('未获取到执行ID')
+    }
     showExecDialog.value = false
     showResultDialog.value = true
+    execResult.value = { active: true, step_results: [], message: '执行中...' }
+
+    // Poll until active=false
+    while (true) {
+      await new Promise(r => setTimeout(r, 1000))
+      const statusRes = await workflowApi.getExecution(executionId)
+      const state = statusRes.data?.data || statusRes.data
+      execResult.value = state
+      if (!state.active) break
+    }
   } catch (error) {
     ElMessage.error(error.message || '执行失败')
   } finally {

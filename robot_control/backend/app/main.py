@@ -64,6 +64,25 @@ async def lifespan(app: FastAPI):
     await chassis_poller.start()
     app.state.chassis_poller = chassis_poller
 
+    # Workflow service (singleton — keeps execution state across requests)
+    from app.services.workflow_service import WorkflowService
+    from app.services.arm_service import ArmService
+    arm_service_for_wf = ArmService(
+        ros2_client=components.service_client,
+        moveit_client=components.moveit_client,
+        teach_dir=settings.teach_data_dir,
+    )
+    app.state.workflow_service = WorkflowService(
+        ros2_client=components.service_client,
+        moveit_client=components.moveit_client,
+        upper_body_client=components.upper_body_client,
+        chassis_client=chassis_client,
+        arm_service=arm_service_for_wf,
+        arm_enable_client=components.arm_enable_client,
+        workflow_dir=settings.workflow_data_dir,
+        status_service=status_service,
+    )
+
     logger.info(
         "Application started (ROS2_MODE=%s)",
         os.environ.get("ROS2_MODE", "mock"),

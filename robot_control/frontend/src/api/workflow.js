@@ -9,4 +9,6 @@ export const workflowApi = {
   update: (name, data) => api.put(`/robot/${ROBOT_ID}/workflows/${name}`, data),
   delete: (name) => api.delete(`/robot/${ROBOT_ID}/workflows/${name}`),
   execute: (name, navParams) => api.post(`/robot/${ROBOT_ID}/workflows/${name}/execute`, { nav_params: navParams }),
+  getExecution: (executionId) => api.get(`/robot/${ROBOT_ID}/workflows/executions/${executionId}`),
+  cancel: (name) => api.post(`/robot/${ROBOT_ID}/workflows/${name}/cancel`),
 }

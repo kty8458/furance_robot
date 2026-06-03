@@ -9,24 +9,7 @@ router = APIRouter(prefix="/api/v1/robot/{robot_id}/workflows", tags=["workflows
 
 
 def _get_workflow_service(request: Request) -> WorkflowService:
-    settings = get_settings()
-    ros2 = request.app.state.ros2
-    from app.services.arm_service import ArmService
-    arm_service = ArmService(
-        ros2_client=ros2.service_client,
-        moveit_client=ros2.moveit_client,
-        teach_dir=settings.teach_data_dir,
-    )
-    return WorkflowService(
-        ros2_client=ros2.service_client,
-        moveit_client=ros2.moveit_client,
-        upper_body_client=ros2.upper_body_client,
-        chassis_client=request.app.state.chassis_client,
-        arm_service=arm_service,
-        arm_enable_client=ros2.arm_enable_client,
-        workflow_dir=settings.workflow_data_dir,
-        status_service=request.app.state.status_service,
-    )
+    return request.app.state.workflow_service
 
 
 @router.get("", response_model=ApiResponse)

@@ -48,6 +48,7 @@ class WorkflowService:
         self._arm_enable = arm_enable_client
         self._status_service = status_service
         self._active_executions: dict[str, asyncio.Event] = {}
+        self._execution_state: dict[str, dict] = {}
 
     # -- CRUD --
 
@@ -116,6 +117,15 @@ class WorkflowService:
         execution_id = str(uuid.uuid4())
         cancel_event = asyncio.Event()
         self._active_executions[execution_id] = cancel_event
+        self._execution_state[execution_id] = {
+            "execution_id": execution_id,
+            "workflow_name": name,
+            "active": True,
+            "success": None,
+            "message": "",
+            "step_results": [],
+            "error_step_id": None,
+        }
         asyncio.create_task(self._run_workflow(execution_id, robot_id, workflow, execute_req, cancel_event))
         return execution_id
 
@@ -127,6 +137,7 @@ class WorkflowService:
         execute_req: WorkflowExecuteRequest,
         cancel_event: asyncio.Event,
     ) -> None:
+        state = self._execution_state[execution_id]
         try:
             nav_lookup = {np.step_id: np for np in execute_req.nav_params}
             context: dict[str, dict] = {}
@@ -138,6 +149,9 @@ class WorkflowService:
             if invalid:
                 names = ", ".join(f"{t['step_id']}→{t['name']}" for t in invalid)
                 logger.error("Workflow '%s' invalid nav targets: %s", workflow.name, names)
+                state["success"] = False
+                state["message"] = f"Invalid navigation targets: {names}"
+                state["error_step_id"] = "pre_check"
                 await self._push_step(robot_id, {
                     "execution_id": execution_id,
                     "workflow_name": workflow.name,
@@ -153,6 +167,8 @@ class WorkflowService:
                 if cancel_event.is_set():
                     logger.info("Workflow '%s' execution '%s' cancelled at step %d/%d",
                                 workflow.name, execution_id, i + 1, len(workflow.steps))
+                    state["success"] = False
+                    state["message"] = f"Cancelled at step {i + 1}"
                     break
 
                 logger.info("Workflow '%s' step %d/%d: %s (%s)",
@@ -171,6 +187,7 @@ class WorkflowService:
                 try:
                     result = await self._dispatch_step(step, nav_lookup, context, robot_id)
                     step_results.append(result)
+                    state["step_results"] = [r.model_dump() for r in step_results]
 
                     await self._push_step(robot_id, {
                         "execution_id": execution_id,
@@ -181,9 +198,20 @@ class WorkflowService:
                         "status": "completed" if result.success else "failed",
                         "message": result.message,
                     })
+
+                    if not result.success:
+                        state["success"] = False
+                        state["message"] = result.message
+                        state["error_step_id"] = step.id
+                        break
                 except Exception as exc:
                     logger.exception("Workflow step '%s' error", step.label)
-                    step_results.append(StepResult(step_id=step.id, success=False, message=str(exc)))
+                    failed_result = StepResult(step_id=step.id, success=False, message=str(exc))
+                    step_results.append(failed_result)
+                    state["step_results"] = [r.model_dump() for r in step_results]
+                    state["success"] = False
+                    state["message"] = str(exc)
+                    state["error_step_id"] = step.id
                     await self._push_step(robot_id, {
                         "execution_id": execution_id,
                         "workflow_name": workflow.name,
@@ -193,7 +221,15 @@ class WorkflowService:
                         "status": "failed",
                         "message": str(exc),
                     })
+                    break
+            else:
+                # Loop completed without break — all steps succeeded
+                state["success"] = True
+                state["message"] = "All steps completed"
         finally:
+            state["active"] = False
+            if state.get("success") is None:
+                state["success"] = False
             self._active_executions.pop(execution_id, None)
 
     async def cancel_workflow(self) -> bool:
@@ -230,13 +266,12 @@ class WorkflowService:
     def get_execution_status(self, execution_id: str) -> dict:
         """Return execution status for a given execution_id.
 
-        Returns dict with 'active' bool and 'execution_id' str.
+        Returns full state dict including step_results.
         """
-        active = execution_id in self._active_executions
-        return {
-            "execution_id": execution_id,
-            "active": active,
-        }
+        state = self._execution_state.get(execution_id)
+        if state is None:
+            return {"execution_id": execution_id, "active": False, "success": False, "message": "Execution not found", "step_results": []}
+        return dict(state)
 
     async def _push_step(self, robot_id: str, payload: dict) -> None:
         """Push a workflow step status update via status_service if available."""
