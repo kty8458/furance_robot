@@ -234,6 +234,12 @@ class RealMoveItServiceClient(MoveItServiceClientBase):
 
         start_rad = [self._joint_positions[n] for n in names]
 
+        # Auto-scale duration: large joint movements need more time.
+        # Physical arm moves ~0.3 rad/s; floor at 3s, +1s buffer.
+        max_delta = max(abs(t - s) for t, s in zip(target_rad, start_rad))
+        scaled_duration = max(duration, max_delta / 0.3 + 1.0)
+        logger.debug("move_j max_delta=%.3f rad, duration=%.1fs", max_delta, scaled_duration)
+
         traj = JointTrajectory()
         traj.joint_names = names
 
@@ -248,8 +254,8 @@ class RealMoveItServiceClient(MoveItServiceClientBase):
         end_point = JointTrajectoryPoint()
         end_point.positions = target_rad
         end_dur = Duration()
-        end_dur.sec = int(duration)
-        end_dur.nanosec = int((duration - int(duration)) * 1e9)
+        end_dur.sec = int(scaled_duration)
+        end_dur.nanosec = int((scaled_duration - int(scaled_duration)) * 1e9)
         end_point.time_from_start = end_dur
         traj.points.append(end_point)
 
