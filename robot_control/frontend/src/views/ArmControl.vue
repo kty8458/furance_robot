@@ -157,11 +157,11 @@
               <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">
                 步长: {{ jogForm.step.toFixed(3) }}°
               </div>
-              <el-slider v-model="jogForm.step" :min="0.001" :max="2" :step="0.001" :show-tooltip="false" />
+              <el-slider v-model="jogForm.step" :min="0.001" :max="5" :step="0.001" :show-tooltip="false" />
             </el-col>
             <el-col :span="8">
               <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">手动输入</div>
-              <el-input-number v-model="jogForm.step" :min="0.001" :max="2" :step="0.001" :precision="3" size="small" style="width: 100%" />
+              <el-input-number v-model="jogForm.step" :min="0.001" :max="5" :step="0.001" :precision="3" size="small" style="width: 100%" />
             </el-col>
           </el-row>
 
@@ -172,11 +172,11 @@
                 <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">
                   坐标步长 (X/Y/Z): {{ jogForm.stepXyz.toFixed(1) }} mm
                 </div>
-                <el-slider v-model="jogForm.stepXyz" :min="1" :max="5" :step="0.1" :show-tooltip="false" />
+                <el-slider v-model="jogForm.stepXyz" :min="1" :max="20" :step="0.1" :show-tooltip="false" />
               </el-col>
               <el-col :span="8">
                 <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">手动输入</div>
-                <el-input-number v-model="jogForm.stepXyz" :min="1" :max="5" :step="0.1" :precision="1" size="small" style="width: 100%" />
+                <el-input-number v-model="jogForm.stepXyz" :min="1" :max="20" :step="0.1" :precision="1" size="small" style="width: 100%" />
               </el-col>
             </el-row>
             <el-row :gutter="12" style="margin-bottom: 12px" align="middle">
