@@ -236,10 +236,10 @@
     </el-dialog>
 
     <!-- Teach Manager Dialog -->
-    <el-dialog v-model="showTeachDialog" title="示教管理" width="880px" top="2vh">
+    <el-dialog v-model="showTeachDialog" title="示教管理" width="1200px" top="2vh">
       <el-form :inline="true" size="small" style="margin-bottom: 12px">
         <el-form-item label="手臂筛选">
-          <el-select v-model="teachFilter.arm" style="width: 120px" clearable placeholder="全部">
+          <el-select v-model="teachFilter.arm" style="width: 120px" clearable placeholder="全部" @change="teachPage = 1">
             <el-option label="左臂" value="left" />
             <el-option label="右臂" value="right" />
           </el-select>
@@ -248,34 +248,60 @@
           <el-button size="small" @click="refreshTeachList">刷新</el-button>
         </el-form-item>
       </el-form>
-      <el-table :data="filteredTeachList" border size="small" max-height="460">
-        <el-table-column prop="name" label="名称" width="100" />
-        <el-table-column prop="arm" label="手臂" width="60">
-          <template #default="{ row }">{{ row.arm === 'left' ? '左' : '右' }}</template>
-        </el-table-column>
-        <el-table-column label="角度" min-width="160">
-          <template #default="{ row }">
-            <span class="mono-sm">{{ formatAngles(row.joint_angles) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="末端坐标" min-width="140">
-          <template #default="{ row }">
-            <span class="mono-sm">{{ formatEE(row.end_effector) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="运动模式" width="90">
-          <template #default="{ row }">
-            <el-tag size="small" type="info">{{ row.method || 'moveJ' }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
-          <template #default="{ row }">
+      <div class="teach-list">
+        <div v-for="row in pagedTeachList" :key="row.arm + '_' + row.name" class="teach-row">
+          <div class="teach-meta">
+            <span class="teach-name">{{ row.name }}</span>
+            <el-tag size="small" :type="row.arm === 'left' ? '' : 'info'">{{ row.arm === 'left' ? '左臂' : '右臂' }}</el-tag>
+            <el-tag size="small" type="success">{{ row.method || 'moveJ' }}</el-tag>
+          </div>
+          <div class="teach-data">
+            <div class="teach-data-row">
+              <span class="teach-data-label" v-for="i in 7" :key="'jl'+i">J{{ i }}</span>
+            </div>
+            <div class="teach-data-row">
+              <span class="teach-data-val" v-for="(v, i) in row.joint_angles || []" :key="'jv'+i">{{ v?.toFixed(3) }}°</span>
+              <span class="teach-data-val" v-if="!(row.joint_angles?.length)">--</span>
+            </div>
+          </div>
+          <div class="teach-data">
+            <div class="teach-data-row">
+              <span class="teach-data-label">x</span>
+              <span class="teach-data-label">y</span>
+              <span class="teach-data-label">z</span>
+              <span class="teach-data-label">R</span>
+              <span class="teach-data-label">P</span>
+              <span class="teach-data-label">Y</span>
+              <span class="teach-data-label">坐标系</span>
+            </div>
+            <div class="teach-data-row">
+              <span class="teach-data-val">{{ row.end_effector?.x?.toFixed(1) ?? '--' }}</span>
+              <span class="teach-data-val">{{ row.end_effector?.y?.toFixed(1) ?? '--' }}</span>
+              <span class="teach-data-val">{{ row.end_effector?.z?.toFixed(1) ?? '--' }}</span>
+              <span class="teach-data-val">{{ row.end_effector?.roll?.toFixed(1) ?? '--' }}°</span>
+              <span class="teach-data-val">{{ row.end_effector?.pitch?.toFixed(1) ?? '--' }}°</span>
+              <span class="teach-data-val">{{ row.end_effector?.yaw?.toFixed(1) ?? '--' }}°</span>
+              <span class="teach-data-val">{{ row.coordinate_frame || 'base_link' }}</span>
+            </div>
+          </div>
+          <div class="teach-actions">
             <el-button size="small" type="primary" @click="handleTeachExec(row)">执行</el-button>
             <el-button size="small" type="warning" @click="handleTeachUpdate(row)">更新</el-button>
             <el-button size="small" type="danger" @click="handleTeachDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 12px; display: flex; justify-content: center">
+        <el-pagination
+          v-if="totalPages > 1"
+          background
+          layout="prev, pager, next"
+          :page-size="10"
+          :total="filteredTeachList.length"
+          :current-page="teachPage"
+          @current-change="teachPage = $event"
+        />
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -295,6 +321,7 @@ const poseLabels = ['X', 'Y', 'Z', 'Roll', 'Pitch', 'Yaw']
 const jogForm = ref({ arm: 'left', method: 'moveJ', coordinate: 'base_link', step: 0.05, stepXyz: 2, stepRpy: 0.5 })
 const teachList = ref([])
 const teachFilter = ref({ arm: '' })
+const teachPage = ref(1)
 const showSaveDialog = ref(false)
 const showTeachDialog = ref(false)
 const saveForm = ref({ name: '' })
@@ -385,6 +412,13 @@ async function refreshTeachList() {
 const filteredTeachList = computed(() => {
   if (!teachFilter.value.arm) return teachList.value
   return teachList.value.filter(t => t.arm === teachFilter.value.arm)
+})
+
+const totalPages = computed(() => Math.ceil(filteredTeachList.value.length / 10))
+
+const pagedTeachList = computed(() => {
+  const start = (teachPage.value - 1) * 10
+  return filteredTeachList.value.slice(start, start + 10)
 })
 
 function openTeachManager() {
@@ -495,4 +529,13 @@ async function handleHeadControl() {
 .jog-plus { background: #0d2818; border-color: #00ff8844; color: #00ff88; }
 .jog-plus:hover, .jog-plus:active { background: #0d3820; border-color: #00ff88; }
 .mono-sm { font-family: 'Consolas', 'Monaco', monospace; font-size: 11px; }
+.teach-list { display: flex; flex-direction: column; gap: 10px; }
+.teach-row { background: var(--tech-bg-card); border: 1px solid var(--tech-border); border-radius: 6px; padding: 10px 14px; }
+.teach-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.teach-name { font-size: 14px; font-weight: 600; color: #00d4ff; min-width: 80px; }
+.teach-data { margin-bottom: 6px; }
+.teach-data-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.teach-data-label { font-size: 11px; color: var(--tech-text-muted); text-align: center; }
+.teach-data-val { font-size: 13px; color: var(--tech-text-bright); font-family: 'Consolas', monospace; text-align: center; }
+.teach-actions { display: flex; gap: 6px; margin-top: 8px; }
 </style>
