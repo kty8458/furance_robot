@@ -18,7 +18,7 @@ RIGHT_JOINT_NAMES = [f'ARM-R-J{i}_Joint' for i in range(1, 8)]
 # 位置到达阈值（弧度），所有关节均在此范围内认为到位
 POSITION_THRESHOLD = 0.05  # ~2.9°
 # 单个 waypoint 等待到位的超时（秒） — 大角度运动需要更长时间
-WAYPOINT_TIMEOUT = 60.0
+WAYPOINT_TIMEOUT = 90.0
 # 到位检查轮询间隔
 POLL_INTERVAL = 0.1
 
@@ -194,8 +194,17 @@ class RealArmController(Node):
                     goal_handle.canceled()
                     self.get_logger().warn(f"{arm_side} arm canceled while waiting for position.")
                     return result
-                # 超时但不取消，继续下一个 waypoint（机械臂可能已经接近）
-                self.get_logger().warn(f"Waypoint {point_idx + 1} not fully reached, continuing...")
+                # 超时未到位 — 必须 abort，否则 MoveIt 会立即发下一条 trajectory
+                # 导致起始点偏离过大而 ABORTED。
+                left_now, right_now = self._snapshot_current()
+                self.get_logger().error(
+                    f"{arm_side} arm waypoint {point_idx + 1} timeout, aborting goal. "
+                    f"target_R={[f'{v:.3f}' for v in right_target]} "
+                    f"current_R={[f'{v:.3f}' for v in right_now]}"
+                )
+                result.error_code = FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
+                goal_handle.abort()
+                return result
 
         if self._cancelled:
             result.error_code = FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
