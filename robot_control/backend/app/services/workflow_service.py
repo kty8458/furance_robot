@@ -173,8 +173,12 @@ class WorkflowService:
                     state["message"] = f"Cancelled at step {i + 1}"
                     break
 
-                logger.info("Workflow '%s' step %d/%d: %s (%s)",
-                            workflow.name, i + 1, len(workflow.steps), step.label, step.type)
+                logger.info(
+                    "EVENT workflow_step_start name=%s execution_id=%s step=%d/%d "
+                    "step_id=%s type=%s label=%s config=%s",
+                    workflow.name, execution_id, i + 1, len(workflow.steps),
+                    step.id, step.type, step.label, step.config,
+                )
 
                 await self._push_step(robot_id, {
                     "execution_id": execution_id,
@@ -186,10 +190,19 @@ class WorkflowService:
                     "message": f"Executing: {step.label}",
                 })
 
+                step_start_ts = asyncio.get_event_loop().time()
                 try:
                     result = await self._dispatch_step(step, nav_lookup, context, robot_id)
+                    duration = asyncio.get_event_loop().time() - step_start_ts
                     step_results.append(result)
                     state["step_results"] = [r.model_dump() for r in step_results]
+
+                    logger.info(
+                        "EVENT workflow_step_end name=%s execution_id=%s step=%d/%d "
+                        "step_id=%s success=%s duration=%.2fs message=%s",
+                        workflow.name, execution_id, i + 1, len(workflow.steps),
+                        step.id, result.success, duration, result.message,
+                    )
 
                     await self._push_step(robot_id, {
                         "execution_id": execution_id,
@@ -207,7 +220,12 @@ class WorkflowService:
                         state["error_step_id"] = step.id
                         break
                 except Exception as exc:
-                    logger.exception("Workflow step '%s' error", step.label)
+                    logger.exception(
+                        "EVENT workflow_step_exception name=%s execution_id=%s step=%d/%d "
+                        "step_id=%s label=%s",
+                        workflow.name, execution_id, i + 1, len(workflow.steps),
+                        step.id, step.label,
+                    )
                     failed_result = StepResult(step_id=step.id, success=False, message=str(exc))
                     step_results.append(failed_result)
                     state["step_results"] = [r.model_dump() for r in step_results]

@@ -66,7 +66,13 @@
                 {{ currentWorkflow ? currentWorkflow.name : '选择一个工作流' }}
               </span>
               <div style="flex: 1" />
-              <el-button v-if="currentWorkflow" size="small" type="primary" @click="showExecDialog = true" :disabled="!currentWorkflow.steps?.length">
+              <el-button v-if="execResult?.active" size="small" type="warning" @click="showResultDialog = true" style="margin-right: 6px">
+                查看进度
+              </el-button>
+              <el-button v-if="execResult?.active" size="small" type="danger" @click="handleCancel" style="margin-right: 6px">
+                停止执行
+              </el-button>
+              <el-button v-if="currentWorkflow" size="small" type="primary" @click="showExecDialog = true" :disabled="!currentWorkflow.steps?.length || execResult?.active">
                 执行
               </el-button>
               <el-button v-if="currentWorkflow" size="small" type="success" @click="saveWorkflow" style="margin-left: 6px">
@@ -341,8 +347,7 @@
         </el-table>
       </div>
       <template #footer>
-        <el-button v-if="execResult?.active" type="danger" @click="handleCancel">取消执行</el-button>
-        <el-button @click="showResultDialog = false" :disabled="execResult?.active">关闭</el-button>
+        <el-button @click="showResultDialog = false">关闭</el-button>
       </template>
     </el-dialog>
   </div>

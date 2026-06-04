@@ -58,7 +58,7 @@
               </el-button>
             </div>
           </template>
-          <div class="log-container" style="height: 340px">
+          <div class="log-container" style="height: 340px" ref="backendLogContainerRef">
             <div v-for="(line, idx) in backendLines" :key="idx" class="log-line">{{ line }}</div>
             <div v-if="!backendLines.length && !backendLogLoading" class="log-empty" style="padding: 20px 0">点击「查看最新200条」加载日志</div>
             <div v-if="backendLogLoading" class="log-loading"><el-icon class="is-loading"><Loading /></el-icon>加载中...</div>
@@ -100,7 +100,7 @@
               <el-button size="small" :disabled="!canDownload" @click="downloadLog">下载日志</el-button>
             </el-col>
           </el-row>
-          <div class="log-container" style="height: 280px">
+          <div class="log-container" style="height: 280px" ref="mgrLogContainerRef">
             <div v-for="(line, idx) in logMgr.lines" :key="idx" class="log-line">{{ line }}</div>
             <div v-if="!logMgr.lines.length" class="log-empty" style="padding: 14px 0">选择来源和日期查看历史日志</div>
           </div>
@@ -218,6 +218,7 @@ function getLogClass(line) {
 // ----- Backend log -----
 const backendLines = ref([])
 const backendLogLoading = ref(false)
+const backendLogContainerRef = ref(null)
 async function fetchBackendLog() {
   backendLogLoading.value = true
   try {
@@ -231,6 +232,9 @@ async function fetchBackendLog() {
     const r2 = await systemLogsApi.viewBackend(today, 200)
     const data = r2.data?.data || r2.data
     backendLines.value = data?.lines || []
+    await nextTick()
+    const el = backendLogContainerRef.value
+    if (el) el.scrollTop = el.scrollHeight
   } catch { /* ignore */ } finally { backendLogLoading.value = false }
 }
 
@@ -244,6 +248,7 @@ const logMgr = reactive({
   lines: [],
 })
 const ros2DateNodeMap = ref({})  // date -> [node names]
+const mgrLogContainerRef = ref(null)
 
 const canDownload = computed(() => {
   if (!logMgr.date) return false
@@ -303,6 +308,9 @@ async function viewLog() {
         logMgr.lines.push(...seg.lines)
       }
     }
+    await nextTick()
+    const el = mgrLogContainerRef.value
+    if (el) el.scrollTop = el.scrollHeight
   } catch { logMgr.lines = ['加载失败'] }
 }
 
