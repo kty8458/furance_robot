@@ -80,7 +80,7 @@ class StatusHeartbeat:
             snap.get("task_status", "?"),
             _fmt_num(motor.get("head_pan_deg"), "°"),
             _fmt_num(motor.get("head_tilt_deg"), "°"),
-            _fmt_num(motor.get("lift_height_mm"), "mm", decimals=0),
+            _fmt_num(motor.get("lift_height_cm"), "cm", decimals=2),
             (gripper.get("left") or {}).get("state", "?"),
             (gripper.get("right") or {}).get("state", "?"),
             _fmt_joints(left_joints),

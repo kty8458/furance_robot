@@ -35,7 +35,7 @@
               <el-tag :type="status?.enabled ? 'success' : 'danger'">{{ status?.enabled ? '已使能' : '未使能' }}</el-tag>
             </el-descriptions-item>
             <el-descriptions-item label="升降高度">
-              {{ status?.motor?.lift_height_mm?.toFixed(0) ?? '--' }} mm
+              {{ status?.motor?.lift_height_cm?.toFixed(2) ?? '--' }} cm
             </el-descriptions-item>
             <el-descriptions-item label="头部偏转">
               {{ status?.motor?.head_pan_deg?.toFixed(2) ?? '--' }}°
