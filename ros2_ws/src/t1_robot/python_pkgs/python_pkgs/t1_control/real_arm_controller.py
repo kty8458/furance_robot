@@ -5,7 +5,7 @@ import threading
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionServer, GoalResponse, CancelResponse
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 
 from control_msgs.action import FollowJointTrajectory
 from sensor_msgs.msg import JointState
@@ -34,6 +34,9 @@ class RealArmController(Node):
         super().__init__("real_arm_controller")
 
         self._cb_group = ReentrantCallbackGroup()
+        # ActionServer 单独使用 MutuallyExclusive — 已知 Reentrant 会导致
+        # MoveIt rclcpp_action client 报 "unknown goal/result response, ignoring..."。
+        self._action_cb_group = MutuallyExclusiveCallbackGroup()
 
         self._move_client = self.create_client(
             MoveToJointPositions, '/move_joint_positions',
@@ -54,7 +57,7 @@ class RealArmController(Node):
             execute_callback=self.execute_left,
             goal_callback=self.handle_goal,
             cancel_callback=self.handle_cancel,
-            callback_group=self._cb_group,
+            callback_group=self._action_cb_group,
         )
         self.right_action_server = ActionServer(
             self, FollowJointTrajectory,
@@ -62,7 +65,7 @@ class RealArmController(Node):
             execute_callback=self.execute_right,
             goal_callback=self.handle_goal,
             cancel_callback=self.handle_cancel,
-            callback_group=self._cb_group,
+            callback_group=self._action_cb_group,
         )
         self.both_action_server = ActionServer(
             self, FollowJointTrajectory,
@@ -70,7 +73,7 @@ class RealArmController(Node):
             execute_callback=self.execute_both,
             goal_callback=self.handle_goal,
             cancel_callback=self.handle_cancel,
-            callback_group=self._cb_group,
+            callback_group=self._action_cb_group,
         )
 
         self._cancelled = False

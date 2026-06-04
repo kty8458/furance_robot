@@ -301,8 +301,9 @@ void DualArmRobot::handle_trajectory_request(
         RCLCPP_INFO(rclcpp::get_logger("execute_trajectory_server"), "Execution succeeded.");
     } else {
         response->success = false;
-        response->message = "Execution failed.";
-        RCLCPP_ERROR(rclcpp::get_logger("execute_trajectory_server"), "Execution failed.");
+        response->message = "Execution failed (code=" + std::to_string(result.val) + ").";
+        RCLCPP_ERROR(rclcpp::get_logger("execute_trajectory_server"),
+                     "Execution failed with MoveItErrorCode=%d", result.val);
     }
 }
 
