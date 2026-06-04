@@ -358,6 +358,23 @@ watch(() => jogForm.value.method, (method) => {
   if (method === 'moveJ') jogForm.value.step = 0.05
 })
 
+// One-shot init: when motor feedback first arrives, sync upper-body inputs
+// to the current physical position so jog commands start from "here".
+const upperBodyInitialized = ref(false)
+watch(() => status.value?.motor, (motor) => {
+  if (!motor || upperBodyInitialized.value) return
+  if (typeof motor.lift_height_cm === 'number') {
+    upperBody.value.waist_angle = Math.round(motor.lift_height_cm * 10)
+  }
+  if (typeof motor.head_pan_deg === 'number') {
+    upperBody.value.ascend_pos = Math.round(motor.head_pan_deg)
+  }
+  if (typeof motor.head_tilt_deg === 'number') {
+    upperBody.value.head_angle = Math.round(motor.head_tilt_deg * 2) / 2  // align with 0.5 step
+  }
+  upperBodyInitialized.value = true
+}, { immediate: true })
+
 onMounted(refreshTeachList)
 onUnmounted(stopJog)
 
