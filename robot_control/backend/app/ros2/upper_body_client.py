@@ -64,8 +64,8 @@ class RealUpperBodyClient(UpperBodyClientBase):
 
         req = WaistControl.Request()
         req.waist_angle = float(waist_angle)
-        req.waist_speed = float(waist_speed)
-        req.reserve = 0.0
+        req.waist_speed = int(waist_speed)
+        req.reserve = 0
         return await self._bridge_future(client.call_async(req))
 
     async def ascend_control(self, ascend_pos: float, ascend_speed: float) -> dict[str, Any]:
@@ -78,8 +78,8 @@ class RealUpperBodyClient(UpperBodyClientBase):
 
         req = AscendControl.Request()
         req.ascend_pos = float(ascend_pos)
-        req.ascend_speed = float(ascend_speed)
-        req.reserve = 0.0
+        req.ascend_speed = int(ascend_speed)
+        req.reserve = 0
         return await self._bridge_future(client.call_async(req))
 
     async def head_control(self, head_angle: float, head_speed: float) -> dict[str, Any]:
@@ -92,8 +92,8 @@ class RealUpperBodyClient(UpperBodyClientBase):
 
         req = HeadControl.Request()
         req.head_angle = float(head_angle)
-        req.head_speed = float(head_speed)
-        req.reserve = 0.0
+        req.head_speed = int(head_speed)
+        req.reserve = 0
         return await self._bridge_future(client.call_async(req))
 
     async def _bridge_future(self, ros_future) -> dict[str, Any]:
