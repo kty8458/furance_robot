@@ -54,6 +54,7 @@ class StatusHeartbeat:
         pos = snap.get("position") or {}
         gripper = snap.get("gripper") or {}
         arm = snap.get("arm") or {}
+        motor = snap.get("motor") or {}
         left_joints = (arm.get("left") or {}).get("joint_angles") or []
         right_joints = (arm.get("right") or {}).get("joint_angles") or []
 
@@ -62,9 +63,13 @@ class StatusHeartbeat:
                 return "--"
             return "[" + ",".join(f"{j:.1f}" for j in js[:7]) + "]"
 
+        def _fmt_num(v, suffix="", decimals=1):
+            return f"{v:.{decimals}f}{suffix}" if isinstance(v, (int, float)) else "--"
+
         logger.info(
             "HEARTBEAT chassis battery=%s%% charging=%s map=%s pos=(%.2f,%.2f,%.2f) | "
             "upper enabled=%s error=%s task=%s | "
+            "motor head_pan=%s head_tilt=%s lift=%s | "
             "gripper L=%s R=%s | arm L=%s R=%s",
             snap.get("battery", "?"),
             snap.get("charging", "?"),
@@ -73,6 +78,9 @@ class StatusHeartbeat:
             snap.get("enabled", "?"),
             snap.get("error_code", "?"),
             snap.get("task_status", "?"),
+            _fmt_num(motor.get("head_pan_deg"), "°"),
+            _fmt_num(motor.get("head_tilt_deg"), "°"),
+            _fmt_num(motor.get("lift_height_cm"), "cm", decimals=2),
             (gripper.get("left") or {}).get("state", "?"),
             (gripper.get("right") or {}).get("state", "?"),
             _fmt_joints(left_joints),

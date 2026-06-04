@@ -115,6 +115,7 @@ class ChassisStatusPoller:
             "error_code": ros2.get("error_code", 0),
             "task_status": ros2.get("task_status", "idle"),
             "arm": ros2.get("arm", {}),
+            "motor": ros2.get("motor", {}),
         }
 
         await self._status_service.push_status(DEFAULT_ROBOT_ID, merged)

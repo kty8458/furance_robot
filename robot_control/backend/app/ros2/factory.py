@@ -46,6 +46,11 @@ from app.ros2.camera_client import (
     MockCameraClient,
     RealCameraClient,
 )
+from app.ros2.motor_feedback_listener import (
+    MockMotorFeedbackListener,
+    RealMotorFeedbackListener,
+    MotorFeedbackListenerBase,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +94,7 @@ class Ros2Components:
     arm_enable_client: ArmEnableClientBase
     upper_body_client: UpperBodyClientBase
     camera_client: CameraClientBase
+    motor_feedback_listener: MotorFeedbackListenerBase
     runtime: object | None  # Ros2Runtime when real mode, None when mock
 
 
@@ -119,6 +125,7 @@ def create_ros2_components(settings: Settings | None = None) -> Ros2Components:
                 arm_enable_client=RealArmEnableClient(runtime, timeout=settings.ros2_service_timeout),
                 upper_body_client=RealUpperBodyClient(runtime, timeout=settings.ros2_service_timeout),
                 camera_client=RealCameraClient(runtime, timeout=settings.ros2_service_timeout),
+                motor_feedback_listener=RealMotorFeedbackListener(runtime),
             )
             logger.info("ROS2 components created in REAL mode (domain_id=%d)", settings.ros2_domain_id)
             return components
@@ -138,6 +145,7 @@ def create_ros2_components(settings: Settings | None = None) -> Ros2Components:
         arm_enable_client=MockArmEnableClient(),
         upper_body_client=MockUpperBodyClient(),
         camera_client=MockCameraClient(),
+        motor_feedback_listener=MockMotorFeedbackListener(),
     )
     logger.info("ROS2 components created in MOCK mode")
     return components
