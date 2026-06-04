@@ -116,12 +116,16 @@ async def lifespan(app: FastAPI):
 
 
 def _install_request_logger(app: FastAPI) -> None:
-    """Log each HTTP request with method, path, status, duration, client IP.
+    """Log each HTTP request with a human-friendly action description.
 
-    Skips noisy polling endpoints (status GETs, frame stream) to keep the
-    file readable. Errors (>=400) and slow requests (>1s) are always logged.
+    For known routes we emit "执行示教点 [arm=left name=preset_1 method=moveJ] -> 200 [45ms]".
+    Unknown routes still log method+path. Noisy polling endpoints are skipped
+    unless they fail or exceed 1s.
     """
+    import json as _json
     import time as _time
+
+    from app.core.request_descriptor import describe_request
 
     SKIP_PATHS = (
         "/api/v1/robot/robot_001/status",
@@ -131,30 +135,56 @@ def _install_request_logger(app: FastAPI) -> None:
     )
     access_logger = logging.getLogger("app.access")
 
+    async def _read_body(request) -> dict | None:
+        """Buffer the request body so it can still be read by the route handler."""
+        body_bytes = await request.body()
+        if not body_bytes:
+            return None
+        # Re-inject the body for downstream handlers
+        async def receive():
+            return {"type": "http.request", "body": body_bytes, "more_body": False}
+        request._receive = receive
+        try:
+            return _json.loads(body_bytes)
+        except (ValueError, UnicodeDecodeError):
+            return None
+
     @app.middleware("http")
     async def _log_requests(request, call_next):
         start = _time.perf_counter()
+        body = None
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            try:
+                body = await _read_body(request)
+            except Exception:
+                body = None
+
         try:
             response = await call_next(request)
         except Exception:
             duration_ms = (_time.perf_counter() - start) * 1000
+            desc = describe_request(request.method, request.url.path, body) \
+                or f"{request.method} {request.url.path}"
             access_logger.exception(
-                "%s %s -> 500 [%.1fms] from=%s",
-                request.method, request.url.path, duration_ms,
+                "%s -> 500 [%.1fms] from=%s",
+                desc, duration_ms,
                 request.client.host if request.client else "?",
             )
             raise
+
         duration_ms = (_time.perf_counter() - start) * 1000
         path = request.url.path
         is_noisy = path.startswith(SKIP_PATHS)
         is_slow = duration_ms > 1000
         is_error = response.status_code >= 400
         if not is_noisy or is_slow or is_error:
+            desc = describe_request(request.method, path, body) \
+                or f"{request.method} {path}"
             level = logging.WARNING if is_error else logging.INFO
             access_logger.log(
                 level,
-                "%s %s -> %d [%.1fms] from=%s",
-                request.method, path, response.status_code, duration_ms,
+                "%s -> %d [%.1fms] from=%s",
+                desc, response.status_code, duration_ms,
                 request.client.host if request.client else "?",
             )
         return response
