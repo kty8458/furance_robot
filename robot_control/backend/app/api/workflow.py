@@ -57,10 +57,48 @@ async def delete_workflow(robot_id: str, name: str, request: Request):
     return ApiResponse(data={"deleted": name})
 
 
+def _validate_robot_ready(request: Request, robot_id: str, workflow_steps: list) -> str | None:
+    """Pre-flight validation. Returns error message if not ready, None if OK.
+
+    Checks:
+      - Status data available (control system has received robot status)
+      - Arms enabled if workflow contains upper_limb or upper_body steps
+      - Battery > 10% and not in error if workflow contains move steps
+    """
+    status_service = request.app.state.status_service
+    status = status_service.get_latest(robot_id)
+    if not status:
+        return "机器人状态未就绪，请先确认控制系统已连接"
+
+    needs_arm = any(s.type in ("upper_limb", "upper_body", "gripper") for s in workflow_steps)
+    needs_move = any(s.type == "move" for s in workflow_steps)
+
+    if needs_arm and not status.get("enabled", False):
+        return "上肢未使能，请先使能机械臂"
+
+    if status.get("error_code", 0) != 0:
+        return f"机器人存在告警（error_code={status.get('error_code')}），请先清除告警"
+
+    if needs_move:
+        battery = status.get("battery", 0)
+        if battery > 0 and battery < 10:
+            return f"电量过低（{battery}%），无法执行包含移动的工作流"
+        if not status.get("current_map"):
+            return "底盘未加载地图，无法执行移动步骤"
+
+    return None
+
+
 @router.post("/{name}/execute", response_model=ApiResponse)
 async def execute_workflow(robot_id: str, name: str, req: WorkflowExecuteRequest, request: Request):
     try:
         service = _get_workflow_service(request)
+        workflow = service.get_workflow(robot_id, name)
+
+        error = _validate_robot_ready(request, robot_id, workflow.steps)
+        if error:
+            return ApiResponse(code=2001, message=error)
+
         execution_id = service.start_execution(robot_id, name, req)
         return ApiResponse(data={"execution_id": execution_id, "status": "started"})
     except FuranceError as e:
