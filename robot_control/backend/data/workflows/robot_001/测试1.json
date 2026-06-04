@@ -1,0 +1,83 @@
+{
+  "name": "测试1",
+  "description": "",
+  "steps": [
+    {
+      "id": "step_1",
+      "type": "upper_limb",
+      "label": "右臂1",
+      "config": {
+        "mode": "preset",
+        "arm": "right",
+        "method": "moveJ",
+        "preset_name": "initial_pose",
+        "reference_frame": "base_link",
+        "position": {}
+      }
+    },
+    {
+      "id": "step_2",
+      "type": "sleep",
+      "label": "sleep1",
+      "config": {
+        "duration": 1
+      }
+    },
+    {
+      "id": "step_3",
+      "type": "upper_limb",
+      "label": "右臂2",
+      "config": {
+        "mode": "preset",
+        "arm": "right",
+        "method": "moveJ",
+        "preset_name": "zero_pose",
+        "reference_frame": "base_link",
+        "position": {}
+      }
+    },
+    {
+      "id": "step_4",
+      "type": "sleep",
+      "label": "sleep1",
+      "config": {
+        "duration": 1
+      }
+    },
+    {
+      "id": "step_5",
+      "type": "upper_limb",
+      "label": "左臂1",
+      "config": {
+        "mode": "preset",
+        "arm": "left",
+        "method": "moveJ",
+        "preset_name": "zero_pose",
+        "reference_frame": "base_link",
+        "position": {}
+      }
+    },
+    {
+      "id": "step_6",
+      "type": "sleep",
+      "label": "slppe1",
+      "config": {
+        "duration": 1
+      }
+    },
+    {
+      "id": "step_7",
+      "type": "upper_limb",
+      "label": "左臂2",
+      "config": {
+        "mode": "preset",
+        "arm": "left",
+        "method": "moveJ",
+        "preset_name": "initial_pose",
+        "reference_frame": "base_link",
+        "position": {}
+      }
+    }
+  ],
+  "version": 1
+}
