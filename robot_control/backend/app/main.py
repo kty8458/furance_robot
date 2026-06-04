@@ -74,6 +74,13 @@ async def lifespan(app: FastAPI):
     await chassis_poller.start()
     app.state.chassis_poller = chassis_poller
 
+    # Periodic status heartbeat (60s) — logs one line summary so operators
+    # can confirm the robot is alive via the log file.
+    from app.services.status_heartbeat import StatusHeartbeat
+    status_heartbeat = StatusHeartbeat(status_service)
+    await status_heartbeat.start()
+    app.state.status_heartbeat = status_heartbeat
+
     # Workflow service (singleton — keeps execution state across requests)
     from app.services.workflow_service import WorkflowService
     from app.services.arm_service import ArmService
@@ -107,6 +114,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     await chassis_client.close()
     await chassis_poller.stop()
+    await status_heartbeat.stop()
     if components.runtime is not None:
         await components.log_collector.stop()
         await components.joint_state_listener.stop()
@@ -174,10 +182,14 @@ def _install_request_logger(app: FastAPI) -> None:
 
         duration_ms = (_time.perf_counter() - start) * 1000
         path = request.url.path
+        is_get = request.method == "GET"
         is_noisy = path.startswith(SKIP_PATHS)
         is_slow = duration_ms > 1000
         is_error = response.status_code >= 400
-        if not is_noisy or is_slow or is_error:
+
+        # Default: drop all successful GETs and SKIP_PATHS unless slow/failed
+        skip = is_noisy or is_get
+        if (not skip) or is_slow or is_error:
             desc = describe_request(request.method, path, body) \
                 or f"{request.method} {path}"
             level = logging.WARNING if is_error else logging.INFO
