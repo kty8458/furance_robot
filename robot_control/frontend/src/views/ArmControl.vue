@@ -71,14 +71,14 @@
             <!-- Head pan -->
             <div>
               <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">
-                头部偏转: {{ upperBody.ascend_pos }} (0-90°)
+                头部偏转: {{ upperBody.ascend_pos }} (-90~90°)
               </div>
               <el-row :gutter="8" align="middle">
                 <el-col :span="14">
-                  <el-slider v-model="upperBody.ascend_pos" :min="0" :max="90" :step="1" :show-tooltip="false" />
+                  <el-slider v-model="upperBody.ascend_pos" :min="-90" :max="90" :step="1" :show-tooltip="false" />
                 </el-col>
                 <el-col :span="4">
-                  <el-input-number v-model="upperBody.ascend_pos" :min="0" :max="90" size="small" controls-position="right" style="width: 100%" />
+                  <el-input-number v-model="upperBody.ascend_pos" :min="-90" :max="90" size="small" controls-position="right" style="width: 100%" />
                 </el-col>
                 <el-col :span="4">
                   <span style="font-size: 11px; color: #6b7b8d">速度</span>
