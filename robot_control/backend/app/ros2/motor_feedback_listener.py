@@ -86,7 +86,7 @@ class RealMotorFeedbackListener(MotorFeedbackListenerBase):
             data = {
                 "motor": {
                     "head_pan_deg": float(msg.angle),
-                    "lift_height_cm": float(msg.pos) / 100.0,
+                    "lift_height_mm": float(msg.pos),
                     "head_tilt_deg": float(msg.head_back_angle),
                 },
             }

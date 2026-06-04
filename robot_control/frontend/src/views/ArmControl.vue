@@ -363,8 +363,8 @@ watch(() => jogForm.value.method, (method) => {
 const upperBodyInitialized = ref(false)
 watch(() => status.value?.motor, (motor) => {
   if (!motor || upperBodyInitialized.value) return
-  if (typeof motor.lift_height_cm === 'number') {
-    upperBody.value.waist_angle = Math.round(motor.lift_height_cm * 10)
+  if (typeof motor.lift_height_mm === 'number') {
+    upperBody.value.waist_angle = Math.round(motor.lift_height_mm)
   }
   if (typeof motor.head_pan_deg === 'number') {
     upperBody.value.ascend_pos = Math.round(motor.head_pan_deg)
