@@ -93,10 +93,15 @@ async def lifespan(app: FastAPI):
         status_service=status_service,
     )
 
-    logger.info(
-        "Application started (ROS2_MODE=%s)",
-        os.environ.get("ROS2_MODE", "mock"),
-    )
+    logger.info("=" * 60)
+    logger.info("Robot Control Backend started")
+    logger.info("  ROS2_MODE: %s", os.environ.get("ROS2_MODE", "mock"))
+    logger.info("  log_dir: %s", settings.log_dir)
+    logger.info("  log_level: %s", settings.log_level)
+    logger.info("  chassis_base_url: %s", settings.chassis_base_url)
+    logger.info("  teach_data_dir: %s", settings.teach_data_dir)
+    logger.info("  workflow_data_dir: %s", settings.workflow_data_dir)
+    logger.info("=" * 60)
     yield
 
     # Shutdown
@@ -110,8 +115,54 @@ async def lifespan(app: FastAPI):
     logger.info("Application stopped")
 
 
+def _install_request_logger(app: FastAPI) -> None:
+    """Log each HTTP request with method, path, status, duration, client IP.
+
+    Skips noisy polling endpoints (status GETs, frame stream) to keep the
+    file readable. Errors (>=400) and slow requests (>1s) are always logged.
+    """
+    import time as _time
+
+    SKIP_PATHS = (
+        "/api/v1/robot/robot_001/status",
+        "/api/v1/system/logs/backend",
+        "/api/v1/system/logs/ros2-nodes",
+        "/api/v1/robot/robot_001/camera/frame",
+    )
+    access_logger = logging.getLogger("app.access")
+
+    @app.middleware("http")
+    async def _log_requests(request, call_next):
+        start = _time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = (_time.perf_counter() - start) * 1000
+            access_logger.exception(
+                "%s %s -> 500 [%.1fms] from=%s",
+                request.method, request.url.path, duration_ms,
+                request.client.host if request.client else "?",
+            )
+            raise
+        duration_ms = (_time.perf_counter() - start) * 1000
+        path = request.url.path
+        is_noisy = path.startswith(SKIP_PATHS)
+        is_slow = duration_ms > 1000
+        is_error = response.status_code >= 400
+        if not is_noisy or is_slow or is_error:
+            level = logging.WARNING if is_error else logging.INFO
+            access_logger.log(
+                level,
+                "%s %s -> %d [%.1fms] from=%s",
+                request.method, path, response.status_code, duration_ms,
+                request.client.host if request.client else "?",
+            )
+        return response
+
+
 def create_app(static_dir: str | None = None) -> FastAPI:
     app = FastAPI(title="Robot Control System", version="0.1.0", lifespan=lifespan)
+    _install_request_logger(app)
     app.include_router(robot_router)
     app.include_router(arm_router)
     app.include_router(nav_router)

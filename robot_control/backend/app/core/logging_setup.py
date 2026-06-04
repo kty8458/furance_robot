@@ -17,9 +17,22 @@ import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
-LOG_FORMAT = "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"
+LOG_FORMAT = "[%(asctime)s.%(msecs)03d] [%(levelname)s] [%(name)s:%(lineno)d] %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 FILE_PREFIX = "control_system_backend"
+
+# Third-party loggers that flood the file at INFO level. Pin to WARNING so
+# only real failures show up.
+_NOISY_LOGGERS = {
+    "httpx": "WARNING",
+    "httpcore": "WARNING",
+    "uvicorn.access": "WARNING",
+    "asyncio": "WARNING",
+    "watchfiles": "WARNING",
+    "websockets": "WARNING",
+    "multipart": "WARNING",
+    "PIL": "WARNING",
+}
 
 _FILE_PATTERN = re.compile(rf"^{FILE_PREFIX}-(\d{{4}}-\d{{2}}-\d{{2}})\.log$")
 
@@ -59,6 +72,10 @@ def setup_file_logging(log_dir: str, level: str = "INFO", retention_days: int = 
 
     if retention_days and retention_days > 0:
         _cleanup_old_logs(log_path, retention_days)
+
+    # Quiet noisy third-party loggers that drown business events at INFO level.
+    for name, level_name in _NOISY_LOGGERS.items():
+        logging.getLogger(name).setLevel(level_name)
 
 
 def _cleanup_old_logs(log_dir: Path, retention_days: int) -> None:
