@@ -135,13 +135,15 @@ class ChassisClient:
 
     async def start_task(self, body: dict) -> dict[str, Any]:
         await self._ensure_token()
-        logger.info("start_task request body: %s", body)
+        logger.info("EVENT chassis_task_start body=%s", body)
         result = await self._request("POST", "/task_queue/start", json=body)
-        logger.info("start_task response: %s", result)
+        logger.info("EVENT chassis_task_start_result success=%s msg=%s",
+                    result.get("success"), result.get("message"))
         return result
 
     async def stop_task(self) -> dict[str, Any]:
         await self._ensure_token()
+        logger.info("EVENT chassis_task_stop")
         return await self._request("POST", "/task_queue/stop")
 
     async def is_task_finished(self) -> dict[str, Any]:

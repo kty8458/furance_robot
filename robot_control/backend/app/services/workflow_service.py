@@ -138,6 +138,8 @@ class WorkflowService:
         cancel_event: asyncio.Event,
     ) -> None:
         state = self._execution_state[execution_id]
+        logger.info("EVENT workflow_start name=%s robot_id=%s steps=%d",
+                    workflow.name, robot_id, len(workflow.steps))
         try:
             nav_lookup = {np.step_id: np for np in execute_req.nav_params}
             context: dict[str, dict] = {}
@@ -230,6 +232,8 @@ class WorkflowService:
             state["active"] = False
             if state.get("success") is None:
                 state["success"] = False
+            logger.info("EVENT workflow_end name=%s execution_id=%s success=%s message=%s",
+                        workflow.name, execution_id, state.get("success"), state.get("message"))
             self._active_executions.pop(execution_id, None)
 
     async def cancel_workflow(self) -> bool:

@@ -6,7 +6,7 @@
         <el-menu-item index="/"><el-icon><Monitor /></el-icon><span>状态监控</span></el-menu-item>
         <el-menu-item index="/arm"><el-icon><SetUp /></el-icon><span>上身运控</span></el-menu-item>
         <el-menu-item index="/navigation"><el-icon><MapLocation /></el-icon><span>导航</span></el-menu-item>
-        <el-menu-item index="/ros2"><el-icon><Cpu /></el-icon><span>ROS2节点</span></el-menu-item>
+        <el-menu-item index="/ros2"><el-icon><Cpu /></el-icon><span>系统管理</span></el-menu-item>
         <el-menu-item index="/workflow"><el-icon><List /></el-icon><span>工作流</span></el-menu-item>
         <el-menu-item index="/camera"><el-icon><View /></el-icon><span>相机</span></el-menu-item>
       </el-menu>

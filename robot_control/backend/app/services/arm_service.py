@@ -18,6 +18,11 @@ class ArmService:
         self._teach_dir = Path(teach_dir)
 
     async def arm_move(self, robot_id: str, cmd: ArmMoveCommand) -> ApiResponse:
+        import logging
+        logging.getLogger(__name__).info(
+            "EVENT arm_move arm=%s method=%s coordinate=%s",
+            cmd.arm.value, cmd.method.value, cmd.coordinate,
+        )
         if cmd.method.value == "movep" and self._moveit:
             to_frame = f"ARM-{'L' if cmd.arm.value == 'left' else 'R'}-J7_Link"
             result = await self._moveit.move_p(
