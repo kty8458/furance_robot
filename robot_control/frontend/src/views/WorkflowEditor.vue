@@ -318,7 +318,7 @@
     </el-dialog>
 
     <!-- Execution result dialog -->
-    <el-dialog v-model="showResultDialog" title="执行结果" width="500px">
+    <el-dialog v-model="showResultDialog" title="执行结果" width="640px">
       <div v-if="execResult">
         <el-tag
           :type="execResult.active ? 'warning' : (execResult.success ? 'success' : 'danger')"
@@ -328,14 +328,16 @@
           {{ execResult.active ? '执行中...' : (execResult.success ? '执行成功' : '执行失败') }}
         </el-tag>
         <div v-if="execResult.message" style="margin-bottom: 12px; color: #9ca3af">{{ execResult.message }}</div>
-        <el-table :data="execResult.step_results" border size="small">
-          <el-table-column prop="step_id" label="步骤ID" width="120" />
-          <el-table-column label="状态" width="70">
+        <el-table :data="execStepRows" border size="small">
+          <el-table-column prop="step_id" label="步骤ID" width="100" />
+          <el-table-column prop="type" label="类型" width="90" />
+          <el-table-column prop="label" label="名称" min-width="120" />
+          <el-table-column label="状态" width="80">
             <template #default="{ row }">
-              <el-tag :type="row.success ? 'success' : 'danger'" size="small">{{ row.success ? 'OK' : 'FAIL' }}</el-tag>
+              <el-tag :type="statusTag(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="message" label="信息" min-width="150" />
+          <el-table-column prop="message" label="信息" min-width="160" show-overflow-tooltip />
         </el-table>
       </div>
       <template #footer>
@@ -372,6 +374,11 @@ const showExecDialog = ref(false)
 const showResultDialog = ref(false)
 const executing = ref(false)
 const execResult = ref(null)
+const execStepRows = ref([])
+const statusTagMap = { pending: 'info', running: 'warning', completed: 'success', failed: 'danger' }
+const statusLabelMap = { pending: '待执行', running: '执行中', completed: '完成', failed: '失败' }
+function statusTag(s) { return statusTagMap[s] || 'info' }
+function statusLabel(s) { return statusLabelMap[s] || s }
 const maps = ref([])
 const navMaps = ref([])
 const execNavParams = reactive({})
@@ -658,6 +665,15 @@ async function executeWorkflow() {
   if (!currentWorkflow.value) return
   executing.value = true
   try {
+    // Prepopulate all steps with pending status
+    execStepRows.value = currentWorkflow.value.steps.map(s => ({
+      step_id: s.id,
+      type: s.type,
+      label: s.label,
+      status: 'pending',
+      message: '',
+    }))
+
     // Build nav_params from scheduler-provided steps + manual steps
     const navParams = currentWorkflow.value.steps
       .filter(s => s.type === 'move')
@@ -686,13 +702,33 @@ async function executeWorkflow() {
     showExecDialog.value = false
     showResultDialog.value = true
     execResult.value = { active: true, step_results: [], message: '执行中...' }
+    execStepRows.value[0].status = 'running'
 
-    // Poll until active=false
+    // Poll until active=false, updating steps as results arrive
     while (true) {
       await new Promise(r => setTimeout(r, 1000))
       const statusRes = await workflowApi.getExecution(executionId)
       const state = statusRes.data?.data || statusRes.data
       execResult.value = state
+
+      // Merge backend step_results into execStepRows
+      if (state.step_results && state.step_results.length) {
+        const resultMap = {}
+        state.step_results.forEach(r => { resultMap[r.step_id] = r })
+        for (let i = 0; i < execStepRows.value.length; i++) {
+          const row = execStepRows.value[i]
+          const result = resultMap[row.step_id]
+          if (result) {
+            row.status = result.success ? 'completed' : 'failed'
+            row.message = result.message
+            // Mark next step as running
+            if (result.success && i + 1 < execStepRows.value.length) {
+              execStepRows.value[i + 1].status = 'running'
+            }
+          }
+        }
+      }
+
       if (!state.active) break
     }
   } catch (error) {
