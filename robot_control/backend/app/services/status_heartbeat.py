@@ -66,6 +66,11 @@ class StatusHeartbeat:
         def _fmt_num(v, suffix="", decimals=1):
             return f"{v:.{decimals}f}{suffix}" if isinstance(v, (int, float)) else "--"
 
+        def _fmt_lift(cm):
+            if isinstance(cm, (int, float)):
+                return f"{cm * 10:.0f}mm"
+            return "--"
+
         logger.info(
             "HEARTBEAT chassis battery=%s%% charging=%s map=%s pos=(%.2f,%.2f,%.2f) | "
             "upper enabled=%s error=%s task=%s | "
@@ -80,7 +85,7 @@ class StatusHeartbeat:
             snap.get("task_status", "?"),
             _fmt_num(motor.get("head_pan_deg"), "°"),
             _fmt_num(motor.get("head_tilt_deg"), "°"),
-            _fmt_num(motor.get("lift_height_cm"), "cm", decimals=2),
+            _fmt_lift(motor.get("lift_height_cm")),
             (gripper.get("left") or {}).get("state", "?"),
             (gripper.get("right") or {}).get("state", "?"),
             _fmt_joints(left_joints),

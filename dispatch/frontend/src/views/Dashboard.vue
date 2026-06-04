@@ -25,7 +25,7 @@
             <div class="status-item"><label>错误码</label><span>{{ robot.status_data.error_code }}</span></div>
             <div class="status-item"><label>头部偏转</label><span>{{ robot.status_data.motor?.head_pan_deg?.toFixed(2) ?? '--' }}°</span></div>
             <div class="status-item"><label>头部俯仰</label><span>{{ robot.status_data.motor?.head_tilt_deg?.toFixed(2) ?? '--' }}°</span></div>
-            <div class="status-item"><label>升降高度</label><span>{{ robot.status_data.motor?.lift_height_cm?.toFixed(2) ?? '--' }}cm</span></div>
+            <div class="status-item"><label>升降高度</label><span>{{ robot.status_data.motor?.lift_height_cm != null ? (robot.status_data.motor.lift_height_cm * 10).toFixed(0) : '--' }}mm</span></div>
           </div>
           <div v-if="robot.status_data" class="arm-section">
             <div class="arm-side" v-if="robot.status_data.arm?.left">

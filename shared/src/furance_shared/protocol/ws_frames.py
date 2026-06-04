@@ -14,6 +14,12 @@ class WsFrameType(StrEnum):
     ALARM = "alarm"
 
 
+class MotorState(BaseModel):
+    head_pan_deg: float = 0.0
+    head_tilt_deg: float = 0.0
+    lift_height_cm: float = 0.0
+
+
 class StatusPayload(BaseModel):
     position: Position
     current_map: str = ""
@@ -25,6 +31,7 @@ class StatusPayload(BaseModel):
     error_code: int = 0
     task_status: str = "idle"
     arm: Dict[str, ArmState]
+    motor: Optional[MotorState] = None
     ros2_nodes: Optional[Dict[str, str]] = None
 
 
