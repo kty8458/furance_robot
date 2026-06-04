@@ -14,6 +14,7 @@ from app.api.ros2_nodes import router as ros2_router
 from app.api.upper_body import router as upper_body_router
 from app.api.workflow import router as workflow_router
 from app.api.camera import router as camera_router
+from app.api.log_viewer import router as log_viewer_router
 from app.ws.status import router as status_ws_router
 from app.ws.logs import router as logs_ws_router
 from app.ros2.factory import create_ros2_components
@@ -29,6 +30,16 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    settings = get_settings()
+
+    # File logging (daily rotation, before any logger call)
+    from app.core.logging_setup import setup_file_logging
+    setup_file_logging(
+        log_dir=settings.log_dir,
+        level=settings.log_level,
+        retention_days=settings.log_retention_days,
+    )
+
     status_service = StatusService()
     log_service = LogService()
     components = create_ros2_components()
@@ -46,7 +57,6 @@ async def lifespan(app: FastAPI):
     app.state.log_service = log_service
 
     # Chassis client (HTTP direct, no ROS2)
-    settings = get_settings()
     try:
         chassis_client = ChassisClient(
             base_url=settings.chassis_base_url,
@@ -109,6 +119,7 @@ def create_app(static_dir: str | None = None) -> FastAPI:
     app.include_router(upper_body_router)
     app.include_router(workflow_router)
     app.include_router(camera_router)
+    app.include_router(log_viewer_router)
     app.include_router(status_ws_router)
     app.include_router(logs_ws_router)
 

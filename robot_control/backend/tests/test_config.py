@@ -11,7 +11,7 @@ def test_default_settings(monkeypatch):
     assert s.ros2_service_timeout == 30.0
     assert s.ws_status_interval == 30
     assert s.log_level == "INFO"
-    assert s.log_retention_days == 30
+    assert s.log_retention_days == 0
 
 
 def test_ros2_domain_id_from_env(monkeypatch):

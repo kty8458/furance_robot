@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     log_dir: str = "data/logs"
-    log_retention_days: int = 30
+    log_retention_days: int = 0  # 0 = no auto cleanup
 
     teach_data_dir: str = "data/teach"
     workflow_data_dir: str = "data/workflows"
