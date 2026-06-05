@@ -128,12 +128,13 @@
           <el-row :gutter="12" style="margin-bottom: 12px" align="middle">
             <el-col :span="4">
               <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">手臂</div>
-              <el-select v-model="jogForm.arm" style="width: 100%">
+              <el-select v-model="jogForm.arm" style="width: 100%" @change="onArmChange">
                 <el-option label="左臂" value="left" />
                 <el-option label="右臂" value="right" />
+                <el-option label="双臂" value="both" />
               </el-select>
             </el-col>
-            <el-col :span="4">
+            <el-col :span="4" v-if="jogForm.arm !== 'both'">
               <div style="font-size: 13px; color: #9ca3af; margin-bottom: 4px">模式</div>
               <el-select v-model="jogForm.method" style="width: 100%">
                 <el-option label="moveJ" value="moveJ" />
@@ -198,8 +199,8 @@
             </el-row>
           </template>
 
-          <!-- moveJ: 7 joint buttons -->
-          <div v-if="jogForm.method === 'moveJ'" class="jog-grid">
+          <!-- moveJ: 7 joint buttons (single arm) -->
+          <div v-if="jogForm.method === 'moveJ' && jogForm.arm !== 'both'" class="jog-grid">
             <div v-for="i in 7" :key="'jog'+i" class="jog-row">
               <span class="jog-label">J{{ i }}</span>
               <span class="jog-value">{{ currentAngles(jogForm.arm)[i-1]?.toFixed(4) ?? '0.0000' }}°</span>
@@ -208,14 +209,43 @@
             </div>
           </div>
 
-          <!-- moveP: 6 pose buttons -->
-          <div v-else class="jog-grid">
+          <!-- moveP: 6 pose buttons (single arm) -->
+          <div v-else-if="jogForm.arm !== 'both'" class="jog-grid">
             <div v-for="(label, idx) in poseLabels" :key="'pose'+idx" class="jog-row">
               <span class="jog-label">{{ label }}</span>
               <span class="jog-value">{{ currentPose(jogForm.arm)[idx]?.toFixed(4) ?? '0.0000' }}{{ idx < 3 ? '' : '°' }}</span>
               <el-button class="jog-btn jog-minus" size="large" @mousedown="startJog('pose', idx, -1)" @mouseup="stopJog" @mouseleave="stopJog" @touchstart.prevent="startJog('pose', idx, -1)" @touchend="stopJog">-</el-button>
               <el-button class="jog-btn jog-plus" size="large" type="primary" @mousedown="startJog('pose', idx, 1)" @mouseup="stopJog" @mouseleave="stopJog" @touchstart.prevent="startJog('pose', idx, 1)" @touchend="stopJog">+</el-button>
             </div>
+          </div>
+
+          <!-- Both-arm: show left + right joint angles -->
+          <div v-if="jogForm.arm === 'both'" style="margin-top: 12px">
+            <div style="font-size: 13px; color: #00d4ff; margin-bottom: 6px">双臂 moveJ 控制</div>
+            <el-row :gutter="16">
+              <el-col :span="12">
+                <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">左臂关节</div>
+                <div class="jog-grid">
+                  <div v-for="i in 7" :key="'lb'+i" class="jog-row">
+                    <span class="jog-label">J{{ i }}</span>
+                    <span class="jog-value">{{ currentAngles('left')[i-1]?.toFixed(4) ?? '0.0000' }}°</span>
+                    <el-button class="jog-btn jog-minus" size="large" @mousedown="startJog('joint_both', i-1, -1, 'left')" @mouseup="stopJog" @mouseleave="stopJog">-</el-button>
+                    <el-button class="jog-btn jog-plus" size="large" type="primary" @mousedown="startJog('joint_both', i-1, 1, 'left')" @mouseup="stopJog" @mouseleave="stopJog">+</el-button>
+                  </div>
+                </div>
+              </el-col>
+              <el-col :span="12">
+                <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">右臂关节</div>
+                <div class="jog-grid">
+                  <div v-for="i in 7" :key="'rb'+i" class="jog-row">
+                    <span class="jog-label">J{{ i }}</span>
+                    <span class="jog-value">{{ currentAngles('right')[i-1]?.toFixed(4) ?? '0.0000' }}°</span>
+                    <el-button class="jog-btn jog-minus" size="large" @mousedown="startJog('joint_both', i-1, -1, 'right')" @mouseup="stopJog" @mouseleave="stopJog">-</el-button>
+                    <el-button class="jog-btn jog-plus" size="large" type="primary" @mousedown="startJog('joint_both', i-1, 1, 'right')" @mouseup="stopJog" @mouseleave="stopJog">+</el-button>
+                  </div>
+                </div>
+              </el-col>
+            </el-row>
           </div>
         </el-card>
       </el-col>
@@ -228,7 +258,7 @@
           <el-input v-model="saveForm.name" placeholder="输入点位名称" />
         </el-form-item>
         <el-form-item label="手臂">
-          <span style="color: #00d4ff">{{ jogForm.arm === 'left' ? '左臂' : '右臂' }}</span>
+          <span style="color: #00d4ff">{{ armLabel(jogForm.arm) }}</span>
         </el-form-item>
         <el-form-item label="模式">
           <span style="color: #00d4ff">{{ jogForm.method }}</span>
@@ -358,6 +388,10 @@ watch(() => jogForm.value.method, (method) => {
   if (method === 'moveJ') jogForm.value.step = 0.05
 })
 
+function onArmChange(val) {
+  if (val === 'both') jogForm.value.method = 'moveJ'
+}
+
 // One-shot init: when motor feedback first arrives, sync upper-body inputs
 // to the current physical position so jog commands start from "here".
 const upperBodyInitialized = ref(false)
@@ -384,6 +418,11 @@ function armEnabled(side) {
   return status.value?.enabled ?? false
 }
 
+function armLabel(val) {
+  const map = { left: '左臂', right: '右臂', both: '双臂' }
+  return map[val] || val
+}
+
 // -- Current joint angles --
 function currentAngles(side) {
   const arm = status.value?.arm?.[side]
@@ -398,18 +437,18 @@ function currentPose(side) {
 }
 
 // -- Jog control --
-function startJog(mode, index, direction) {
+function startJog(mode, index, direction, armOverride) {
   stopJog()
-  sendJog(mode, index, direction)
-  jogTimer = setInterval(() => { if (!jogPending) sendJog(mode, index, direction) }, JOG_INTERVAL)
+  sendJog(mode, index, direction, armOverride)
+  jogTimer = setInterval(() => { if (!jogPending) sendJog(mode, index, direction, armOverride) }, JOG_INTERVAL)
 }
 
 function stopJog() {
   if (jogTimer) { clearInterval(jogTimer); jogTimer = null }
 }
 
-async function sendJog(mode, index, direction) {
-  const side = jogForm.value.arm
+async function sendJog(mode, index, direction, armOverride) {
+  const side = armOverride || jogForm.value.arm
   let step
   if (mode === 'joint') {
     step = jogForm.value.step * direction

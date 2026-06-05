@@ -154,9 +154,10 @@
                       </el-col>
                       <el-col :span="8">
                         <div style="font-size: 11px; color: #6b7b8d">手臂</div>
-                        <el-select v-model="step.config.arm" size="small" style="width: 100%" @change="step.config.preset_name = ''">
+                        <el-select v-model="step.config.arm" size="small" style="width: 100%" @change="onWfArmChange(step)">
                           <el-option label="左臂" value="left" />
                           <el-option label="右臂" value="right" />
+                          <el-option label="双臂" value="both" />
                         </el-select>
                       </el-col>
                       <el-col :span="8">
@@ -169,22 +170,49 @@
                       </el-col>
                     </el-row>
                     <template v-if="step.config.mode === 'preset'">
-                      <div style="font-size: 11px; color: #6b7b8d">预设位</div>
-                      <el-select
-                        v-model="step.config.preset_name"
-                        size="small"
-                        style="width: 280px"
-                        filterable
-                        placeholder="选择示教点位"
-                        @change="name => onPresetChange(step, name)"
-                      >
-                        <el-option
-                          v-for="p in teachPresets.filter(t => t.arm === step.config.arm)"
-                          :key="p.arm + '_' + p.name"
-                          :label="`${p.name}  (${p.method || 'moveJ'})`"
-                          :value="p.name"
-                        />
-                      </el-select>
+                      <!-- Both-arm preset: two selectors side by side -->
+                      <el-row v-if="step.config.arm === 'both'" :gutter="8" style="margin-bottom: 8px">
+                        <el-col :span="12">
+                          <div style="font-size: 11px; color: #6b7b8d">左臂点位</div>
+                          <el-select
+                            v-model="step.config.left_preset_name"
+                            size="small" style="width: 100%" filterable placeholder="左臂示教点"
+                            @change="name => onPresetSideChange(step, 'left', name)"
+                          >
+                            <el-option
+                              v-for="p in teachPresets.filter(t => t.arm === 'left')"
+                              :key="'l_'+p.name" :label="`${p.name} (${p.method || 'moveJ'})`" :value="p.name"
+                            />
+                          </el-select>
+                        </el-col>
+                        <el-col :span="12">
+                          <div style="font-size: 11px; color: #6b7b8d">右臂点位</div>
+                          <el-select
+                            v-model="step.config.right_preset_name"
+                            size="small" style="width: 100%" filterable placeholder="右臂示教点"
+                            @change="name => onPresetSideChange(step, 'right', name)"
+                          >
+                            <el-option
+                              v-for="p in teachPresets.filter(t => t.arm === 'right')"
+                              :key="'r_'+p.name" :label="`${p.name} (${p.method || 'moveJ'})`" :value="p.name"
+                            />
+                          </el-select>
+                        </el-col>
+                      </el-row>
+                      <!-- Single-arm preset: one selector -->
+                      <div v-else>
+                        <div style="font-size: 11px; color: #6b7b8d">预设位</div>
+                        <el-select
+                          v-model="step.config.preset_name"
+                          size="small" style="width: 280px" filterable placeholder="选择示教点位"
+                          @change="name => onPresetChange(step, name)"
+                        >
+                          <el-option
+                            v-for="p in teachPresets.filter(t => t.arm === step.config.arm)"
+                            :key="p.arm + '_' + p.name" :label="`${p.name} (${p.method || 'moveJ'})`" :value="p.name"
+                          />
+                        </el-select>
+                      </div>
                     </template>
                     <template v-else>
                       <div style="font-size: 11px; color: #6b7b8d">参考坐标系</div>
@@ -436,6 +464,18 @@ function onPresetChange(step, name) {
   if (p) step.config.method = p.method || 'moveJ'
 }
 
+function onPresetSideChange(step, side, name) {
+  // both-arm mode — auto set method to moveJ
+  step.config.method = 'moveJ'
+}
+
+function onWfArmChange(step) {
+  step.config.preset_name = ''
+  step.config.left_preset_name = ''
+  step.config.right_preset_name = ''
+  if (step.config.arm === 'both') step.config.method = 'moveJ'
+}
+
 async function handleCancel() {
   if (!currentWorkflow.value) return
   try {
@@ -521,6 +561,8 @@ async function selectWorkflow(row) {
         if (s.type === 'upper_limb' && !s.config.method) s.config.method = 'moveJ'
         if (s.type === 'upper_limb' && !s.config.arm) s.config.arm = 'left'
         if (s.type === 'upper_limb' && !s.config.reference_frame) s.config.reference_frame = 'base_link'
+        if (s.type === 'upper_limb' && !s.config.left_reference_frame) s.config.left_reference_frame = 'base_link'
+        if (s.type === 'upper_limb' && !s.config.right_reference_frame) s.config.right_reference_frame = 'base_link'
         if (s.type === 'upper_limb' && !s.config.position) s.config.position = {}
         if (s.type === 'gripper' && !s.config.arm) s.config.arm = 'left'
         if (s.type === 'gripper' && !s.config.action) s.config.action = 'open'
@@ -605,7 +647,7 @@ function addStep(type) {
   stepCounter++
   const defaults = {
     move: { move_source: 'scheduler', map_name: '', point_name: '', path_type: 'NavigationPointTask' },
-    upper_limb: { mode: 'preset', arm: 'left', method: 'moveJ', preset_name: '', reference_frame: 'base_link', position: {}, vision_source: '' },
+    upper_limb: { mode: 'preset', arm: 'left', method: 'moveJ', preset_name: '', left_preset_name: '', right_preset_name: '', reference_frame: 'base_link', left_reference_frame: 'base_link', right_reference_frame: 'base_link', position: {}, vision_source: '', left_vision_source: '', right_vision_source: '' },
     upper_body: { _waist: false, _ascend: false, _head: false, waist_angle: 300, waist_speed: 20, ascend_pos: 100, ascend_speed: 20, head_angle: 15, head_speed: 10 },
     gripper: { arm: 'left', action: 'open', force: 0 },
     vision: { camera_id: 'camera_1', scene: '' },
