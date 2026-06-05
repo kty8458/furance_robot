@@ -78,6 +78,12 @@ class MoveItServiceClientBase(ABC):
                      duration: float = 3.0) -> dict[str, Any]:
         ...
 
+    @abstractmethod
+    async def move_j_both(self, left_joint_positions: list[float],
+                          right_joint_positions: list[float],
+                          duration: float = 3.0) -> dict[str, Any]:
+        ...
+
 
 class MockMoveItServiceClient(MoveItServiceClientBase):
     async def move_p(self, lor: str, target_pose: dict, to_frame: str,
@@ -92,6 +98,11 @@ class MockMoveItServiceClient(MoveItServiceClientBase):
         if len(joint_positions) != 7:
             return {"success": False, "message": "moveJ requires 7 joint angles"}
         return {"success": True, "message": "mock: MoveJ ok"}
+
+    async def move_j_both(self, left_joint_positions: list[float],
+                          right_joint_positions: list[float],
+                          duration: float = 3.0) -> dict[str, Any]:
+        return {"success": True, "message": "mock: MoveJ both ok"}
 
 
 class RealMoveItServiceClient(MoveItServiceClientBase):
@@ -240,6 +251,72 @@ class RealMoveItServiceClient(MoveItServiceClientBase):
         max_delta = max(abs(t - s) for t, s in zip(target_rad, start_rad))
         scaled_duration = max(duration, max_delta / 0.3 + 1.0)
         logger.info("move_j max_delta=%.3f rad, scaled_duration=%.1fs", max_delta, scaled_duration)
+
+        traj = JointTrajectory()
+        traj.joint_names = names
+
+        start_point = JointTrajectoryPoint()
+        start_point.positions = start_rad
+        start_dur = Duration()
+        start_dur.sec = 0
+        start_dur.nanosec = 0
+        start_point.time_from_start = start_dur
+        traj.points.append(start_point)
+
+        end_point = JointTrajectoryPoint()
+        end_point.positions = target_rad
+        end_dur = Duration()
+        end_dur.sec = int(scaled_duration)
+        end_dur.nanosec = int((scaled_duration - int(scaled_duration)) * 1e9)
+        end_point.time_from_start = end_dur
+        traj.points.append(end_point)
+
+        req = ExecuteTrajectory.Request()
+        req.trajectory = traj
+
+        return await self._bridge_future(client.call_async(req))
+
+    async def move_j_both(self, left_joint_positions: list[float],
+                          right_joint_positions: list[float],
+                          duration: float = 3.0) -> dict[str, Any]:
+        """Send a dual-arm JointTrajectory to /execute_trajectory.
+
+        Combines left and right joint names (14 total) into one trajectory.
+        C++ handler detects both-arm by checking joint_names for both
+        ARM-L and ARM-R prefixes and routes to both_move_group_.
+        """
+        from control_interfaces.srv import ExecuteTrajectory
+        from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+        from builtin_interfaces.msg import Duration
+
+        if len(left_joint_positions) != 7 or len(right_joint_positions) != 7:
+            return {"success": False, "message": "moveJ both requires 7+7 joint angles"}
+
+        client = self._get_or_create_client("execute_trajectory", ExecuteTrajectory)
+        if not client.wait_for_service(timeout_sec=5.0):
+            logger.error("ExecuteTrajectory service not available after 5s")
+            return {"success": False, "message": "ExecuteTrajectory service not available"}
+
+        names = LEFT_JOINT_NAMES + RIGHT_JOINT_NAMES
+
+        left_rad = [math.radians(float(p)) for p in left_joint_positions]
+        right_rad = [math.radians(float(p)) for p in right_joint_positions]
+        target_rad = left_rad + right_rad
+
+        self._ensure_joint_state_sub()
+        for _ in range(20):
+            if all(n in self._joint_positions for n in names):
+                break
+            await asyncio.sleep(0.05)
+        if not all(n in self._joint_positions for n in names):
+            logger.error("No /joint_states received for dual-arm")
+            return {"success": False, "message": "Current joint state unavailable"}
+
+        start_rad = [self._joint_positions[n] for n in names]
+
+        max_delta = max(abs(t - s) for t, s in zip(target_rad, start_rad))
+        scaled_duration = max(duration, max_delta / 0.3 + 1.0)
+        logger.info("move_j_both max_delta=%.3f rad, scaled_duration=%.1fs", max_delta, scaled_duration)
 
         traj = JointTrajectory()
         traj.joint_names = names

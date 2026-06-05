@@ -467,15 +467,35 @@ class WorkflowService:
         if config.mode == "preset":
             if not config.preset_name or self._arm_service is None:
                 return StepResult(step_id=step.id, success=False, message="Preset name required")
-            presets = self._arm_service.list_teach(robot_id)
-            preset = next((p for p in presets if p.name == config.preset_name and p.arm.value == config.arm), None)
-            if preset is None:
-                return StepResult(step_id=step.id, success=False, message=f"Preset '{config.preset_name}' not found")
 
             method = config.method
-            if method == "moveJ":
-                result = await self._moveit.move_j(config.arm, preset.joint_angles)
-            elif method == "moveL":
+
+            # Both-arm: load left+right presets and combine
+            if config.arm == "both":
+                left_name = config.left_preset_name or config.preset_name
+                right_name = config.right_preset_name or config.preset_name
+                presets = self._arm_service.list_teach(robot_id)
+                left_preset = next((p for p in presets if p.name == left_name and p.arm.value == "left"), None)
+                right_preset = next((p for p in presets if p.name == right_name and p.arm.value == "right"), None)
+                if left_preset is None:
+                    return StepResult(step_id=step.id, success=False, message=f"Left preset '{left_name}' not found")
+                if right_preset is None:
+                    return StepResult(step_id=step.id, success=False, message=f"Right preset '{right_name}' not found")
+
+                if method == "moveJ":
+                    result = await self._moveit.move_j_both(
+                        left_preset.joint_angles, right_preset.joint_angles)
+                else:
+                    return StepResult(step_id=step.id, success=False, message="Both-arm only supports moveJ")
+            else:
+                presets = self._arm_service.list_teach(robot_id)
+                preset = next((p for p in presets if p.name == config.preset_name and p.arm.value == config.arm), None)
+                if preset is None:
+                    return StepResult(step_id=step.id, success=False, message=f"Preset '{config.preset_name}' not found")
+
+                if method == "moveJ":
+                    result = await self._moveit.move_j(config.arm, preset.joint_angles)
+                elif method == "moveL":
                 result = await self._moveit.move_l(config.arm, [preset.end_effector.model_dump()])
             else:  # movep
                 to_frame = f"ARM-{'L' if config.arm == 'left' else 'R'}-J7_Link"

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class ArmSide(StrEnum):
     LEFT = "left"
     RIGHT = "right"
+    BOTH = "both"
 
 
 class GripperAction(StrEnum):

@@ -23,10 +23,27 @@ class ArmService:
             "EVENT arm_move arm=%s method=%s coordinate=%s",
             cmd.arm.value, cmd.method.value, cmd.coordinate,
         )
+
+        arm = cmd.arm.value
+
+        # Dual-arm moveJ: send left+right together to both_move_group
+        if arm == "both" and cmd.method.value == "moveJ" and self._moveit:
+            left = cmd.joint_angles or []
+            right = cmd.joint_angles_right or []
+            if len(left) != 7 or len(right) != 7:
+                return ApiResponse(code=3001, message="moveJ both requires 7+7 joint angles")
+            result = await self._moveit.move_j_both(left, right)
+            if result.get("success") is False:
+                return ApiResponse(code=1001, message=result.get("message", "双臂 MoveJ 失败"))
+            return ApiResponse(data=result)
+
+        if arm == "both" and cmd.method.value in ("movep", "moveL"):
+            return ApiResponse(code=3001, message="双臂模式目前仅支持 moveJ")
+
         if cmd.method.value == "movep" and self._moveit:
-            to_frame = f"ARM-{'L' if cmd.arm.value == 'left' else 'R'}-J7_Link"
+            to_frame = f"ARM-{'L' if arm == 'left' else 'R'}-J7_Link"
             result = await self._moveit.move_p(
-                lor=cmd.arm.value,
+                lor=arm,
                 target_pose=cmd.position or {},
                 to_frame=to_frame,
                 reference_frame=cmd.coordinate,
@@ -38,7 +55,7 @@ class ArmService:
 
         if cmd.method.value == "moveL" and self._moveit:
             result = await self._moveit.move_l(
-                lor=cmd.arm.value,
+                lor=arm,
                 waypoints=[cmd.position] if cmd.position else [],
             )
             if result.get("success") is False:
@@ -47,7 +64,7 @@ class ArmService:
 
         if cmd.method.value == "moveJ" and self._moveit:
             result = await self._moveit.move_j(
-                lor=cmd.arm.value,
+                lor=arm,
                 joint_positions=cmd.joint_angles or [],
             )
             if result.get("success") is False:

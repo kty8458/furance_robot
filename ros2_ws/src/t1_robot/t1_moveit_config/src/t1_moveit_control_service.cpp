@@ -59,8 +59,10 @@ public:
 private:
     const std::string LEFT_PLANNING_GROUP = "left_arm";
     const std::string RIGHT_PLANNING_GROUP = "right_arm";
+    const std::string BOTH_PLANNING_GROUP = "both_arm";
     moveit::planning_interface::MoveGroupInterfacePtr left_move_group_;
     moveit::planning_interface::MoveGroupInterfacePtr right_move_group_;
+    moveit::planning_interface::MoveGroupInterfacePtr both_move_group_;
 
     moveit::planning_interface::PlanningSceneInterface planning_scene_interface_;
 
@@ -121,6 +123,7 @@ DualArmRobot::DualArmRobot()
 void DualArmRobot::init(){
   left_move_group_ = std::make_shared<moveit::planning_interface::MoveGroupInterface>(shared_from_this(), LEFT_PLANNING_GROUP);
   right_move_group_ = std::make_shared<moveit::planning_interface::MoveGroupInterface>(shared_from_this(), RIGHT_PLANNING_GROUP);
+  both_move_group_ = std::make_shared<moveit::planning_interface::MoveGroupInterface>(shared_from_this(), BOTH_PLANNING_GROUP);
 }
 
 bool DualArmRobot::single_move_p(
@@ -265,15 +268,23 @@ void DualArmRobot::handle_trajectory_request(
     std::shared_ptr<control_interfaces::srv::ExecuteTrajectory::Response> response
 ){
     RCLCPP_INFO(rclcpp::get_logger("execute_trajectory_server"), "Received trajectory");
-    const std::string& first_joint = request->trajectory.joint_names[0];
     moveit::planning_interface::MoveGroupInterfacePtr move_group;
-    std::vector<double> first_target = request->trajectory.points.front().positions;
-    if (first_joint.find("ARM-L") != std::string::npos) {
-    move_group = left_move_group_;
-    RCLCPP_INFO(rclcpp::get_logger("execute_trajectory_server"), "Selected LEFT arm group.");
-    } else if (first_joint.find("ARM-R") != std::string::npos) {
-    move_group = right_move_group_;
-    RCLCPP_INFO(rclcpp::get_logger("execute_trajectory_server"), "Selected RIGHT arm group.");
+
+    // Detect both-arm trajectory: joint_names contain both ARM-L and ARM-R joints.
+    bool has_left = false, has_right = false;
+    for (const auto& name : request->trajectory.joint_names) {
+      if (name.find("ARM-L") != std::string::npos) has_left = true;
+      if (name.find("ARM-R") != std::string::npos) has_right = true;
+    }
+    if (has_left && has_right) {
+      move_group = both_move_group_;
+      RCLCPP_INFO(rclcpp::get_logger("execute_trajectory_server"), "Selected BOTH arm group.");
+    } else if (has_left) {
+      move_group = left_move_group_;
+      RCLCPP_INFO(rclcpp::get_logger("execute_trajectory_server"), "Selected LEFT arm group.");
+    } else {
+      move_group = right_move_group_;
+      RCLCPP_INFO(rclcpp::get_logger("execute_trajectory_server"), "Selected RIGHT arm group.");
     }
     robot_trajectory::RobotTrajectory robot_traj(move_group->getRobotModel(), move_group->getName());
 

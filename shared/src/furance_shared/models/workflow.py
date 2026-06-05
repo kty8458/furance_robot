@@ -16,9 +16,18 @@ class UpperLimbStepConfig(BaseModel):
     mode: Literal["preset", "pose"] = "preset"
     arm: str = "left"
     preset_name: Optional[str] = None
+    left_preset_name: Optional[str] = None
+    right_preset_name: Optional[str] = None
     method: str = "moveJ"
     reference_frame: Optional[str] = None
+    left_reference_frame: Optional[str] = None
+    right_reference_frame: Optional[str] = None
     position: Optional[dict] = None
+    left_position: Optional[dict] = None
+    right_position: Optional[dict] = None
+    vision_source: Optional[str] = None
+    left_vision_source: Optional[str] = None
+    right_vision_source: Optional[str] = None
 
 
 class UpperBodyStepConfig(BaseModel):

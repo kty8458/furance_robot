@@ -48,6 +48,7 @@ class ArmMoveCommand(BaseModel):
     arm: ArmSide
     method: ArmMoveMethod
     joint_angles: Optional[list[float]] = Field(default=None, min_length=7, max_length=7)
+    joint_angles_right: Optional[list[float]] = Field(default=None, min_length=7, max_length=7)
     position: Optional[Dict[str, float]] = None
     coordinate: str = "base_link"
 
@@ -57,8 +58,10 @@ class ArmMoveCommand(BaseModel):
             if self.position is None:
                 raise ValueError(f"{self.method} requires position")
         if self.method == ArmMoveMethod.MOVEJ:
-            if self.joint_angles is None:
+            if self.arm != ArmSide.BOTH and self.joint_angles is None:
                 raise ValueError("moveJ requires joint_angles")
+            if self.arm == ArmSide.BOTH and (self.joint_angles is None or self.joint_angles_right is None):
+                raise ValueError("moveJ both requires joint_angles + joint_angles_right")
         return self
 
 
