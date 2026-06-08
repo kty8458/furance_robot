@@ -496,13 +496,13 @@ class WorkflowService:
                 if method == "moveJ":
                     result = await self._moveit.move_j(config.arm, preset.joint_angles)
                 elif method == "moveL":
-                result = await self._moveit.move_l(config.arm, [preset.end_effector.model_dump()])
-            else:  # movep
-                to_frame = f"ARM-{'L' if config.arm == 'left' else 'R'}-J7_Link"
-                result = await self._moveit.move_p(
-                    config.arm, preset.end_effector.model_dump(),
-                    to_frame, preset.coordinate_frame, "ompl",
-                )
+                    result = await self._moveit.move_l(config.arm, [preset.end_effector.model_dump()])
+                else:  # movep
+                    to_frame = f"ARM-{'L' if config.arm == 'left' else 'R'}-J7_Link"
+                    result = await self._moveit.move_p(
+                        config.arm, preset.end_effector.model_dump(),
+                        to_frame, preset.coordinate_frame, "ompl",
+                    )
         else:  # pose mode
             resolved = self._resolve_variables(config.position or {}, context)
             to_frame = f"ARM-{'L' if config.arm == 'left' else 'R'}-J7_Link"
