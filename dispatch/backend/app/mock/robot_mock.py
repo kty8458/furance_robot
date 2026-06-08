@@ -146,11 +146,18 @@ async def list_workflows(robot_id: str):
 
 @mock_app.get("/api/v1/robot/{robot_id}/workflows/{name}")
 async def get_workflow(robot_id: str, name: str):
+    nav_presets = {
+        "sample_collect": {"map_name": "workshop_map", "point_name": "sample_station"},
+        "move_to_charge": {"map_name": "workshop_map", "point_name": "charge_dock"},
+        "inspect_route": {"map_name": "workshop_map", "path_name": "inspect_loop", "path_type": "NavigationPathTask"},
+    }
+    nav = nav_presets.get(name, {"map_name": "workshop_map", "point_name": "home"})
+    move_config = {"mode": "path" if "path_name" in nav else "point", **nav}
     return {"code": 0, "message": "ok", "data": {
         "name": name,
         "description": f"Mock workflow: {name}",
         "steps": [
-            {"id": "step_1", "type": "move", "label": "导航至目标点", "config": {"mode": "point"}},
+            {"id": "step_1", "type": "move", "label": "导航至目标点", "config": move_config},
             {"id": "step_2", "type": "upper_limb", "label": "手臂移动", "config": {"mode": "preset", "arm": "left", "preset_name": "home"}},
             {"id": "step_3", "type": "gripper", "label": "夹爪闭合", "config": {"arm": "left", "action": "close"}},
             {"id": "step_4", "type": "sleep", "label": "等待", "config": {"duration": 2.0}},

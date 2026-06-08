@@ -1,0 +1,104 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+    - Class: rviz_default_plugins/Image
+      Name: Camera 1 (Head)
+      Enabled: true
+      Image Topic:
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        Value: /camera_1/color/image_raw
+      Max Value: 1
+      Median window: 5
+      Normalize Range: true
+    - Class: rviz_default_plugins/Image
+      Name: Camera 1 Depth
+      Enabled: false
+      Image Topic:
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        Value: /camera_1/depth/image_raw
+      Max Value: 1
+      Median window: 5
+      Normalize Range: true
+    - Class: rviz_default_plugins/Image
+      Name: Camera 2 (Left Arm)
+      Enabled: true
+      Image Topic:
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        Value: /camera_2/color/image_raw
+      Max Value: 1
+      Median window: 5
+      Normalize Range: true
+    - Class: rviz_default_plugins/Image
+      Name: Camera 2 Depth
+      Enabled: false
+      Image Topic:
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        Value: /camera_2/depth/image_raw
+      Max Value: 1
+      Median window: 5
+      Normalize Range: true
+    - Class: rviz_default_plugins/Image
+      Name: Camera 3 (Right Arm)
+      Enabled: true
+      Image Topic:
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        Value: /camera_3/color/image_raw
+      Max Value: 1
+      Median window: 5
+      Normalize Range: true
+    - Class: rviz_default_plugins/Image
+      Name: Camera 3 Depth
+      Enabled: false
+      Image Topic:
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        Value: /camera_3/depth/image_raw
+      Max Value: 1
+      Median window: 5
+      Normalize Range: true
+  Global Options:
+    Fixed Frame: world
+    Frame Rate: 30
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 3
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.5
+      Name: Current View
+      Pitch: 0.5
+      Yaw: 0
+  Window Geometry:
+    Camera 1 (Head):
+      collapsed: false
+    Camera 1 Depth:
+      collapsed: true
+    Camera 2 (Left Arm):
+      collapsed: false
+    Camera 2 Depth:
+      collapsed: true
+    Camera 3 (Right Arm):
+      collapsed: false
+    Camera 3 Depth:
+      collapsed: true
+    Displays:
+      collapsed: false
+    Height: 800
+    Width: 1200

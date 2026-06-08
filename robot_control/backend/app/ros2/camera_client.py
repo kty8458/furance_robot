@@ -103,7 +103,7 @@ class RealCameraClient(CameraClientBase):
         self._active_camera: str | None = None
 
     async def detect_grasp_pose(self, camera_id: str, scene: str) -> dict[str, Any]:
-        from interface_pkg.srv import VisionDetect
+        from control_interfaces.srv import VisionDetect
 
         node: Node = self._runtime.node
         client = node.create_client(VisionDetect, "/vision_detect")
@@ -120,12 +120,12 @@ class RealCameraClient(CameraClientBase):
                 "message": "Detection completed",
                 "data": {
                     "grasp_pose": {
-                        "x": getattr(result, "x", 0.0),
-                        "y": getattr(result, "y", 0.0),
-                        "z": getattr(result, "z", 0.0),
-                        "roll": getattr(result, "roll", 0.0),
-                        "pitch": getattr(result, "pitch", 0.0),
-                        "yaw": getattr(result, "yaw", 0.0),
+                        "x": result.get("x", 0.0),
+                        "y": result.get("y", 0.0),
+                        "z": result.get("z", 0.0),
+                        "roll": result.get("roll", 0.0),
+                        "pitch": result.get("pitch", 0.0),
+                        "yaw": result.get("yaw", 0.0),
                     },
                 },
             }
@@ -157,15 +157,15 @@ class RealCameraClient(CameraClientBase):
                     bridge = CvBridge()
                     self._bridge = bridge
 
-                cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-
-                if stream_type == "grayscale":
-                    cv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
-                    _, jpeg = cv2.imencode(".jpg", cv_image)
-                elif stream_type == "annotated":
-                    # Placeholder: draw detection overlays when vision is active
+                if stream_type == "depth":
+                    cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+                    cv_image = cv2.normalize(cv_image, None, 0, 255, cv2.NORM_MINMAX)
+                    cv_image = np.uint8(cv_image)
                     _, jpeg = cv2.imencode(".jpg", cv_image)
                 else:
+                    cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+                    if stream_type == "grayscale":
+                        cv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
                     _, jpeg = cv2.imencode(".jpg", cv_image)
 
                 self._latest_frame[camera_id] = jpeg.tobytes()
@@ -206,6 +206,12 @@ class RealCameraClient(CameraClientBase):
                 result = {
                     "success": bool(response.success),
                     "message": getattr(response, "message", ""),
+                    "x": getattr(response, "x", 0.0),
+                    "y": getattr(response, "y", 0.0),
+                    "z": getattr(response, "z", 0.0),
+                    "roll": getattr(response, "roll", 0.0),
+                    "pitch": getattr(response, "pitch", 0.0),
+                    "yaw": getattr(response, "yaw", 0.0),
                 }
                 loop.call_soon_threadsafe(aio_future.set_result, result)
             except Exception as exc:

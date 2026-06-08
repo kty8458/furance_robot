@@ -22,6 +22,7 @@
             <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">视频类型</div>
             <el-select v-model="streamType" style="width: 100%" :disabled="streaming">
               <el-option label="原始画面" value="raw" />
+              <el-option label="深度图" value="depth" />
               <el-option label="灰度图" value="grayscale" />
               <el-option label="带框标注" value="annotated" />
             </el-select>
@@ -112,6 +113,7 @@ const poseFields = ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
 
 const cameraId = ref('camera_1')
 const streamType = ref('raw')
+const publishing = ref(false)
 const streaming = ref(false)
 const connecting = ref(false)
 const detectScene = ref('grasp_top')
@@ -121,7 +123,7 @@ const frameSrc = ref('')
 let refreshTimer = null
 
 const streamTypeLabel = computed(() => {
-  const labels = { raw: '原始画面', grayscale: '灰度图', annotated: '带框标注' }
+  const labels = { raw: '原始画面', depth: '深度图', grayscale: '灰度图', annotated: '带框标注' }
   return labels[streamType.value] || streamType.value
 })
 
@@ -144,6 +146,11 @@ function onCameraChange() {
 async function connectStream() {
   connecting.value = true
   try {
+    if (!publishing.value) {
+      await cameraApi.startPublish(cameraId.value)
+      publishing.value = true
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+    }
     await cameraApi.startStream(cameraId.value, streamType.value)
     streaming.value = true
     ElMessage.success(`已连接 ${cameraId.value}`)
@@ -158,9 +165,11 @@ async function connectStream() {
 async function disconnectStream() {
   stopFrameRefresh()
   streaming.value = false
+  publishing.value = false
   frameSrc.value = ''
   try {
     await cameraApi.stopStream()
+    await cameraApi.stopPublish()
   } catch {
     // ignore
   }

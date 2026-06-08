@@ -1,12 +1,38 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from furance_shared.protocol.http_schema import ApiResponse
+from app.services.ros2_manager import Ros2Manager
 
 router = APIRouter(prefix="/api/v1/robot/{robot_id}/camera", tags=["camera"])
 
 
 def _get_client(request: Request):
     return request.app.state.ros2.camera_client
+
+
+def _get_manager(request: Request) -> Ros2Manager:
+    return Ros2Manager(ros2_client=request.app.state.ros2.service_client)
+
+
+@router.post("/publish/start", response_model=ApiResponse)
+async def start_publish(robot_id: str, req: dict, request: Request):
+    camera_id = req.get("camera_id", "camera_1")
+    enable_rviz = "true" if req.get("enable_rviz", False) else "false"
+    if camera_id not in ("camera_1", "camera_2", "camera_3"):
+        return ApiResponse(code=1002, message=f"Unknown camera: {camera_id}")
+
+    args = {
+        "enable_camera_1": "true" if camera_id == "camera_1" else "false",
+        "enable_camera_2": "true" if camera_id == "camera_2" else "false",
+        "enable_camera_3": "true" if camera_id == "camera_3" else "false",
+        "enable_rviz": enable_rviz,
+    }
+    return await _get_manager(request).start_node("vision_cameras", args=args)
+
+
+@router.post("/publish/stop", response_model=ApiResponse)
+async def stop_publish(robot_id: str, request: Request):
+    return await _get_manager(request).stop_node("vision_cameras")
 
 
 @router.post("/stream/start", response_model=ApiResponse)

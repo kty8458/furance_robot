@@ -34,6 +34,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GetPose.srv"
   "srv/MoveP.srv"
   "srv/MoveL.srv"
+  "srv/VisionDetect.srv"
   "action/GripperAction.action" 
   "action/MoveP.action"
   "action/MoveJ.action"

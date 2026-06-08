@@ -12,7 +12,9 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        (os.path.join('share', package_name), ['python_pkgs/vision/best2.onnx'])
+        (os.path.join('share', package_name), ['python_pkgs/vision/best2.onnx']),
+        (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
+        (os.path.join('share', package_name, 'config'), glob('config/*.rviz')),
     ],
     install_requires=['setuptools'],
     extras_require={
@@ -33,6 +35,7 @@ setup(
             't1_joint_state_publisher_gui = python_pkgs.t1_control.t1_joint_state_publisher_gui:main',
             't1_move_client = python_pkgs.t1_control.t1_move_client:main',
             't1_display = python_pkgs.t1_control.t1_display:main',
+            'vision_detect = python_pkgs.vision.vision_detect_node:main',
         ],
     },
 )
