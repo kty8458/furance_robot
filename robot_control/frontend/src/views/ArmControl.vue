@@ -277,30 +277,61 @@
           <el-select v-model="teachFilter.arm" style="width: 120px" clearable placeholder="全部" @change="teachPage = 1">
             <el-option label="左臂" value="left" />
             <el-option label="右臂" value="right" />
+            <el-option label="双臂" value="both" />
           </el-select>
         </el-form-item>
         <el-form-item>
           <el-button size="small" @click="refreshTeachList">刷新</el-button>
+        </el-form-item>
+        <el-form-item>
+          <el-button size="small" type="warning" @click="showComposeDialog = true">双臂组合</el-button>
         </el-form-item>
       </el-form>
       <el-table :data="pagedTeachList" border size="small">
         <el-table-column prop="name" label="名称" width="100" />
         <el-table-column label="手臂" width="70">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.arm === 'left' ? '' : 'info'">{{ row.arm === 'left' ? '左' : '右' }}</el-tag>
+            <el-tag size="small" :type="row.arm === 'left' ? '' : row.arm === 'right' ? 'info' : 'warning'">{{ row.arm === 'left' ? '左' : row.arm === 'right' ? '右' : '双臂' }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="数据" min-width="460">
           <template #default="{ row }">
-            <div class="teach-data-block">
-              <div class="teach-data-row">
-                <span class="teach-data-label" v-for="i in 7" :key="'jl'+i">J{{ i }}</span>
+            <!-- Both-arm: left arm J1-J7 on top, right arm J1-J7 below -->
+            <template v-if="row.arm === 'both'">
+              <div class="teach-data-block">
+                <div class="teach-data-row" style="grid-template-columns: repeat(7, 1fr)">
+                  <span class="teach-data-label" style="color: #00d4ff">左J1</span>
+                  <span class="teach-data-label" style="color: #00d4ff" v-for="i in 6" :key="'blj'+i">J{{ i+1 }}</span>
+                </div>
+                <div class="teach-data-row" style="grid-template-columns: repeat(7, 1fr)">
+                  <span class="teach-data-val" v-for="(v, i) in (row.joint_angles || []).slice(0, 7)" :key="'blv'+i">{{ v?.toFixed(3) }}°</span>
+                  <span class="teach-data-val" v-if="!(row.joint_angles?.length)">--</span>
+                </div>
               </div>
-              <div class="teach-data-row">
-                <span class="teach-data-val" v-for="(v, i) in row.joint_angles || []" :key="'jv'+i">{{ v?.toFixed(3) }}°</span>
-                <span class="teach-data-val" v-if="!(row.joint_angles?.length)">--</span>
+              <div class="teach-data-block">
+                <div class="teach-data-row" style="grid-template-columns: repeat(7, 1fr)">
+                  <span class="teach-data-label" style="color: #6b7b8d">右J1</span>
+                  <span class="teach-data-label" style="color: #6b7b8d" v-for="i in 6" :key="'brj'+i">J{{ i+1 }}</span>
+                </div>
+                <div class="teach-data-row" style="grid-template-columns: repeat(7, 1fr)">
+                  <span class="teach-data-val" v-for="(v, i) in (row.joint_angles || []).slice(7, 14)" :key="'brv'+i" style="color: #6b7b8d">{{ v?.toFixed(3) }}°</span>
+                  <span class="teach-data-val" v-if="!(row.joint_angles?.length)">--</span>
+                </div>
               </div>
-            </div>
+            </template>
+            <!-- Single-arm: J1-J7 -->
+            <template v-else>
+              <div class="teach-data-block">
+                <div class="teach-data-row">
+                  <span class="teach-data-label" v-for="i in 7" :key="'jl'+i">J{{ i }}</span>
+                </div>
+                <div class="teach-data-row">
+                  <span class="teach-data-val" v-for="(v, i) in row.joint_angles || []" :key="'jv'+i">{{ v?.toFixed(3) }}°</span>
+                  <span class="teach-data-val" v-if="!(row.joint_angles?.length)">--</span>
+                </div>
+              </div>
+            </template>
+            <!-- Pose data -->
             <div class="teach-data-block">
               <div class="teach-data-row">
                 <span class="teach-data-label">x</span>
@@ -350,6 +381,35 @@
         />
       </div>
     </el-dialog>
+
+    <!-- Compose Dual-Arm Dialog -->
+    <el-dialog v-model="showComposeDialog" title="双臂组合" width="420px">
+      <el-form :model="composeForm" label-width="80px">
+        <el-form-item label="左臂点位">
+          <el-select v-model="composeForm.left_name" style="width: 100%" filterable placeholder="选择左臂示教点">
+            <el-option
+              v-for="p in teachList.filter(t => t.arm === 'left' && t.method === 'moveJ')"
+              :key="'cl_'+p.name" :label="p.name" :value="p.name"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="右臂点位">
+          <el-select v-model="composeForm.right_name" style="width: 100%" filterable placeholder="选择右臂示教点">
+            <el-option
+              v-for="p in teachList.filter(t => t.arm === 'right' && t.method === 'moveJ')"
+              :key="'cr_'+p.name" :label="p.name" :value="p.name"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="组合名称">
+          <el-input v-model="composeForm.composed_name" placeholder="输入双臂点位名称" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showComposeDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleCompose" :loading="composing">组合</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -371,8 +431,11 @@ const teachFilter = ref({ arm: '' })
 const teachPage = ref(1)
 const showSaveDialog = ref(false)
 const showTeachDialog = ref(false)
+const showComposeDialog = ref(false)
 const saveForm = ref({ name: '' })
 const saving = ref(false)
+const composeForm = ref({ left_name: '', right_name: '', composed_name: '' })
+const composing = ref(false)
 
 const upperBody = ref({
   waist_angle: 300, waist_speed: 20, waistLoading: false,
@@ -450,7 +513,7 @@ function stopJog() {
 async function sendJog(mode, index, direction, armOverride) {
   const side = armOverride || jogForm.value.arm
   let step
-  if (mode === 'joint') {
+  if (mode === 'joint' || mode === 'joint_both') {
     step = jogForm.value.step * direction
   } else {
     const base = index < 3 ? jogForm.value.stepXyz : jogForm.value.stepRpy
@@ -462,6 +525,16 @@ async function sendJog(mode, index, direction, armOverride) {
       const angles = [...currentAngles(side)]
       angles[index] = round4(angles[index] + step)
       await armApi.move({ arm: side, method: 'moveJ', coordinate: jogForm.value.coordinate, joint_angles: angles })
+    } else if (mode === 'joint_both') {
+      // Dual-arm jog: modify one joint on one side, keep the other side at current angles
+      const leftAngles = [...currentAngles('left')]
+      const rightAngles = [...currentAngles('right')]
+      if (side === 'left') {
+        leftAngles[index] = round4(leftAngles[index] + step)
+      } else {
+        rightAngles[index] = round4(rightAngles[index] + step)
+      }
+      await armApi.move({ arm: 'both', method: 'moveJ', coordinate: jogForm.value.coordinate, joint_angles: leftAngles, joint_angles_right: rightAngles })
     } else {
       const pose = [...currentPose(side)]
       pose[index] = round4(pose[index] + step)
@@ -549,6 +622,26 @@ async function handleTeachDelete(row) {
   }
 }
 
+async function handleCompose() {
+  const { left_name, right_name, composed_name } = composeForm.value
+  if (!left_name || !right_name || !composed_name) {
+    ElMessage.warning('请选择左右臂点位并输入组合名称')
+    return
+  }
+  composing.value = true
+  try {
+    await armApi.teachCompose(left_name, right_name, composed_name)
+    ElMessage.success(`双臂点位 "${composed_name}" 已创建`)
+    composeForm.value = { left_name: '', right_name: '', composed_name: '' }
+    showComposeDialog.value = false
+    refreshTeachList()
+  } catch (error) {
+    ElMessage.error(error.message || '组合失败')
+  } finally {
+    composing.value = false
+  }
+}
+
 function formatAngles(angles) {
   if (!angles || !Array.isArray(angles)) return '--'
   return angles.map(a => a.toFixed(4) + '°').join(' ')
@@ -608,4 +701,5 @@ async function handleHeadControl() {
 .teach-data-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
 .teach-data-label { font-size: 10px; color: var(--tech-text-muted); text-align: center; }
 .teach-data-val { font-size: 12px; color: var(--tech-text-bright); font-family: 'Consolas', monospace; text-align: center; }
+.teach-data-sep { width: 12px; flex-shrink: 0; }
 </style>

@@ -465,16 +465,42 @@ class WorkflowService:
         config = UpperLimbStepConfig(**step.config)
 
         if config.mode == "preset":
-            if not config.preset_name or self._arm_service is None:
-                return StepResult(step_id=step.id, success=False, message="Preset name required")
+            if self._arm_service is None:
+                return StepResult(step_id=step.id, success=False, message="Arm service not available")
 
             method = config.method
 
             # Both-arm: load left+right presets and combine
             if config.arm == "both":
+                presets = self._arm_service.list_teach(robot_id)
+
+                # Checked mode: use a pre-composed both-arm preset directly
+                use_composed = config.use_composed_preset if hasattr(config, 'use_composed_preset') else False
+                if use_composed:
+                    both_name = config.preset_name
+                    if not both_name:
+                        return StepResult(step_id=step.id, success=False, message="Both-arm preset name required")
+                    both_preset = next((p for p in presets if p.name == both_name and p.arm.value == "both"), None)
+                    if both_preset is None:
+                        return StepResult(step_id=step.id, success=False, message=f"Both-arm preset '{both_name}' not found")
+                    joint_angles = both_preset.joint_angles
+                    # Split 14 joint_angles into left(7) + right(7)
+                    if len(joint_angles) == 14:
+                        left_angles = joint_angles[:7]
+                        right_angles = joint_angles[7:]
+                    elif both_preset.joint_angles_right:
+                        left_angles = joint_angles
+                        right_angles = both_preset.joint_angles_right
+                    else:
+                        return StepResult(step_id=step.id, success=False, message="Both-arm preset has invalid joint angles")
+                    result = await self._moveit.move_j_both(left_angles, right_angles)
+                    if result.get("success") is False:
+                        return StepResult(step_id=step.id, success=False, message=result.get("message", "Both-arm moveJ failed"))
+                    return StepResult(step_id=step.id, success=True, message="Both-arm moveJ completed")
+
+                # Unchecked mode: load two single-arm presets and combine into one trajectory
                 left_name = config.left_preset_name or config.preset_name
                 right_name = config.right_preset_name or config.preset_name
-                presets = self._arm_service.list_teach(robot_id)
                 left_preset = next((p for p in presets if p.name == left_name and p.arm.value == "left"), None)
                 right_preset = next((p for p in presets if p.name == right_name and p.arm.value == "right"), None)
                 if left_preset is None:
@@ -483,11 +509,22 @@ class WorkflowService:
                     return StepResult(step_id=step.id, success=False, message=f"Right preset '{right_name}' not found")
 
                 if method == "moveJ":
-                    result = await self._moveit.move_j_both(
-                        left_preset.joint_angles, right_preset.joint_angles)
+                    use_combined = config.use_combined if hasattr(config, 'use_combined') else True
+                    if use_combined:
+                        result = await self._moveit.move_j_both(
+                            left_preset.joint_angles, right_preset.joint_angles)
+                    else:
+                        # Execute left first, then right
+                        result = await self._moveit.move_j("left", left_preset.joint_angles)
+                        if result.get("success") is False:
+                            return StepResult(step_id=step.id, success=False,
+                                              message=f"Left arm: {result.get('message', 'MoveJ failed')}")
+                        result = await self._moveit.move_j("right", right_preset.joint_angles)
                 else:
                     return StepResult(step_id=step.id, success=False, message="Both-arm only supports moveJ")
             else:
+                if not config.preset_name:
+                    return StepResult(step_id=step.id, success=False, message="Preset name required")
                 presets = self._arm_service.list_teach(robot_id)
                 preset = next((p for p in presets if p.name == config.preset_name and p.arm.value == config.arm), None)
                 if preset is None:

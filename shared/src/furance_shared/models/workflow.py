@@ -19,6 +19,8 @@ class UpperLimbStepConfig(BaseModel):
     left_preset_name: Optional[str] = None
     right_preset_name: Optional[str] = None
     method: str = "moveJ"
+    use_combined: bool = True   # True=combine into one both_arm trajectory; False=execute left then right
+    use_composed_preset: bool = False  # True=use pre-composed both-arm preset; False=combine two single-arm presets
     reference_frame: Optional[str] = None
     left_reference_frame: Optional[str] = None
     right_reference_frame: Optional[str] = None

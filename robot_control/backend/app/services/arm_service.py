@@ -129,14 +129,73 @@ class ArmService:
         preset_data = presets[key]
         stored_method = preset_data.get("method", "moveJ")
         method = cmd.method.value if cmd.method else stored_method
+
+        joint_angles = preset_data.get("joint_angles", [])
+        joint_angles_right = preset_data.get("joint_angles_right")
+
+        # Both-arm preset: split 14 joint_angles into left(7) + right(7)
+        if cmd.arm.value == "both" and len(joint_angles) == 14:
+            joint_angles_right = joint_angles[7:]
+            joint_angles = joint_angles[:7]
+
         move_cmd = ArmMoveCommand(
             arm=cmd.arm,
             method=method,
-            joint_angles=preset_data.get("joint_angles"),
+            joint_angles=joint_angles,
+            joint_angles_right=joint_angles_right,
             position=preset_data.get("end_effector"),
             coordinate=preset_data.get("coordinate_frame", "base_link"),
         )
         return await self.arm_move(robot_id, move_cmd)
+
+    def compose_teach(self, robot_id: str, left_name: str, right_name: str, composed_name: str,
+                      overwrite: bool = False) -> TeachPreset:
+        """Combine two single-arm moveJ presets into one dual-arm preset."""
+        robot_dir = self._teach_dir / robot_id
+        file_path = robot_dir / "presets.json"
+        presets = self._load_presets(file_path)
+
+        left_key = f"left_{left_name}"
+        right_key = f"right_{right_name}"
+
+        if left_key not in presets:
+            raise BusinessError(
+                message=f"Left preset '{left_name}' not found",
+                code=ErrorCode.TEACH_NAME_NOT_FOUND,
+            )
+        if right_key not in presets:
+            raise BusinessError(
+                message=f"Right preset '{right_name}' not found",
+                code=ErrorCode.TEACH_NAME_NOT_FOUND,
+            )
+
+        left_data = presets[left_key]
+        right_data = presets[right_key]
+
+        if left_data.get("method", "moveJ") != "moveJ" or right_data.get("method", "moveJ") != "moveJ":
+            raise BusinessError(
+                message="Compose only supports moveJ presets",
+                code=ErrorCode.TEACH_NAME_EXISTS,
+            )
+
+        composed_key = f"both_{composed_name}"
+        if composed_key in presets and not overwrite:
+            raise BusinessError(
+                message=f"Both-arm preset '{composed_name}' already exists",
+                code=ErrorCode.TEACH_NAME_EXISTS,
+            )
+
+        preset = TeachPreset(
+            arm="both",
+            name=composed_name,
+            joint_angles=left_data.get("joint_angles", [0] * 7) + right_data.get("joint_angles", [0] * 7),
+            joint_angles_right=right_data.get("joint_angles", [0] * 7),
+            method="moveJ",
+            coordinate_frame=left_data.get("coordinate_frame", "base_link"),
+        )
+        presets[composed_key] = preset.model_dump()
+        file_path.write_text(json.dumps(presets, indent=2))
+        return preset
 
     def _load_presets(self, file_path: Path) -> dict:
         if not file_path.exists():

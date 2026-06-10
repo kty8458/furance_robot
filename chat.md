@@ -396,3 +396,75 @@ head_flag: 1
 2. 阅读t1_moveit_control_service.cpp代码，仿造左臂和右臂规划组，完成双臂规划组的代码编写
 3. 在控制系统上肢运动的示教管理中，添加组合功能，能够将一组左臂数据和右臂数据进行组合，并新增手臂“双臂”
 4. 在单步测试工作流编排中，上肢运控/手臂选项添加双臂，若模式为坐标，针对每一个手臂都能设置参考坐标系和视觉输出坐标
+
+
+1. 示教管理添加功能，将两个单臂的moveJ点位组合为双臂的moveJ点位
+2. 修复点动控制中双臂moveJ的数据错误：{
+    "detail": [
+        {
+            "type": "value_error",
+            "loc": [
+                "body"
+            ],
+            "msg": "Value error, moveJ requires joint_angles",
+            "input": {
+                "arm": "right",
+                "method": "moveJ",
+                "coordinate": "base_link",
+                "position": {
+                    "x": 702.678,
+                    "y": -605.6531446386047,
+                    "z": 577.1589322697802,
+                    "roll": -68.0593705528902,
+                    "pitch": -14.29890266096374,
+                    "yaw": 23.058459332653396
+                }
+            },
+            "ctx": {
+                "error": {}
+            }
+        }
+    ]
+}
+3. 修改工作流中的双臂执行逻辑，moveJ方法中通过勾选选项来 决定是分别执行两个单臂的moveJ点位还是双臂的点位
+4. 检查moveit的双臂规划组，和机器人urdf结构，修复moveit初始化的bug，判断能否完成双臂moveP规划：
+[move_group-5] [INFO] [1781051801.039235965] [moveit_cached_ik_kinematics_plugin.cached_ik_kinematics_plugin]: cache file /home/kty/Desktop/furance_robot/ros2_ws/t1right_arm_SJ_LinkARM-R-J7_Link_5000_1.000000_1.000000.ikcache initialized!
+[move_group-5] [ERROR] [1781051801.039254682] [moveit_kinematics_base.kinematics_base]: Group 'both_arm' is not a chain
+[move_group-5] [ERROR] [1781051801.039261806] [kinematics_plugin_loader]: Kinematics solver of type 'cached_ik_kinematics_plugin/CachedKDLKinematicsPlugin' could not be initialized for group 'both_arm'
+[move_group-5] [ERROR] [1781051801.039274098] [moveit_ros.robot_model_loader]: Kinematics solver could not be instantiated for joint group both_arm.
+5. 修复插件加载bug：
+[move_group-5] [INFO] [1781051807.134869276] [moveit_ros.planning_scene_monitor.planning_scene_monitor]: Listening to 'planning_scene_world' for planning scene world geometry
+[move_group-5] [WARN] [1781051807.135155062] [moveit.ros.occupancy_map_monitor.middleware_handle]: Resolution not specified for Octomap. Assuming resolution = 0.1 instead
+[move_group-5] [ERROR] [1781051807.135173151] [moveit.ros.occupancy_map_monitor.middleware_handle]: No 3D sensor plugin(s) defined for octomap updates
+[move_group-5] [WARN] [1781051837.786807290] [moveit_ros.planning_scene_monitor.planning_scene_monitor]: It is likely there are too many vertices in collision geometry
+[move_group-5] [INFO] [1781051842.340997421] [moveit.ros_planning_interface.moveit_cpp]: Loading planning pipeline 'move_group'
+[move_group-5] [INFO] [1781051842.372206649] [moveit.ros_planning.planning_pipeline]: Using planning interface 'OMPL'
+[move_group-5] [ERROR] [1781051842.373243567] [moveit.ros_planning.planning_pipeline]: Exception while loading planning adapter plugin 'default_planner_request_adapters/AddTimeOptimalParameterization
+[move_group-5] ': According to the loaded plugin descriptions the class default_planner_request_adapters/AddTimeOptimalParameterization
+[move_group-5]  with base class type planning_request_adapter::PlanningRequestAdapter does not exist. Declared types are  default_planner_request_adapters/AddRuckigTrajectorySmoothing default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/Empty default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/ResolveConstraintFrames
+[move_group-5] [ERROR] [1781051842.373292665] [moveit.ros_planning.planning_pipeline]: Exception while loading planning adapter plugin 'default_planner_request_adapters/FixWorkspaceBounds
+[move_group-5] ': According to the loaded plugin descriptions the class default_planner_request_adapters/FixWorkspaceBounds
+[move_group-5]  with base class type planning_request_adapter::PlanningRequestAdapter does not exist. Declared types are  default_planner_request_adapters/AddRuckigTrajectorySmoothing default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/Empty default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/ResolveConstraintFrames
+[move_group-5] [ERROR] [1781051842.373306563] [moveit.ros_planning.planning_pipeline]: Exception while loading planning adapter plugin 'default_planner_request_adapters/FixStartStateBounds
+[move_group-5] ': According to the loaded plugin descriptions the class default_planner_request_adapters/FixStartStateBounds
+[move_group-5]  with base class type planning_request_adapter::PlanningRequestAdapter does not exist. Declared types are  default_planner_request_adapters/AddRuckigTrajectorySmoothing default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/Empty default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/ResolveConstraintFrames
+[move_group-5] [ERROR] [1781051842.373319064] [moveit.ros_planning.planning_pipeline]: Exception while loading planning adapter plugin 'default_planner_request_adapters/FixStartStateCollision
+[move_group-5] ': According to the loaded plugin descriptions the class default_planner_request_adapters/FixStartStateCollision
+[move_group-5]  with base class type planning_request_adapter::PlanningRequestAdapter does not exist. Declared types are  default_planner_request_adapters/AddRuckigTrajectorySmoothing default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/Empty default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/ResolveConstraintFrames
+
+bug修复：
+1. 双臂示教点位执行报错：
+    {arm: "both", name: "both_zero_pose"}
+    arm
+    : 
+    "both"
+    name
+    : 
+    "both_zero_pose"
+2. 双臂示教点位展示错位，要求左臂在上右臂在下：
+J1-J7
+角度数据
+xyzrpy 坐标系
+pose数据+坐标系
+3. 
+工作流中的改动有问题，如果不勾选，则是将两个单臂轨迹整合一起执行，如果勾选，则隐藏两个单臂选择，列出双臂的点位存储列表

@@ -12,7 +12,11 @@
         "method": "moveJ",
         "preset_name": "zero_pose",
         "reference_frame": "base_link",
-        "position": {}
+        "position": {},
+        "use_combined": true,
+        "use_composed_preset": false,
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link"
       }
     },
     {
@@ -33,7 +37,11 @@
         "method": "moveJ",
         "preset_name": "zero_pose",
         "reference_frame": "base_link",
-        "position": {}
+        "position": {},
+        "use_combined": true,
+        "use_composed_preset": false,
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link"
       }
     },
     {
@@ -54,13 +62,17 @@
         "method": "moveJ",
         "preset_name": "initial_pose",
         "reference_frame": "base_link",
-        "position": {}
+        "position": {},
+        "use_combined": true,
+        "use_composed_preset": false,
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link"
       }
     },
     {
       "id": "step_6",
       "type": "sleep",
-      "label": "",
+      "label": "sleep3",
       "config": {
         "duration": 1
       }
@@ -75,7 +87,40 @@
         "method": "moveJ",
         "preset_name": "initial_pose",
         "reference_frame": "base_link",
-        "position": {}
+        "position": {},
+        "use_combined": true,
+        "use_composed_preset": false,
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link"
+      }
+    },
+    {
+      "id": "step_10",
+      "type": "sleep",
+      "label": "sleep4",
+      "config": {
+        "duration": 1
+      }
+    },
+    {
+      "id": "step_11",
+      "type": "upper_limb",
+      "label": "",
+      "config": {
+        "mode": "preset",
+        "arm": "both",
+        "method": "moveJ",
+        "preset_name": "both_zero_pose",
+        "left_preset_name": "",
+        "right_preset_name": "",
+        "use_combined": true,
+        "use_composed_preset": true,
+        "reference_frame": "base_link",
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "position": {},
+        "left_vision_source": "",
+        "right_vision_source": ""
       }
     }
   ],

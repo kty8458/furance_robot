@@ -9,4 +9,6 @@ export const armApi = {
   teachList: () => api.get(`/robot/${ROBOT_ID}/arm/teach/list`),
   teachExec: (arm, name, method) => api.post(`/robot/${ROBOT_ID}/arm/teach/exec`, method ? { arm, name, method } : { arm, name }),
   teachDelete: (name) => api.delete(`/robot/${ROBOT_ID}/arm/teach/${name}`),
+  teachCompose: (left_name, right_name, composed_name, overwrite = false) =>
+    api.post(`/robot/${ROBOT_ID}/arm/teach/compose`, { left_name, right_name, composed_name, overwrite }),
 }

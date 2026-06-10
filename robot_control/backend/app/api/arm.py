@@ -99,3 +99,26 @@ async def teach_ros2_list(robot_id: str, request: Request, arm: Optional[str] = 
         params["arm"] = arm
     result = await ros2_client.call_service("/GetTeachPoints", params)
     return _check_result(result)
+
+
+@router.post("/teach/compose", response_model=ApiResponse)
+async def teach_compose(robot_id: str, request: Request):
+    """Combine two single-arm moveJ presets into a dual-arm both preset.
+
+    Request body: { left_name, right_name, composed_name, overwrite? }
+    """
+    try:
+        from pydantic import BaseModel, Field
+        class ComposeRequest(BaseModel):
+            left_name: str = Field(min_length=1)
+            right_name: str = Field(min_length=1)
+            composed_name: str = Field(min_length=1)
+            overwrite: bool = False
+
+        body = ComposeRequest(**await request.json())
+        preset = _get_arm_service(request).compose_teach(
+            robot_id, body.left_name, body.right_name, body.composed_name, body.overwrite,
+        )
+        return ApiResponse(data=preset.model_dump())
+    except FuranceError as e:
+        raise HTTPException(status_code=400, detail=e.to_dict())
