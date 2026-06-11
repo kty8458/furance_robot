@@ -79,9 +79,7 @@ class RealMotorFeedbackListener(MotorFeedbackListenerBase):
         if self._status_service is None:
             return
         now = time.monotonic()
-        if now - self._last_broadcast_ts < self.BROADCAST_INTERVAL_S:
-            return
-        self._last_broadcast_ts = now
+        throttled = (now - self._last_broadcast_ts) >= self.BROADCAST_INTERVAL_S
         try:
             data = {
                 "motor": {
@@ -93,5 +91,13 @@ class RealMotorFeedbackListener(MotorFeedbackListenerBase):
             self._runtime.call_async_in_loop(
                 self._status_service.update_ros2_cache(self.DEFAULT_ROBOT_ID, data)
             )
+            # Push independently so motor data reaches frontend even when
+            # chassis is unreachable.  Mark ros2_motor source as fresh.
+            self._status_service.mark_source_fresh(self.DEFAULT_ROBOT_ID, "ros2_motor")
+            if throttled:
+                self._last_broadcast_ts = now
+                self._runtime.call_async_in_loop(
+                    self._status_service.push_ros2_snapshot(self.DEFAULT_ROBOT_ID)
+                )
         except Exception:
             logger.exception("Failed to process MotFeedback")

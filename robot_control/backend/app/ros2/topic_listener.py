@@ -35,15 +35,16 @@ class MockRos2TopicListener(Ros2TopicListenerBase):
 
 
 class RealRos2TopicListener(Ros2TopicListenerBase):
-    """Subscribes to /robot_status (interface_pkg/msg/Robotstatus) and pushes to StatusService.
+    """Subscribes to /robot_status for enabled/error_code only.
 
-    The hardware-side arm controller publishes Robotstatus; this listener flattens
-    it into a dict that StatusService can broadcast over WebSocket.
+    Arm joint angles and end-effector pose come from
+    RealJointStateListener, which uses TF lookups for TCP —
+    that is the authoritative source.
     """
 
     STATUS_TOPIC = "/robot_status"
     DEFAULT_ROBOT_ID = "robot_001"
-    BROADCAST_INTERVAL_S = 1.0  # throttle to 1Hz, matching chassis poller
+    BROADCAST_INTERVAL_S = 1.0  # throttle to 1Hz
 
     def __init__(self, runtime):
         if not HAS_RCLPY:
@@ -62,7 +63,7 @@ class RealRos2TopicListener(Ros2TopicListenerBase):
             self._on_status_message,
             10,
         )
-        logger.info("Subscribed to %s (interface_pkg/msg/Robotstatus)", self.STATUS_TOPIC)
+        logger.info("Subscribed to %s (enabled/error only)", self.STATUS_TOPIC)
 
     async def stop(self):
         if self._sub and self._runtime.is_running:
@@ -70,49 +71,24 @@ class RealRos2TopicListener(Ros2TopicListenerBase):
             self._sub = None
             logger.info("Unsubscribed from %s", self.STATUS_TOPIC)
 
-    @staticmethod
-    def _build_arm_state(joint_positions, tcp_pose) -> dict:
-        joints = list(joint_positions)
-        # StatusPayload's ArmState requires exactly 7 joints; pad/truncate defensively.
-        if len(joints) < 7:
-            joints = joints + [0.0] * (7 - len(joints))
-        elif len(joints) > 7:
-            joints = joints[:7]
-
-        pose = list(tcp_pose) + [0.0] * max(0, 6 - len(tcp_pose))
-        return {
-            "joint_angles": [float(j) for j in joints],
-            "end_effector": {
-                "x": float(pose[0]),
-                "y": float(pose[1]),
-                "z": float(pose[2]),
-                "roll": float(pose[3]),
-                "pitch": float(pose[4]),
-                "yaw": float(pose[5]),
-            },
-            "coordinate_frame": "base_link",
-            "status": "idle",
-        }
-
     def _on_status_message(self, msg):
         if self._status_service is None:
             return
         now = time.monotonic()
-        if now - self._last_broadcast_ts < self.BROADCAST_INTERVAL_S:
-            return
-        self._last_broadcast_ts = now
+        throttled = (now - self._last_broadcast_ts) >= self.BROADCAST_INTERVAL_S
         try:
-            arm = {
-                "left": self._build_arm_state(msg.left_joint_positions, msg.left_tcp_pose),
-                "right": self._build_arm_state(msg.right_joint_positions, msg.right_tcp_pose),
-            }
             data = {
                 "enabled": bool(msg.is_enabled),
                 "error_code": 1 if bool(msg.is_alarming) else 0,
-                "arm": arm,
             }
             self._runtime.call_async_in_loop(
                 self._status_service.update_ros2_cache(self.DEFAULT_ROBOT_ID, data)
             )
+            self._status_service.mark_source_fresh(self.DEFAULT_ROBOT_ID, "ros2_status")
+            if throttled:
+                self._last_broadcast_ts = now
+                self._runtime.call_async_in_loop(
+                    self._status_service.push_ros2_snapshot(self.DEFAULT_ROBOT_ID)
+                )
         except Exception:
             logger.exception("Error processing Robotstatus message")

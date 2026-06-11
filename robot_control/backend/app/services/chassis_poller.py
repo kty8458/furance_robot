@@ -16,9 +16,14 @@ DEFAULT_ROBOT_ID = "robot_001"
 class ChassisStatusPoller:
     """Polls chassis /real_time_data/robot_hardware_status every 1s.
 
-    Merges chassis data (position, battery, charge, map) with existing
-    ROS2 topic data (arm, gripper, enabled, error_code) from StatusService,
-    then pushes the merged snapshot.
+    On success: merges chassis data (position, battery, charge, map) with
+    ROS2 topic data (arm, gripper, enabled, error_code) and pushes via
+    StatusService.push_chassis_status().
+
+    On failure: still pushes ROS2-cached data via StatusService.push_ros2_snapshot()
+    so the frontend continues to receive arm/motor/gripper updates even when
+    the chassis is unreachable. The chassis source is marked as disconnected
+    in source_status.
     """
 
     def __init__(self, chassis_client, status_service: "StatusService"):
@@ -57,33 +62,33 @@ class ChassisStatusPoller:
                         logger.info("EVENT chassis_recovered after %d failures",
                                     self._consecutive_failures)
                         self._consecutive_failures = 0
-                    await self._merge_and_push(result["data"])
+                    chassis_data = result["data"]
+                    self._log_state_changes(chassis_data)
+                    await self._status_service.push_chassis_status(
+                        DEFAULT_ROBOT_ID, chassis_data,
+                    )
                 else:
                     self._consecutive_failures += 1
                     if self._consecutive_failures in (1, 5, 30):
                         logger.warning("EVENT chassis_poll_failed (%d consecutive): %s",
                                        self._consecutive_failures, result.get("message"))
+                    # Still push ROS2 data so arm/motor/gripper remain live
+                    await self._status_service.push_ros2_snapshot(DEFAULT_ROBOT_ID)
             except Exception:
                 self._consecutive_failures += 1
                 if self._consecutive_failures in (1, 5, 30):
                     logger.exception("EVENT chassis_poll_exception (%d consecutive)",
                                      self._consecutive_failures)
+                # Still push ROS2 data so arm/motor/gripper remain live
+                await self._status_service.push_ros2_snapshot(DEFAULT_ROBOT_ID)
             await asyncio.sleep(POLL_INTERVAL)
 
-    async def _merge_and_push(self, chassis_data: dict):
-        ros2 = self._status_service.get_ros2_cache(DEFAULT_ROBOT_ID)
-
-        position = {
-            "x": float(chassis_data.get("world_x", 0.0)),
-            "y": float(chassis_data.get("world_y", 0.0)),
-            "theta": float(chassis_data.get("theta", 0.0)),
-        }
-
+    def _log_state_changes(self, chassis_data: dict):
+        """Log notable chassis state transitions (battery, charging, map)."""
         battery = int(chassis_data.get("battery_percentage", 0))
         charging = bool(chassis_data.get("charge", 0))
         current_map = chassis_data.get("map_name", "")
 
-        # Log notable state changes (battery thresholds, charge toggle, map change)
         if self._prev_charging is not None and charging != self._prev_charging:
             logger.info("EVENT chassis_charging_changed from=%s to=%s",
                         self._prev_charging, charging)
@@ -91,7 +96,6 @@ class ChassisStatusPoller:
             logger.info("EVENT chassis_map_changed from=%s to=%s",
                         self._prev_map, current_map)
         if self._prev_battery is not None:
-            # log when battery crosses 50/30/20/10/5% threshold
             for thresh in (50, 30, 20, 10, 5):
                 if self._prev_battery > thresh >= battery:
                     logger.warning("EVENT chassis_battery_below threshold=%d current=%d%%",
@@ -100,22 +104,3 @@ class ChassisStatusPoller:
         self._prev_battery = battery
         self._prev_charging = charging
         self._prev_map = current_map
-
-        merged = {
-            "position": position,
-            "current_map": current_map,
-            "battery": battery,
-            "charging": charging,
-            "lift_height": ros2.get("lift_height", 0.0),
-            "gripper": ros2.get("gripper", {
-                "left": {"state": "open", "force": 0.0},
-                "right": {"state": "open", "force": 0.0},
-            }),
-            "enabled": ros2.get("enabled", False),
-            "error_code": ros2.get("error_code", 0),
-            "task_status": ros2.get("task_status", "idle"),
-            "arm": ros2.get("arm", {}),
-            "motor": ros2.get("motor", {}),
-        }
-
-        await self._status_service.push_status(DEFAULT_ROBOT_ID, merged)

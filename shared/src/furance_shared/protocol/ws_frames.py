@@ -33,6 +33,7 @@ class StatusPayload(BaseModel):
     arm: Dict[str, ArmState]
     motor: Optional[MotorState] = None
     ros2_nodes: Optional[Dict[str, str]] = None
+    source_status: Dict[str, bool] = {}
 
 
 class ErrorPayload(BaseModel):

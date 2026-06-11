@@ -137,9 +137,7 @@ class RealJointStateListener(JointStateListenerBase):
         if self._status_service is None:
             return
         now = time.monotonic()
-        if now - self._last_broadcast_ts < self.BROADCAST_INTERVAL_S:
-            return
-        self._last_broadcast_ts = now
+        throttled = (now - self._last_broadcast_ts) >= self.BROADCAST_INTERVAL_S
 
         arm_data = {
             "arm": {
@@ -161,3 +159,11 @@ class RealJointStateListener(JointStateListenerBase):
         self._runtime.call_async_in_loop(
             self._status_service.update_ros2_cache(self.DEFAULT_ROBOT_ID, arm_data)
         )
+        # Push independently so joint/EE data reaches frontend even when
+        # chassis is unreachable.  Mark ros2_joint source as fresh.
+        self._status_service.mark_source_fresh(self.DEFAULT_ROBOT_ID, "ros2_joint")
+        if throttled:
+            self._last_broadcast_ts = now
+            self._runtime.call_async_in_loop(
+                self._status_service.push_ros2_snapshot(self.DEFAULT_ROBOT_ID)
+            )
