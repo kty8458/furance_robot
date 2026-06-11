@@ -59,14 +59,11 @@ async def lifespan(app: FastAPI):
 
     # ---- 相机管理器 ----
     from python_pkgs.vision.camera_manager import init_camera_manager
-
-    # 默认配置路径: ros2_libs 下的 camera_config.yaml (软链接指向源文件)
-    _default_config = (
-        Path(__file__).resolve().parent.parent  # robot_control/backend/
-        / "ros2_libs" / "local" / "lib" / "python3.10"
-        / "dist-packages" / "python_pkgs" / "vision" / "camera_config.yaml"
+    config_path = os.environ.get(
+        "CAMERA_CONFIG_PATH",
+        str(Path(__file__).resolve().parent.parent.parent.parent.parent
+            / "ros2_ws/src/t1_robot/python_pkgs/python_pkgs/vision/camera_config.yaml"),
     )
-    config_path = os.environ.get("CAMERA_CONFIG_PATH", str(_default_config))
     try:
         init_camera_manager(config_path)
         logger.info("CameraManager initialized")
