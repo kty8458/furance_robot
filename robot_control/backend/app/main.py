@@ -57,6 +57,19 @@ async def lifespan(app: FastAPI):
     app.state.status_service = status_service
     app.state.log_service = log_service
 
+    # ---- 相机管理器 ----
+    from python_pkgs.vision.camera_manager import init_camera_manager
+    config_path = os.environ.get(
+        "CAMERA_CONFIG_PATH",
+        str(Path(__file__).resolve().parent.parent.parent.parent.parent
+            / "ros2_ws/src/t1_robot/python_pkgs/python_pkgs/vision/camera_config.yaml"),
+    )
+    try:
+        init_camera_manager(config_path)
+        logger.info("CameraManager initialized")
+    except Exception:
+        logger.exception("Failed to initialize CameraManager")
+
     # Chassis client (HTTP direct, no ROS2)
     try:
         chassis_client = ChassisClient(
@@ -113,6 +126,10 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    # ---- 关闭相机管理器 ----
+    from python_pkgs.vision.camera_manager import shutdown_camera_manager
+    shutdown_camera_manager()
+    # ----
     await chassis_client.close()
     await chassis_poller.stop()
     await status_heartbeat.stop()
@@ -217,6 +234,10 @@ def create_app(static_dir: str | None = None) -> FastAPI:
     app.include_router(log_viewer_router)
     app.include_router(status_ws_router)
     app.include_router(logs_ws_router)
+
+    # ---- 相机 WebSocket 推流路由 ----
+    from python_pkgs.vision.camera_ws_handler import router as camera_ws_router
+    app.include_router(camera_ws_router)
 
     if static_dir and Path(static_dir).is_dir():
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
