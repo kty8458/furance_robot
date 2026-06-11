@@ -1,0 +1,28 @@
+# 奥比中光相机 — 位置绑定配置
+# 通过 serial 或 usb_port 匹配物理相机到逻辑 ID
+# 匹配优先级: serial > usb_port
+
+cameras:
+  - id: "head"
+    name: "头部相机"
+    serial: "CP0E163000FP"
+    usb_port: "2-1"
+    position: "head"
+    color_stream:
+      width: 1280
+      height: 720
+      fps: 30
+    depth_stream:
+      width: 848
+      height: 480
+      fps: 30
+
+  - id: "left_arm"
+    name: "左臂相机"
+    usb_port: "2-2"
+    position: "left_arm"
+
+  - id: "right_arm"
+    name: "右臂相机"
+    usb_port: "2-3"
+    position: "right_arm"

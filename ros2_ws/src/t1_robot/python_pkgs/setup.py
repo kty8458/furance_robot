@@ -36,6 +36,7 @@ setup(
             't1_move_client = python_pkgs.t1_control.t1_move_client:main',
             't1_display = python_pkgs.t1_control.t1_display:main',
             'vision_detect = python_pkgs.vision.vision_detect_node:main',
+            'camera_manager_node = python_pkgs.vision.camera_manager_node:main',
         ],
     },
 )

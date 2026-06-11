@@ -17,6 +17,7 @@ from app.api.camera import router as camera_router
 from app.api.log_viewer import router as log_viewer_router
 from app.ws.status import router as status_ws_router
 from app.ws.logs import router as logs_ws_router
+from app.ws.camera import router as camera_ws_router
 from app.ros2.factory import create_ros2_components
 from app.services.status_service import StatusService
 from app.services.log_service import LogService
@@ -217,6 +218,7 @@ def create_app(static_dir: str | None = None) -> FastAPI:
     app.include_router(log_viewer_router)
     app.include_router(status_ws_router)
     app.include_router(logs_ws_router)
+    app.include_router(camera_ws_router)
 
     if static_dir and Path(static_dir).is_dir():
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")

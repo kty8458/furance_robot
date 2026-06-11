@@ -1,7 +1,6 @@
 <template>
   <div class="tech-page">
     <el-row :gutter="16">
-      <!-- Camera selection & controls -->
       <el-col :xs="24" :sm="8" :md="6">
         <el-card class="tech-card" style="margin-bottom: 16px">
           <template #header>
@@ -13,9 +12,13 @@
           <div style="margin-bottom: 12px">
             <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">相机</div>
             <el-select v-model="cameraId" style="width: 100%" @change="onCameraChange">
-              <el-option label="相机 1" value="camera_1" />
-              <el-option label="相机 2" value="camera_2" />
-              <el-option label="相机 3" value="camera_3" />
+              <el-option
+                v-for="cam in cameras"
+                :key="cam.id"
+                :label="`${cam.name} (${cam.id})`"
+                :value="cam.id"
+                :disabled="!cam.connected"
+              />
             </el-select>
           </div>
           <div style="margin-bottom: 12px">
@@ -23,8 +26,7 @@
             <el-select v-model="streamType" style="width: 100%" :disabled="streaming">
               <el-option label="原始画面" value="raw" />
               <el-option label="深度图" value="depth" />
-              <el-option label="灰度图" value="grayscale" />
-              <el-option label="带框标注" value="annotated" />
+              <el-option label="带框标注" value="annotated" :disabled="true" />
             </el-select>
           </div>
           <el-row :gutter="8">
@@ -40,11 +42,10 @@
             </el-col>
           </el-row>
           <div v-if="streaming" style="margin-top: 8px; font-size: 11px; color: #00ff88">
-            {{ cameraId }} / {{ streamTypeLabel }} — 刷新中
+            {{ cameraId }} / {{ streamTypeLabel }} — 推流中
           </div>
         </el-card>
 
-        <!-- Vision detection -->
         <el-card class="tech-card">
           <template #header>
             <div class="tech-card-header">
@@ -73,7 +74,6 @@
         </el-card>
       </el-col>
 
-      <!-- Video display -->
       <el-col :xs="24" :sm="16" :md="18">
         <el-card class="tech-card">
           <template #header>
@@ -85,13 +85,7 @@
             </div>
           </template>
           <div class="video-container">
-            <img
-              v-if="streaming"
-              :src="frameSrc"
-              class="video-frame"
-              alt="Camera feed"
-              @error="onFrameError"
-            />
+            <img v-if="streaming && frameData" :src="frameData" class="video-frame" alt="Camera feed" />
             <div v-else class="video-placeholder">
               <el-icon style="font-size: 48px; color: #2a3a4a"><VideoCamera /></el-icon>
               <div style="margin-top: 12px; color: #6b7b8d">点击「连接」开始查看视频</div>
@@ -104,104 +98,104 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { cameraApi } from '../api/camera'
 import { ElMessage } from 'element-plus'
 import { View, Aim, VideoCamera } from '@element-plus/icons-vue'
 
 const poseFields = ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
 
-const cameraId = ref('camera_1')
+const cameras = ref([])
+const cameraId = ref('head')
 const streamType = ref('raw')
-const publishing = ref(false)
 const streaming = ref(false)
 const connecting = ref(false)
 const detectScene = ref('grasp_top')
 const detecting = ref(false)
 const detectResult = ref(null)
-const frameSrc = ref('')
-let refreshTimer = null
+
+let ws = null
+const frameData = ref('')
 
 const streamTypeLabel = computed(() => {
-  const labels = { raw: '原始画面', depth: '深度图', grayscale: '灰度图', annotated: '带框标注' }
+  const labels = { raw: '原始画面', depth: '深度图', annotated: '带框标注' }
   return labels[streamType.value] || streamType.value
 })
 
-// Auto-disconnect when leaving page
-onUnmounted(disconnectStream)
+async function loadCameras() {
+  try {
+    const res = await cameraApi.list()
+    cameras.value = res.data || []
+    if (cameras.value.length && !cameras.value.find(c => c.id === cameraId.value)) {
+      cameraId.value = cameras.value[0].id
+    }
+  } catch (e) {
+    ElMessage.error('获取相机列表失败')
+  }
+}
 
-// Watch for route changes to disconnect
+onMounted(loadCameras)
+onUnmounted(() => disconnectStream())
+
 watch(() => cameraId.value, () => {
-  if (streaming.value) disconnectStream()
+  if (streaming.value) { disconnectStream(); setTimeout(connectStream, 300) }
 })
 
-function onCameraChange() {
-  if (streaming.value) {
-    // Reconnect with new camera
-    disconnectStream()
-    setTimeout(connectStream, 200)
-  }
+function getWsUrl() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}/ws/v1/camera`
 }
 
 async function connectStream() {
   connecting.value = true
   try {
-    if (!publishing.value) {
-      await cameraApi.startPublish(cameraId.value)
-      publishing.value = true
-      await new Promise((resolve) => setTimeout(resolve, 3000))
-    }
     await cameraApi.startStream(cameraId.value, streamType.value)
-    streaming.value = true
-    ElMessage.success(`已连接 ${cameraId.value}`)
-    startFrameRefresh()
-  } catch (error) {
-    ElMessage.error(error.message || '连接失败')
-  } finally {
+    ws = new WebSocket(getWsUrl())
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ action: 'subscribe', camera_id: cameraId.value, stream_type: streamType.value }))
+      streaming.value = true
+      connecting.value = false
+      ElMessage.success(`已连接 ${cameraId.value}`)
+    }
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data)
+        if (msg.type === 'frame' && msg.data) {
+          frameData.value = 'data:image/jpeg;base64,' + msg.data
+        } else if (msg.type === 'error') {
+          ElMessage.error(msg.message)
+        }
+      } catch (e) { /* ignore */ }
+    }
+    ws.onerror = () => { ElMessage.error('WebSocket 错误'); disconnectStream() }
+    ws.onclose = () => { streaming.value = false; frameData.value = '' }
+  } catch (e) {
+    ElMessage.error(e.message || '连接失败')
     connecting.value = false
   }
 }
 
-async function disconnectStream() {
-  stopFrameRefresh()
-  streaming.value = false
-  publishing.value = false
-  frameSrc.value = ''
-  try {
-    await cameraApi.stopStream()
-    await cameraApi.stopPublish()
-  } catch {
-    // ignore
+function disconnectStream() {
+  if (ws) {
+    try { ws.send(JSON.stringify({ action: 'unsubscribe' })) } catch (e) { /* ignore */ }
+    ws.close(); ws = null
   }
+  streaming.value = false; frameData.value = ''
+  cameraApi.stopStream(cameraId.value).catch(() => {})
 }
 
-function startFrameRefresh() {
-  stopFrameRefresh()
-  refreshTimer = setInterval(() => {
-    frameSrc.value = cameraApi.getFrame(cameraId.value) + '&_=' + Date.now()
-  }, 200)
-}
-
-function stopFrameRefresh() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
-    refreshTimer = null
-  }
-}
-
-function onFrameError() {
-  // Silently retry — frame may not be ready yet
+function onCameraChange() {
+  if (streaming.value) { disconnectStream(); setTimeout(connectStream, 300) }
 }
 
 async function runDetection() {
   detecting.value = true
   try {
     const res = await cameraApi.detect(cameraId.value, detectScene.value)
-    const data = res.data?.data || res.data
-    detectResult.value = data?.grasp_pose || data
+    detectResult.value = res.data?.data?.grasp_pose || res.data?.grasp_pose || res.data
     ElMessage.success('检测完成')
-  } catch (error) {
-    ElMessage.error(error.message || '检测失败')
+  } catch (e) {
+    ElMessage.error(e.message || '检测失败')
   } finally {
     detecting.value = false
   }
@@ -209,46 +203,12 @@ async function runDetection() {
 </script>
 
 <style scoped>
-.video-container {
-  width: 100%;
-  min-height: 360px;
-  background: #050a10;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-.video-frame {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-.video-placeholder {
-  text-align: center;
-}
-.detect-result {
-  margin-top: 10px;
-  padding: 8px;
-  background: #0d1a26;
-  border: 1px solid #2a3a4a;
-  border-radius: 6px;
-}
-.detect-title {
-  font-size: 12px;
-  color: #00d4ff;
-  margin-bottom: 6px;
-}
-.detect-field {
-  text-align: center;
-}
-.detect-label {
-  font-size: 10px;
-  color: #6b7b8d;
-}
-.detect-value {
-  font-family: 'Consolas', monospace;
-  font-size: 12px;
-  color: #e5e7eb;
-}
+.video-container { width: 100%; min-height: 360px; background: #050a10; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.video-frame { width: 100%; height: auto; display: block; }
+.video-placeholder { text-align: center; }
+.detect-result { margin-top: 10px; padding: 8px; background: #0d1a26; border: 1px solid #2a3a4a; border-radius: 6px; }
+.detect-title { font-size: 12px; color: #00d4ff; margin-bottom: 6px; }
+.detect-field { text-align: center; }
+.detect-label { font-size: 10px; color: #6b7b8d; }
+.detect-value { font-family: 'Consolas', monospace; font-size: 12px; color: #e5e7eb; }
 </style>
