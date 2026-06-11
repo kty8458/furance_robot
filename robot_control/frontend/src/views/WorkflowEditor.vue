@@ -311,13 +311,9 @@
                       <el-col :span="12">
                         <div style="font-size: 11px; color: #6b7b8d">相机</div>
                         <el-select v-model="step.config.camera_id" size="small" style="width: 100%">
-                          <el-option
-                            v-for="cam in cameraList"
-                            :key="cam.id"
-                            :label="`${cam.name} (${cam.id})`"
-                            :value="cam.id"
-                            :disabled="!cam.connected"
-                          />
+                          <el-option label="相机 1" value="camera_1" />
+                          <el-option label="相机 2" value="camera_2" />
+                          <el-option label="相机 3" value="camera_3" />
                         </el-select>
                       </el-col>
                       <el-col :span="12">
@@ -452,7 +448,6 @@ const execNavParams = reactive({})
 const execNavPoints = reactive({})
 const manualNavPoints = reactive({})
 const teachPresets = ref([])
-const cameraList = ref([])
 
 let stepCounter = 0
 
@@ -482,7 +477,6 @@ const hasMoveSteps = computed(() => {
 onMounted(() => {
   refreshList()
   loadTeachPresets()
-  loadCameraList()
 })
 
 async function loadTeachPresets() {
@@ -492,16 +486,6 @@ async function loadTeachPresets() {
     teachPresets.value = payload?.data || payload || []
   } catch {
     teachPresets.value = []
-  }
-}
-
-async function loadCameraList() {
-  try {
-    const { cameraApi } = await import('../api/camera')
-    const res = await cameraApi.list()
-    cameraList.value = res.data || []
-  } catch {
-    cameraList.value = []
   }
 }
 
@@ -628,7 +612,7 @@ async function selectWorkflow(row) {
         if (s.type === 'gripper' && !s.config.action) s.config.action = 'open'
         if (s.type === 'gripper' && s.config.force == null) s.config.force = 0
         if (s.type === 'vision' && !s.config.scene) s.config.scene = ''
-        if (s.type === 'vision' && !s.config.camera_id) s.config.camera_id = cameraList.value.find(c => c.connected)?.id || 'head'
+        if (s.type === 'vision' && !s.config.camera_id) s.config.camera_id = 'camera_1'
         if (s.type === 'sleep' && !s.config.duration) s.config.duration = 1
         stepCounter = Math.max(stepCounter, parseInt(s.id?.split('_').pop()) || 0)
       })
@@ -710,7 +694,7 @@ function addStep(type) {
     upper_limb: { mode: 'preset', arm: 'left', method: 'moveJ', preset_name: '', left_preset_name: '', right_preset_name: '', use_combined: true, use_composed_preset: false, reference_frame: 'base_link', left_reference_frame: 'base_link', right_reference_frame: 'base_link', position: {}, vision_source: '', left_vision_source: '', right_vision_source: '' },
     upper_body: { _waist: false, _ascend: false, _head: false, waist_angle: 300, waist_speed: 20, ascend_pos: 100, ascend_speed: 20, head_angle: 15, head_speed: 10 },
     gripper: { arm: 'left', action: 'open', force: 0 },
-    vision: { camera_id: cameraList.value.find(c => c.connected)?.id || 'head', scene: '' },
+    vision: { camera_id: 'camera_1', scene: '' },
     sleep: { duration: 1 },
   }
   currentWorkflow.value.steps.push({

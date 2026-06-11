@@ -124,7 +124,7 @@ def create_ros2_components(settings: Settings | None = None) -> Ros2Components:
                 moveit_client=RealMoveItServiceClient(runtime, timeout=settings.ros2_service_timeout),
                 arm_enable_client=RealArmEnableClient(runtime, timeout=settings.ros2_service_timeout),
                 upper_body_client=RealUpperBodyClient(runtime, timeout=settings.ros2_service_timeout),
-                camera_client=RealCameraClient(runtime=runtime, timeout=settings.ros2_service_timeout),
+                camera_client=RealCameraClient(runtime, timeout=settings.ros2_service_timeout),
                 motor_feedback_listener=RealMotorFeedbackListener(runtime),
             )
             logger.info("ROS2 components created in REAL mode (domain_id=%d)", settings.ros2_domain_id)

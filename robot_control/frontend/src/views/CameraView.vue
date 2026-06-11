@@ -13,13 +13,9 @@
           <div style="margin-bottom: 12px">
             <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">相机</div>
             <el-select v-model="cameraId" style="width: 100%" @change="onCameraChange">
-              <el-option
-                v-for="cam in cameras"
-                :key="cam.id"
-                :label="`${cam.name} (${cam.id})`"
-                :value="cam.id"
-                :disabled="!cam.connected"
-              />
+              <el-option label="相机 1" value="camera_1" />
+              <el-option label="相机 2" value="camera_2" />
+              <el-option label="相机 3" value="camera_3" />
             </el-select>
           </div>
           <div style="margin-bottom: 12px">
@@ -27,7 +23,8 @@
             <el-select v-model="streamType" style="width: 100%" :disabled="streaming">
               <el-option label="原始画面" value="raw" />
               <el-option label="深度图" value="depth" />
-              <el-option label="带框标注" value="annotated" :disabled="true" />
+              <el-option label="灰度图" value="grayscale" />
+              <el-option label="带框标注" value="annotated" />
             </el-select>
           </div>
           <el-row :gutter="8">
@@ -43,7 +40,7 @@
             </el-col>
           </el-row>
           <div v-if="streaming" style="margin-top: 8px; font-size: 11px; color: #00ff88">
-            {{ cameraId }} / {{ streamTypeLabel }} — 推流中
+            {{ cameraId }} / {{ streamTypeLabel }} — 刷新中
           </div>
         </el-card>
 
@@ -89,10 +86,11 @@
           </template>
           <div class="video-container">
             <img
-              v-if="streaming && frameData"
-              :src="frameData"
+              v-if="streaming"
+              :src="frameSrc"
               class="video-frame"
               alt="Camera feed"
+              @error="onFrameError"
             />
             <div v-else class="video-placeholder">
               <el-icon style="font-size: 48px; color: #2a3a4a"><VideoCamera /></el-icon>
@@ -106,140 +104,94 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onUnmounted, watch } from 'vue'
 import { cameraApi } from '../api/camera'
 import { ElMessage } from 'element-plus'
 import { View, Aim, VideoCamera } from '@element-plus/icons-vue'
 
 const poseFields = ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
 
-// ---- 相机列表 ----
-const cameras = ref([])
-const cameraId = ref('head')
+const cameraId = ref('camera_1')
 const streamType = ref('raw')
+const publishing = ref(false)
 const streaming = ref(false)
 const connecting = ref(false)
-
-// ---- 视觉检测 ----
 const detectScene = ref('grasp_top')
 const detecting = ref(false)
 const detectResult = ref(null)
-
-// ---- WebSocket ----
-let ws = null
-const frameData = ref('')
+const frameSrc = ref('')
+let refreshTimer = null
 
 const streamTypeLabel = computed(() => {
-  const labels = { raw: '原始画面', depth: '深度图', annotated: '带框标注' }
+  const labels = { raw: '原始画面', depth: '深度图', grayscale: '灰度图', annotated: '带框标注' }
   return labels[streamType.value] || streamType.value
 })
 
-// 加载相机列表
-async function loadCameras() {
-  try {
-    const res = await cameraApi.list()
-    cameras.value = res.data || []
-    if (cameras.value.length > 0 && !cameras.value.find(c => c.id === cameraId.value)) {
-      cameraId.value = cameras.value[0].id
-    }
-  } catch (e) {
-    ElMessage.error('获取相机列表失败')
-    cameras.value = []
-  }
-}
+// Auto-disconnect when leaving page
+onUnmounted(disconnectStream)
 
-onMounted(loadCameras)
-
-onUnmounted(() => {
-  disconnectStream()
-})
-
+// Watch for route changes to disconnect
 watch(() => cameraId.value, () => {
-  if (streaming.value) {
-    disconnectStream()
-    setTimeout(connectStream, 300)
-  }
+  if (streaming.value) disconnectStream()
 })
 
-// ---- WebSocket 连接 ----
-
-function getWsUrl() {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${window.location.host}/ws/v1/camera`
+function onCameraChange() {
+  if (streaming.value) {
+    // Reconnect with new camera
+    disconnectStream()
+    setTimeout(connectStream, 200)
+  }
 }
 
 async function connectStream() {
   connecting.value = true
   try {
-    // 先通过 HTTP 启动相机流采集
+    if (!publishing.value) {
+      await cameraApi.startPublish(cameraId.value)
+      publishing.value = true
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+    }
     await cameraApi.startStream(cameraId.value, streamType.value)
-
-    // 建立 WebSocket 连接
-    const url = getWsUrl()
-    ws = new WebSocket(url)
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
-        action: 'subscribe',
-        camera_id: cameraId.value,
-        stream_type: streamType.value,
-      }))
-      streaming.value = true
-      connecting.value = false
-      ElMessage.success(`已连接 ${cameraId.value}`)
-    }
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data)
-        if (msg.type === 'frame' && msg.data) {
-          frameData.value = 'data:image/jpeg;base64,' + msg.data
-        } else if (msg.type === 'error') {
-          ElMessage.error(msg.message)
-        }
-      } catch (e) {
-        // ignore parse errors
-      }
-    }
-
-    ws.onerror = () => {
-      ElMessage.error('WebSocket 连接错误')
-      disconnectStream()
-    }
-
-    ws.onclose = () => {
-      if (streaming.value) {
-        streaming.value = false
-        frameData.value = ''
-      }
-    }
+    streaming.value = true
+    ElMessage.success(`已连接 ${cameraId.value}`)
+    startFrameRefresh()
   } catch (error) {
     ElMessage.error(error.message || '连接失败')
+  } finally {
     connecting.value = false
   }
 }
 
-function disconnectStream() {
-  if (ws) {
-    try {
-      ws.send(JSON.stringify({ action: 'unsubscribe' }))
-    } catch (e) { /* ignore */ }
-    ws.close()
-    ws = null
-  }
+async function disconnectStream() {
+  stopFrameRefresh()
   streaming.value = false
-  frameData.value = ''
-  cameraApi.stopStream(cameraId.value).catch(() => {})
-}
-
-function onCameraChange() {
-  if (streaming.value) {
-    disconnectStream()
-    setTimeout(connectStream, 300)
+  publishing.value = false
+  frameSrc.value = ''
+  try {
+    await cameraApi.stopStream()
+    await cameraApi.stopPublish()
+  } catch {
+    // ignore
   }
 }
 
-// ---- 视觉检测 ----
+function startFrameRefresh() {
+  stopFrameRefresh()
+  refreshTimer = setInterval(() => {
+    frameSrc.value = cameraApi.getFrame(cameraId.value) + '&_=' + Date.now()
+  }, 200)
+}
+
+function stopFrameRefresh() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+
+function onFrameError() {
+  // Silently retry — frame may not be ready yet
+}
 
 async function runDetection() {
   detecting.value = true
