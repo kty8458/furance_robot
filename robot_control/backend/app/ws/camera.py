@@ -2,8 +2,7 @@
 WebSocket 相机推流转发器。
 
 挂载到 /ws/v1/camera。接收前端的订阅请求，转发到
-camera_manager_node 的内部 WebSocket (localhost:8766)，
-将帧数据透传给前端。
+camera_manager_node 的内部 WebSocket (localhost:8766)。
 """
 
 import asyncio
@@ -15,16 +14,20 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
 CAMERA_WS_URL = "ws://127.0.0.1:8766"
+
+
+def _is_open(conn) -> bool:
+    """检查 websockets 连接是否开启 (兼容 v15+ 无 .open 属性)。"""
+    return conn is not None and conn.state.name == "OPEN"
 
 
 @router.websocket("/ws/v1/camera")
 async def camera_relay(ws: WebSocket):
     await ws.accept()
 
-    upstream: websockets.WebSocketClientProtocol | None = None
-    relay_task: asyncio.Task | None = None
+    upstream = None
+    relay_task = None
 
     async def relay_upstream_to_frontend():
         try:
@@ -39,7 +42,7 @@ async def camera_relay(ws: WebSocket):
         except Exception:
             pass
 
-    async def connect_upstream() -> bool:
+    async def connect_upstream():
         nonlocal upstream
         try:
             upstream = await websockets.connect(CAMERA_WS_URL)
@@ -53,8 +56,7 @@ async def camera_relay(ws: WebSocket):
         while True:
             raw = await ws.receive_text()
 
-            # 懒连接: 收到第一条消息时才连 camera_manager_node
-            if upstream is None or not upstream.open:
+            if not _is_open(upstream):
                 if not await connect_upstream():
                     continue
                 if relay_task:
@@ -70,5 +72,5 @@ async def camera_relay(ws: WebSocket):
     finally:
         if relay_task:
             relay_task.cancel()
-        if upstream and upstream.open:
+        if _is_open(upstream):
             await upstream.close()
