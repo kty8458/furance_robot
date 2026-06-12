@@ -69,10 +69,13 @@ class RealCameraClient(CameraClientBase):
     async def get_camera_list(self) -> dict[str, Any]:
         result = await self._call("/camera/list", {})
         if result.get("success"):
-            try:
-                cameras = json.loads(result.get("result_json", "[]") or "[]")
-            except (json.JSONDecodeError, TypeError):
-                cameras = []
+            # call_service 已将 result_json 解析为 data
+            cameras = result.get("data", [])
+            if isinstance(cameras, str):
+                try:
+                    cameras = json.loads(cameras)
+                except (json.JSONDecodeError, TypeError):
+                    cameras = []
             return {"success": True, "cameras": cameras}
         return {"success": False, "message": result.get("message", "Failed")}
 
