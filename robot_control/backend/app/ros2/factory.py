@@ -113,18 +113,19 @@ def create_ros2_components(settings: Settings | None = None) -> Ros2Components:
             from app.ros2.runtime import Ros2Runtime
 
             runtime = Ros2Runtime(domain_id=settings.ros2_domain_id)
+            service_client = RealRos2ServiceClient(
+                runtime, timeout=settings.ros2_service_timeout
+            )
             components = Ros2Components(
                 runtime=runtime,
-                service_client=RealRos2ServiceClient(
-                    runtime, timeout=settings.ros2_service_timeout
-                ),
+                service_client=service_client,
                 log_collector=RealRos2LogCollector(runtime),
                 topic_listener=RealRos2TopicListener(runtime),
                 joint_state_listener=RealJointStateListener(runtime),
                 moveit_client=RealMoveItServiceClient(runtime, timeout=settings.ros2_service_timeout),
                 arm_enable_client=RealArmEnableClient(runtime, timeout=settings.ros2_service_timeout),
                 upper_body_client=RealUpperBodyClient(runtime, timeout=settings.ros2_service_timeout),
-                camera_client=RealCameraClient(runtime, timeout=settings.ros2_service_timeout),
+                camera_client=RealCameraClient(service_client=service_client, runtime=runtime, timeout=settings.ros2_service_timeout),
                 motor_feedback_listener=RealMotorFeedbackListener(runtime),
             )
             logger.info("ROS2 components created in REAL mode (domain_id=%d)", settings.ros2_domain_id)

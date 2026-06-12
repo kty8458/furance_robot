@@ -11,7 +11,7 @@
           </template>
           <div style="margin-bottom: 12px">
             <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">相机</div>
-            <el-select v-model="cameraId" style="width: 100%" @change="onCameraChange">
+            <el-select v-model="cameraId" style="width: 100%" @change="onCameraChange" @visible-change="onDropdownToggle">
               <el-option
                 v-for="cam in cameras"
                 :key="cam.id"
@@ -134,7 +134,6 @@ async function loadCameras() {
   }
 }
 
-onMounted(loadCameras)
 onUnmounted(() => disconnectStream())
 
 watch(() => cameraId.value, () => {
@@ -182,6 +181,10 @@ function disconnectStream() {
   }
   streaming.value = false; frameData.value = ''
   cameraApi.stopStream(cameraId.value).catch(() => {})
+}
+
+function onDropdownToggle(visible) {
+  if (visible) loadCameras()
 }
 
 function onCameraChange() {

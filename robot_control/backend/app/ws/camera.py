@@ -4,15 +4,9 @@ WebSocket 相机推流转发器。
 挂载到 /ws/v1/camera。接收前端的订阅请求，转发到
 camera_manager_node 的内部 WebSocket (localhost:8766)，
 将帧数据透传给前端。
-
-协议 (与前端):
-  前端 → {"action": "subscribe", "camera_id": "head", "stream_type": "raw"}
-  前端 ← {"type": "frame", "camera_id": "head", "stream_type": "raw", "data": "<base64>"}
-  前端 → {"action": "unsubscribe"}
 """
 
 import asyncio
-import json
 import logging
 
 import websockets
@@ -27,14 +21,12 @@ CAMERA_WS_URL = "ws://127.0.0.1:8766"
 
 @router.websocket("/ws/v1/camera")
 async def camera_relay(ws: WebSocket):
-    """转发前端 WS 请求到 camera_manager_node 的内部 WS。"""
     await ws.accept()
 
     upstream: websockets.WebSocketClientProtocol | None = None
     relay_task: asyncio.Task | None = None
 
     async def relay_upstream_to_frontend():
-        """将 camera_manager_node 的消息透传给前端。"""
         try:
             while upstream is not None:
                 try:
@@ -47,13 +39,24 @@ async def camera_relay(ws: WebSocket):
         except Exception:
             pass
 
+    async def connect_upstream() -> bool:
+        nonlocal upstream
+        try:
+            upstream = await websockets.connect(CAMERA_WS_URL)
+            return True
+        except (ConnectionRefusedError, OSError) as e:
+            logger.warning("Camera WS upstream not available (%s): %s", CAMERA_WS_URL, e)
+            await ws.send_json({"type": "error", "message": "相机服务未启动，请先通过节点管理启动 camera_manager"})
+            return False
+
     try:
         while True:
             raw = await ws.receive_text()
 
-            # 收到前端消息 → 转发给 camera_manager_node
+            # 懒连接: 收到第一条消息时才连 camera_manager_node
             if upstream is None or not upstream.open:
-                upstream = await websockets.connect(CAMERA_WS_URL)
+                if not await connect_upstream():
+                    continue
                 if relay_task:
                     relay_task.cancel()
                 relay_task = asyncio.create_task(relay_upstream_to_frontend())

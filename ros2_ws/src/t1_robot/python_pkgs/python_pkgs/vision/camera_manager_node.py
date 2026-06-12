@@ -50,7 +50,7 @@ WS_PORT = 8766
 MIN_DEPTH_MM = 100
 MAX_DEPTH_MM = 5000
 
-_DEFAULT_CONFIG = Path(__file__).resolve().parent / "camera_config.yaml"
+_DEFAULT_CONFIG = None  # resolved at runtime via ament_index
 
 
 # ---------------------------------------------------------------------------
@@ -516,7 +516,10 @@ def main(args=None):
     node = Node("camera_manager")
     logger.info("CameraManager node starting...")
 
-    config_path = os.environ.get("CAMERA_CONFIG_PATH", str(_DEFAULT_CONFIG))
+    config_path = os.environ.get("CAMERA_CONFIG_PATH", "")
+    if not config_path:
+        from ament_index_python.packages import get_package_share_directory
+        config_path = os.path.join(get_package_share_directory("python_pkgs"), "vision", "camera_config.yaml")
     manager = CameraManager(config_path)
 
     # 启动 WS server 线程
