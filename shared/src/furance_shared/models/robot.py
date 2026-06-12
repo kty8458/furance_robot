@@ -39,6 +39,10 @@ class Position(BaseModel):
 class GripperInfo(BaseModel):
     state: GripperState
     force: float = 0.0
+    torque: float = 0.0        # 当前力矩 (Nm, 接口未确认—占位)
+    distance: float = 0.0      # 移动距离 (mm, 接口未确认—占位)
+    temperature: float = 0.0   # 温度 (°C, 接口未确认—占位)
+    connected: bool = False    # 连接状态
 
 
 class EndEffectorPose(BaseModel):
@@ -55,6 +59,7 @@ class ArmState(BaseModel):
     end_effector: EndEffectorPose = EndEffectorPose()
     coordinate_frame: str = "base_link"
     status: str = "idle"
+    error_code: int = 0  # 手臂错误码，0=正常
 
 
 class RobotStatus(BaseModel):

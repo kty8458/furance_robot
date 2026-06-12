@@ -126,6 +126,10 @@ class StatusService:
             current_map = prev.get("current_map", "")
 
         # --- ROS2-derived fields ---
+        # 上身连接状态: motor 有数据则视为在线
+        motor_data = ros2.get("motor", {})
+        upper_body_connected = bool(motor_data)
+
         merged = {
             "position": position,
             "current_map": current_map,
@@ -140,8 +144,12 @@ class StatusService:
             "error_code": ros2.get("error_code", 0),
             "task_status": ros2.get("task_status", "idle"),
             "arm": ros2.get("arm", {}),
-            "motor": ros2.get("motor", {}),
+            "motor": motor_data,
             "source_status": self._build_source_status(robot_id),
+            # 底盘新增字段
+            "chassis_error": int(chassis_data.get("error", 0)) if chassis_data else 0,
+            "chassis_state": int(chassis_data.get("current_working", 0)) if chassis_data else 0,
+            "upper_body_connected": upper_body_connected,
         }
         return merged
 

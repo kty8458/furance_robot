@@ -34,6 +34,11 @@ class StatusPayload(BaseModel):
     motor: Optional[MotorState] = None
     ros2_nodes: Optional[Dict[str, str]] = None
     source_status: Dict[str, bool] = {}
+    # 底盘新增字段
+    chassis_error: int = 0          # 底盘错误码，0=正常
+    chassis_state: int = 0          # current_working: 1=未运行,2=扫地图,3=导航启动,4=执行导航
+    # 上身连接状态
+    upper_body_connected: bool = False
 
 
 class ErrorPayload(BaseModel):
