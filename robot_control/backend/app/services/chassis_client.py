@@ -19,7 +19,7 @@ class ChassisClient:
         self._user_code = user_code
         self._password = password
         self._token: str | None = None
-        self._client = httpx.AsyncClient(timeout=timeout)
+        self._client = httpx.AsyncClient(timeout=timeout, trust_env=False)
 
     async def close(self):
         await self._client.aclose()

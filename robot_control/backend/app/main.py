@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -66,8 +67,9 @@ async def lifespan(app: FastAPI):
             password=settings.chassis_password,
             timeout=settings.chassis_timeout,
         )
-    except Exception:
-        logger.warning("Failed to create ChassisClient, using mock")
+    except Exception as e:
+        logger.warning("Failed to create ChassisClient (%s: %s), using mock\n%s",
+                       type(e).__name__, e, traceback.format_exc())
         chassis_client = MockChassisClient()
     app.state.chassis_client = chassis_client
 
