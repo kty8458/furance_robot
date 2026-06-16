@@ -25,8 +25,8 @@ Tsai 方程:
 用法:
   python3 camera_calibration.py \\
     --camera head \\
-    --chessboard 9x6 \\
-    --square 0.025 \\
+    --chessboard 11x8 \\
+    --square 0.02 \\
     --target-link ARM-R-J7_Link
 """
 
@@ -34,6 +34,7 @@ import argparse
 import os
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -318,20 +319,66 @@ def get_tf_pose(buffer, target_link: str, base_link: str = "base_link") -> Optio
 
 
 def _collect_frames_with_tf(pipeline, chessboard_size, square_size, num_frames,
-                            target_link: str, base_link: str = "base_link"):
+                            target_link: str, base_link: str = "base_link",
+                            camera_id: str = "head"):
     """
-    采集棋盘格图像 + 同步 TF 位姿。
+    采集棋盘格图像 + 同步 TF 位姿 + 关节角。
+
+    每次按 's' 保存时:
+      - data/<camera_id>/<timestamp>/frame_NNNN_raw.png       — 原始图像
+      - data/<camera_id>/<timestamp>/frame_NNNN_annotated.png — 带棋盘格标注的图像
+      - data/<camera_id>/<timestamp>/records.txt              — 每条记录追加 TF + 关节角
 
     Returns: (obj_points_list, img_points_list, arm_poses_list)
     """
     import rclpy
     from tf2_ros import Buffer, TransformListener
+    from sensor_msgs.msg import JointState
 
     rclpy.init()
     node = rclpy.create_node("calib_tf_listener")
     tf_buffer = Buffer()
     TransformListener(tf_buffer, node)
 
+    # ---- 创建 session 目录: data/<camera_id>/<timestamp>/ ----
+    _MODULE_DIR = Path(__file__).resolve().parent
+    session_dir = _MODULE_DIR / "data" / camera_id / datetime.now().strftime("%Y%m%d_%H%M%S")
+    session_dir.mkdir(parents=True, exist_ok=True)
+    records_path = session_dir / "records.txt"
+    print(f"\n数据保存目录: {session_dir}")
+
+    # ---- 关节角缓存 (从 /joint_states 订阅) ----
+    _joint_state: dict = {}
+
+    def _joint_cb(msg: JointState):
+        for i, name in enumerate(msg.name):
+            if i < len(msg.position):
+                _joint_state[name] = float(msg.position[i])
+
+    joint_sub = node.create_subscription(JointState, "/joint_states", _joint_cb, 10)
+    # 等待第一条 joint_states 到达
+    for _ in range(50):
+        rclpy.spin_once(node, timeout_sec=0.1)
+        if _joint_state:
+            break
+    if _joint_state:
+        print(f"已订阅 /joint_states ({len(_joint_state)} 个关节)")
+    else:
+        print("警告: 未收到 /joint_states (关节角将为空)")
+
+    # ---- 初始化 records.txt 头部 ----
+    with open(records_path, "w") as f:
+        f.write(f"# 手眼标定采集记录\n")
+        f.write(f"# 相机: {camera_id}\n")
+        f.write(f"# 日期: {datetime.now().isoformat()}\n")
+        f.write(f"# 棋盘格: {chessboard_size[0]}x{chessboard_size[1]}, 方格: {square_size}m\n")
+        f.write(f"# TF: {base_link} → {target_link}\n")
+        f.write(f"# 格式: frame_index | timestamp | "
+                f"tf_tx tf_ty tf_tz tf_qx tf_qy tf_qz tf_qw | "
+                f"joint_name1=pos1 joint_name2=pos2 ...\n")
+        f.write(f"{'=' * 80}\n")
+
+    # ---- 采集循环 ----
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
     objp = np.zeros((chessboard_size[0] * chessboard_size[1], 3), np.float32)
     objp[:, :2] = np.mgrid[0:chessboard_size[0], 0:chessboard_size[1]].T.reshape(-1, 2)
@@ -342,11 +389,12 @@ def _collect_frames_with_tf(pipeline, chessboard_size, square_size, num_frames,
     print(f"\n采集棋盘格 (需要 {num_frames} 帧, 按 's' 保存, 'q' 退出)")
     print(f"棋盘格: {chessboard_size[0]}x{chessboard_size[1]}, 方格: {square_size}m")
     print(f"TF 链路: {base_link} → {target_link}")
-    print("保存时自动记录当前 TF 位姿")
+    print("保存时自动记录 TF 位姿 + 关节角 + 图像")
 
     cv2.namedWindow("Calibration", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("Calibration", 1280, 720)
 
+    _debug_printed = False
     captured = 0
     while captured < num_frames:
         frames = pipeline.wait_for_frames(100)
@@ -362,17 +410,52 @@ def _collect_frames_with_tf(pipeline, chessboard_size, square_size, num_frames,
             rclpy.spin_once(node, timeout_sec=0.01)
             continue
 
+        if not _debug_printed:
+            _debug_printed = True
+            print(f"[DEBUG] 帧格式: {cf.get_format()}, 分辨率: {cf.get_width()}x{cf.get_height()}")
+            print(f"[DEBUG] BGR 图像 shape: {img.shape}, dtype: {img.dtype}")
+            print(f"[DEBUG] 棋盘格: {chessboard_size[0]}x{chessboard_size[1]}, 方格: {square_size}m")
+            debug_path = _MODULE_DIR / "_debug_first_frame.png"
+            cv2.imwrite(str(debug_path), img)
+            print(f"[DEBUG] 首帧已保存: {debug_path}")
+            gray_tmp = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            print(f"[DEBUG] 灰度: min={gray_tmp.min()} max={gray_tmp.max()} "
+                  f"mean={gray_tmp.mean():.1f} std={gray_tmp.std():.1f}")
+            print(f"[DEBUG] 尝试检测多种棋盘格尺寸...")
+            for try_w, try_h in [(12, 9), (11, 8), (10, 7), (9, 6), (8, 6), (8, 5), (7, 5), (6, 4)]:
+                r_try, _ = cv2.findChessboardCornersSB(
+                    gray_tmp, (try_w, try_h),
+                    cv2.CALIB_CB_EXHAUSTIVE + cv2.CALIB_CB_NORMALIZE_IMAGE)
+                if r_try:
+                    print(f"  ✓ 检测成功: {try_w}x{try_h} — 请用 --chessboard {try_w}x{try_h}")
+                else:
+                    r_try2, _ = cv2.findChessboardCorners(
+                        gray_tmp, (try_w, try_h),
+                        cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE)
+                    if r_try2:
+                        print(f"  ✓ 检测成功(传统): {try_w}x{try_h} — 请用 --chessboard {try_w}x{try_h}")
+            print(f"[DEBUG] 尺寸探测完成，以上 ✓ 的尺寸才能正常检测")
+
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        ret, corners = cv2.findChessboardCorners(gray, chessboard_size, None)
+        sb_flags = cv2.CALIB_CB_EXHAUSTIVE + cv2.CALIB_CB_NORMALIZE_IMAGE
+        ret, corners = cv2.findChessboardCornersSB(gray, chessboard_size, sb_flags)
+        if not ret:
+            fallback_flags = cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
+            ret, corners = cv2.findChessboardCorners(gray, chessboard_size, fallback_flags)
+
+        # 构建标注图
         display = img.copy()
+        if ret:
+            corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+            cv2.drawChessboardCorners(display, chessboard_size, corners2, ret)
+        else:
+            corners2 = corners
 
         rclpy.spin_once(node, timeout_sec=0.01)
         tf_pose = get_tf_pose(tf_buffer, target_link, base_link)
         tf_str = "TF:OK" if tf_pose is not None else "TF:--"
 
         if ret:
-            corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
-            cv2.drawChessboardCorners(display, chessboard_size, corners2, ret)
             status = f"OK — s=save ({captured + 1}/{num_frames}) {tf_str}"
         else:
             status = f"no board ({captured + 1}/{num_frames}) {tf_str}"
@@ -384,12 +467,35 @@ def _collect_frames_with_tf(pipeline, chessboard_size, square_size, num_frames,
         if key == ord("q"):
             break
         elif key == ord("s") and ret and tf_pose is not None:
+            # ---- 保存图像和数据 ----
+            idx_str = f"{captured + 1:04d}"
+            raw_path = session_dir / f"frame_{idx_str}_raw.png"
+            anno_path = session_dir / f"frame_{idx_str}_annotated.png"
+            cv2.imwrite(str(raw_path), img)
+            cv2.imwrite(str(anno_path), display)
+
+            # TF 四元数
+            import rclpy as _rclpy
+            from geometry_msgs.msg import TransformStamped as _TS
+            t_stamped: _TS = tf_buffer.lookup_transform(base_link, target_link, _rclpy.time.Time())
+            t_t = t_stamped.transform.translation
+            t_r = t_stamped.transform.rotation
+
+            # 写入 records.txt
+            ts = datetime.now().isoformat()
+            tf_line = (f"{t_t.x:.6f} {t_t.y:.6f} {t_t.z:.6f} "
+                       f"{t_r.x:.6f} {t_r.y:.6f} {t_r.z:.6f} {t_r.w:.6f}")
+            joint_line = " ".join(f"{k}={v:.6f}" for k, v in sorted(_joint_state.items()))
+            with open(records_path, "a") as f:
+                f.write(f"{idx_str} | {ts} | {tf_line} | {joint_line}\n")
+
             obj_points.append(objp)
             img_points.append(corners2)
             arm_poses.append(tf_pose)
             captured += 1
             print(f"  [{captured}/{num_frames}] "
-                  f"t=[{tf_pose[0,3]:.3f},{tf_pose[1,3]:.3f},{tf_pose[2,3]:.3f}]")
+                  f"t=[{tf_pose[0,3]:.3f},{tf_pose[1,3]:.3f},{tf_pose[2,3]:.3f}] "
+                  f"→ {raw_path.name}, {anno_path.name}")
         elif key == ord("s") and ret and tf_pose is None:
             print(f"  skip: TF unavailable ({base_link}->{target_link})")
 
@@ -398,7 +504,8 @@ def _collect_frames_with_tf(pipeline, chessboard_size, square_size, num_frames,
     cv2.destroyAllWindows()
     node.destroy_node()
     rclpy.shutdown()
-    print(f"采集完成: {captured} 帧\n")
+    print(f"采集完成: {captured} 帧")
+    print(f"数据保存在: {session_dir}\n")
     return obj_points, img_points, arm_poses
 
 
@@ -519,8 +626,8 @@ def main():
     parser = argparse.ArgumentParser(description="Tsai AX=XB 手眼标定 (移植自 xjbd)")
     parser.add_argument("--camera", default="head")
     parser.add_argument("--serial", default="")
-    parser.add_argument("--chessboard", default="9x6")
-    parser.add_argument("--square", type=float, default=0.025)
+    parser.add_argument("--chessboard", default="11x8")
+    parser.add_argument("--square", type=float, default=0.02)
     parser.add_argument("--target-link", default="ARM-R-J7_Link")
     parser.add_argument("--frames", type=int, default=20)
     parser.add_argument("--config", default=str(_DEFAULT_CONFIG))
@@ -583,7 +690,7 @@ def main():
         print(f"{'=' * 60}")
         obj_pts, img_pts, arm_poses = _collect_frames_with_tf(
             pipeline, chessboard_size, args.square, args.frames,
-            args.target_link,
+            args.target_link, camera_id=args.camera,
         )
 
         # 4. Tsai 手眼标定
