@@ -18,4 +18,14 @@ export const cameraApi = {
       camera_id: cameraId,
       scene,
     }),
+  calibrate: (data) =>
+    api.post(`/robot/${ROBOT_ID}/camera/calibrate`, data),
+  scene: (action, sceneId, params = {}) =>
+    api.post(`/robot/${ROBOT_ID}/camera/scene`, {
+      action,
+      scene_id: sceneId || '',
+      params,
+    }),
+  computePose: (data) =>
+    api.post(`/robot/${ROBOT_ID}/camera/compute_pose`, data),
 }
