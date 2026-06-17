@@ -1,0 +1,11 @@
+string camera_id
+string arm
+int32 qr_id
+float32 marker_size
+string point_name
+string scene_id
+---
+bool success
+string message
+float32[3] translation
+float32[4] rotation
