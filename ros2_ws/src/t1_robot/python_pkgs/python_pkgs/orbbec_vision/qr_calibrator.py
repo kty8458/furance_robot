@@ -162,7 +162,12 @@ class QRCalibrator:
         trans = cam_to_ee["translation"]
         # rotation in config is stored as rodrigues-like [rx, ry, rz]
         R_cam_ee, _ = cv2.Rodrigues(np.array(rot, dtype=np.float64))
-        T_camera_ee = _make_transform(R_cam_ee, np.array(trans, dtype=np.float64))
+        # Convert translation from mm to meters: if abs(value) > 10, divide by 1000
+        trans_m = np.array(trans, dtype=np.float64)
+        for i in range(3):
+            if abs(trans_m[i]) > 10:
+                trans_m[i] /= 1000.0
+        T_camera_ee = _make_transform(R_cam_ee, trans_m)
         logger.info("calibrate: T_camera_ee (from config)=\n%s", T_camera_ee)
 
         # 3. T_ee_qr = inv(T_camera_ee) * T_camera_qr
