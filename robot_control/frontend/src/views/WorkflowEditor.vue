@@ -245,21 +245,80 @@
                       </div>
                     </template>
                     <template v-else>
-                      <div style="font-size: 11px; color: #6b7b8d">参考坐标系</div>
-                      <el-input v-model="step.config.reference_frame" placeholder="base_link" size="small" style="width: 200px; margin-bottom: 6px" />
-                      <!-- Vision source selector (only steps before this one) -->
-                      <div v-if="getPrecedingVisionSteps(idx).length" style="margin-bottom: 6px">
-                        <div style="font-size: 11px; color: #00d4ff">关联视觉输出 (可选)</div>
-                        <el-select v-model="step.config.vision_source" size="small" style="width: 200px" clearable placeholder="不关联" @change="val => onVisionSourceChange(step, val)">
-                          <el-option v-for="vs in getPrecedingVisionSteps(idx)" :key="vs.id" :label="vs.label || vs.id" :value="vs.id" />
-                        </el-select>
-                      </div>
-                      <el-row :gutter="6">
-                        <el-col :span="4" v-for="(f, fi) in poseFields" :key="fi">
-                          <div style="font-size: 10px; color: #6b7b8d">{{ f }}</div>
-                          <el-input v-model="step.config.position[f]" :placeholder="f" size="small" />
+                      <!-- 坐标模式 -->
+                      <el-row :gutter="8" style="margin-bottom: 6px">
+                        <el-col :span="12">
+                          <div style="font-size: 11px; color: #6b7b8d">模式</div>
+                          <el-select v-model="step.config.pose_mode" size="small" style="width: 100%"
+                            @change="val => onPoseModeChange(step, val)">
+                            <el-option label="手动输入" value="manual" />
+                            <el-option label="当前末端" value="current_ee" />
+                            <el-option label="关联视觉" value="vision" />
+                          </el-select>
+                        </el-col>
+                        <el-col :span="12" v-if="step.config.pose_mode === 'vision'">
+                          <div style="font-size: 11px; color: #6b7b8d">关联视觉步骤</div>
+                          <el-select v-model="step.config.vision_step_label" size="small" style="width: 100%"
+                            @change="label => onVisionStepLabelChange(step, label)">
+                            <el-option v-for="vs in getPrecedingVisionLabels(idx)" :key="vs.label"
+                              :label="vs.label || vs.id" :value="vs.label" />
+                          </el-select>
                         </el-col>
                       </el-row>
+
+                      <!-- 输入位姿 -->
+                      <div style="font-size: 11px; color: #00d4ff; margin-bottom: 4px">── 输入位姿 ──</div>
+                      <el-row :gutter="6" style="margin-bottom: 8px">
+                        <el-col :span="4" v-for="(f, fi) in poseFields" :key="'in_'+fi">
+                          <div style="font-size: 10px; color: #6b7b8d">{{ f }}</div>
+                          <el-input
+                            v-if="step.config.pose_mode === 'manual'"
+                            v-model="step.config.position[f]"
+                            :placeholder="f"
+                            size="small"
+                          />
+                          <div v-else-if="step.config.pose_mode === 'current_ee'"
+                            style="font-size: 11px; color: #00ff88; padding-top: 5px; font-style: italic">
+                            当前末端
+                          </div>
+                          <div v-else-if="step.config.pose_mode === 'vision'"
+                            style="font-size: 11px; color: #ffa500; padding-top: 5px; font-style: italic">
+                            视觉输出
+                          </div>
+                        </el-col>
+                      </el-row>
+
+                      <!-- 偏移 -->
+                      <div style="margin-bottom: 6px">
+                        <el-checkbox v-model="step.config.enable_offset" size="small" @change="onOffsetToggle(step)">
+                          <span style="font-size: 11px; color: #9ca3af">启用偏移</span>
+                        </el-checkbox>
+                      </div>
+                      <template v-if="step.config.enable_offset">
+                        <div style="font-size: 11px; color: #00d4ff; margin-bottom: 4px">── 偏移 ──</div>
+                        <div style="margin-bottom: 6px">
+                          <span style="font-size: 11px; color: #9ca3af; margin-right: 10px">参考系:</span>
+                          <el-checkbox v-model="step.config.offset_ref_base" size="small"
+                            :disabled="step.config.offset_ref_tool" @change="onOffsetRefChange(step, 'base')">
+                            <span style="font-size: 11px">base_link</span>
+                          </el-checkbox>
+                          <el-checkbox v-model="step.config.offset_ref_tool" size="small"
+                            :disabled="step.config.offset_ref_base" @change="onOffsetRefChange(step, 'tool')">
+                            <span style="font-size: 11px">tool_link</span>
+                          </el-checkbox>
+                        </div>
+                        <el-row :gutter="6">
+                          <el-col :span="4" v-for="(f, fi) in poseFields" :key="'off_'+fi">
+                            <div style="font-size: 10px; color: #6b7b8d">d{{ f }}</div>
+                            <el-input v-model="step.config.offset[f]" :placeholder="'d'+f" size="small" />
+                          </el-col>
+                        </el-row>
+                      </template>
+
+                      <div style="font-size: 10px; color: #6b7b8d; margin-top: 4px">
+                        参考坐标系: {{ step.config.reference_frame || 'base_link' }}
+                      </div>
+                      <el-input v-model="step.config.reference_frame" placeholder="base_link" size="small" style="width: 200px; margin-top: 4px" />
                     </template>
                   </template>
 
@@ -485,6 +544,42 @@ function getPrecedingVisionSteps(currentIdx) {
     .filter((s, i) => s.type === 'vision' && i < currentIdx)
 }
 
+// Vision step labels (for the dropdown in pose mode)
+function getPrecedingVisionLabels(currentIdx) {
+  if (!currentWorkflow.value?.steps) return []
+  return currentWorkflow.value.steps
+    .filter((s, i) => s.type === 'vision' && i < currentIdx)
+}
+
+function onPoseModeChange(step, mode) {
+  if (mode !== 'vision') step.config.vision_step_label = ''
+  if (mode === 'manual') {
+    step.config.position = {}
+  } else if (mode === 'current_ee') {
+    step.config.position = {}
+  }
+}
+
+function onVisionStepLabelChange(step, label) {
+  // The step label is used at execution time to reference the vision output
+  step.config.vision_step_label = label
+  step.config.position = {}
+}
+
+function onOffsetToggle(step) {
+  if (!step.config.enable_offset) {
+    step.config.offset = {}
+  }
+}
+
+function onOffsetRefChange(step, ref) {
+  if (ref === 'base') {
+    step.config.offset_ref_tool = false
+  } else {
+    step.config.offset_ref_base = false
+  }
+}
+
 // Move steps that use scheduler mode (need manual input at execution time)
 const schedulerMoveSteps = computed(() => {
   if (!currentWorkflow.value?.steps) return []
@@ -666,6 +761,11 @@ async function selectWorkflow(row) {
         if (s.type === 'upper_limb' && !s.config.left_reference_frame) s.config.left_reference_frame = 'base_link'
         if (s.type === 'upper_limb' && !s.config.right_reference_frame) s.config.right_reference_frame = 'base_link'
         if (s.type === 'upper_limb' && !s.config.position) s.config.position = {}
+        if (s.type === 'upper_limb' && !s.config.pose_mode) s.config.pose_mode = 'manual'
+        if (s.type === 'upper_limb' && s.config.enable_offset == null) s.config.enable_offset = false
+        if (s.type === 'upper_limb' && s.config.offset_ref_base == null) s.config.offset_ref_base = true
+        if (s.type === 'upper_limb' && s.config.offset_ref_tool == null) s.config.offset_ref_tool = false
+        if (s.type === 'upper_limb' && !s.config.offset) s.config.offset = {}
         if (s.type === 'gripper' && !s.config.arm) s.config.arm = 'left'
         if (s.type === 'gripper' && !s.config.action) s.config.action = 'open'
         if (s.type === 'gripper' && s.config.force == null) s.config.force = 0
@@ -751,7 +851,7 @@ function addStep(type) {
   stepCounter++
   const defaults = {
     move: { move_source: 'scheduler', map_name: '', point_name: '', path_type: 'NavigationPointTask' },
-    upper_limb: { mode: 'preset', arm: 'left', method: 'moveJ', preset_name: '', left_preset_name: '', right_preset_name: '', use_combined: true, use_composed_preset: false, reference_frame: 'base_link', left_reference_frame: 'base_link', right_reference_frame: 'base_link', position: {}, vision_source: '', left_vision_source: '', right_vision_source: '' },
+    upper_limb: { mode: 'preset', arm: 'left', method: 'moveJ', preset_name: '', left_preset_name: '', right_preset_name: '', use_combined: true, use_composed_preset: false, reference_frame: 'base_link', left_reference_frame: 'base_link', right_reference_frame: 'base_link', position: {}, vision_source: '', left_vision_source: '', right_vision_source: '', pose_mode: 'manual', vision_step_label: '', enable_offset: false, offset_ref_base: true, offset_ref_tool: false, offset: {} },
     upper_body: { _waist: false, _ascend: false, _head: false, waist_angle: 300, waist_speed: 20, ascend_pos: 100, ascend_speed: 20, head_angle: 15, head_speed: 10 },
     gripper: { arm: 'left', action: 'open', force: 0 },
     vision: { camera_id: cameraList.value.find(c => c.connected)?.id || 'head', function: 'qr_detect', scene: '', point_name: '' },
