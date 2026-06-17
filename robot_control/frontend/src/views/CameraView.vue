@@ -26,7 +26,8 @@
             <el-select v-model="streamType" style="width: 100%" :disabled="streaming">
               <el-option label="原始画面" value="raw" />
               <el-option label="深度图" value="depth" />
-              <el-option label="带框标注" value="annotated" :disabled="true" />
+              <el-option label="红外图" value="ir" />
+              <el-option label="带框标注" value="annotated" />
             </el-select>
           </div>
           <el-row :gutter="8">
@@ -72,6 +73,89 @@
             </el-row>
           </div>
         </el-card>
+
+        <el-card class="tech-card" style="margin-top: 16px">
+          <template #header>
+            <div class="tech-card-header">
+              <el-icon><Connection /></el-icon>
+              <span style="margin-left: 8px">现场标定</span>
+            </div>
+          </template>
+
+          <div style="margin-bottom: 10px">
+            <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">相机</div>
+            <el-select v-model="calibCameraId" style="width: 100%">
+              <el-option v-for="cam in cameras" :key="cam.id"
+                :label="`${cam.name} (${cam.id})`" :value="cam.id"
+                :disabled="!cam.connected" />
+            </el-select>
+          </div>
+
+          <div style="margin-bottom: 10px">
+            <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">手臂</div>
+            <el-select v-model="calibArm" style="width: 100%">
+              <el-option label="左臂" value="left" />
+              <el-option label="右臂" value="right" />
+            </el-select>
+          </div>
+
+          <div style="margin-bottom: 10px">
+            <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">场景</div>
+            <div style="display: flex; gap: 6px">
+              <el-select v-model="calibSceneId" style="flex: 1" filterable clearable
+                placeholder="选择已有场景" @change="onCalibSceneChange">
+                <el-option v-for="s in sceneList" :key="s.scene_id"
+                  :label="`${s.scene_id} (${s.description})`" :value="s.scene_id" />
+              </el-select>
+              <el-button size="small" @click="showNewScene = !showNewScene">
+                {{ showNewScene ? '取消' : '新建' }}
+              </el-button>
+            </div>
+            <div v-if="showNewScene" style="margin-top: 6px; display: flex; gap: 6px">
+              <el-input v-model="newSceneId" placeholder="场景ID" size="small" style="flex: 1" />
+              <el-input v-model="newSceneDesc" placeholder="描述" size="small" style="flex: 1" />
+              <el-button size="small" type="primary" @click="createScene">创建</el-button>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 10px">
+            <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">标定点名</div>
+            <el-input v-model="calibPointName" placeholder="例如: 主放置位" size="small" />
+          </div>
+
+          <el-row :gutter="8" style="margin-bottom: 10px">
+            <el-col :span="12">
+              <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">QR ID</div>
+              <el-input-number v-model="calibQrId" :min="0" size="small" controls-position="right" style="width: 100%" />
+            </el-col>
+            <el-col :span="12">
+              <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">QR 尺寸 (m)</div>
+              <el-input-number v-model="calibMarkerSize" :min="0.01" :step="0.001" :precision="3"
+                size="small" controls-position="right" style="width: 100%" />
+            </el-col>
+          </el-row>
+
+          <el-button size="small" type="success" style="width: 100%" @click="runCalibration" :loading="calibrating">
+            执行标定
+          </el-button>
+
+          <div v-if="calibResult" class="detect-result" style="margin-top: 10px">
+            <div class="detect-title">标定结果 — T_qr_workspace</div>
+            <div style="font-size: 11px; color: #9ca3af; margin-bottom: 4px">Translation (m)</div>
+            <div style="font-family: 'Consolas', monospace; font-size: 12px; color: #e5e7eb">
+              x: {{ calibResult.translation?.[0]?.toFixed(4) ?? '--' }}
+              y: {{ calibResult.translation?.[1]?.toFixed(4) ?? '--' }}
+              z: {{ calibResult.translation?.[2]?.toFixed(4) ?? '--' }}
+            </div>
+            <div style="font-size: 11px; color: #9ca3af; margin-bottom: 4px; margin-top: 4px">Rotation (xyzw)</div>
+            <div style="font-family: 'Consolas', monospace; font-size: 12px; color: #e5e7eb">
+              x: {{ calibResult.rotation?.[0]?.toFixed(4) ?? '--' }}
+              y: {{ calibResult.rotation?.[1]?.toFixed(4) ?? '--' }}
+              z: {{ calibResult.rotation?.[2]?.toFixed(4) ?? '--' }}
+              w: {{ calibResult.rotation?.[3]?.toFixed(4) ?? '--' }}
+            </div>
+          </div>
+        </el-card>
       </el-col>
 
       <el-col :xs="24" :sm="16" :md="18">
@@ -101,7 +185,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { cameraApi } from '../api/camera'
 import { ElMessage } from 'element-plus'
-import { View, Aim, VideoCamera } from '@element-plus/icons-vue'
+import { View, Aim, VideoCamera, Connection } from '@element-plus/icons-vue'
 
 const poseFields = ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
 
@@ -114,11 +198,25 @@ const detectScene = ref('grasp_top')
 const detecting = ref(false)
 const detectResult = ref(null)
 
+// ---- 标定状态 ----
+const calibCameraId = ref('head')
+const calibArm = ref('right')
+const calibSceneId = ref('')
+const calibPointName = ref('')
+const calibQrId = ref(0)
+const calibMarkerSize = ref(0.058)
+const calibrating = ref(false)
+const calibResult = ref(null)
+const sceneList = ref([])
+const showNewScene = ref(false)
+const newSceneId = ref('')
+const newSceneDesc = ref('')
+
 let ws = null
 const frameData = ref('')
 
 const streamTypeLabel = computed(() => {
-  const labels = { raw: '原始画面', depth: '深度图', annotated: '带框标注' }
+  const labels = { raw: '原始画面', depth: '深度图', ir: '红外图', annotated: '带框标注' }
   return labels[streamType.value] || streamType.value
 })
 
@@ -184,8 +282,13 @@ function disconnectStream() {
 }
 
 function onDropdownToggle(visible) {
-  if (visible) loadCameras()
+  if (visible) { loadCameras(); loadSceneList() }
 }
+
+onMounted(() => {
+  loadCameras()
+  loadSceneList()
+})
 
 function onCameraChange() {
   if (streaming.value) { disconnectStream(); setTimeout(connectStream, 300) }
@@ -201,6 +304,51 @@ async function runDetection() {
     ElMessage.error(e.message || '检测失败')
   } finally {
     detecting.value = false
+  }
+}
+
+async function loadSceneList() {
+  try {
+    const res = await cameraApi.scene('list')
+    sceneList.value = res.data || []
+  } catch { sceneList.value = [] }
+}
+
+async function createScene() {
+  if (!newSceneId.value) { ElMessage.warning('请输入场景ID'); return }
+  try {
+    await cameraApi.scene('create', newSceneId.value, { description: newSceneDesc.value })
+    ElMessage.success(`场景 ${newSceneId.value} 已创建`)
+    calibSceneId.value = newSceneId.value
+    showNewScene.value = false
+    newSceneId.value = ''
+    newSceneDesc.value = ''
+    await loadSceneList()
+  } catch (e) { ElMessage.error(e.message || '创建失败') }
+}
+
+function onCalibSceneChange() { /* placeholder */ }
+
+async function runCalibration() {
+  if (!calibSceneId.value) { ElMessage.warning('请选择场景'); return }
+  if (!calibPointName.value) { ElMessage.warning('请输入标定点名'); return }
+  calibrating.value = true
+  calibResult.value = null
+  try {
+    const res = await cameraApi.calibrate({
+      camera_id: calibCameraId.value,
+      arm: calibArm.value,
+      qr_id: calibQrId.value,
+      marker_size: calibMarkerSize.value,
+      point_name: calibPointName.value,
+      scene_id: calibSceneId.value,
+    })
+    calibResult.value = res.data || res
+    ElMessage.success('标定完成')
+  } catch (e) {
+    ElMessage.error(e.message || '标定失败')
+  } finally {
+    calibrating.value = false
   }
 }
 </script>
