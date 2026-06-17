@@ -23,11 +23,20 @@ Tsai 方程:
   则 camera→target_link = camera→chessboard_i * inv(X)
 
 用法:
+  # eye-to-hand: 固定相机 (head), 棋盘格在臂上
   python3 camera_calibration.py \\
     --camera head \\
     --chessboard 11x8 \\
     --square 0.02 \\
     --target-link ARM-R-J7_Link
+
+  # eye-in-hand: 相机在臂上 (right_arm), 棋盘格固定在世界
+  python3 camera_calibration.py \\
+    --camera right_arm \\
+    --chessboard 11x8 \\
+    --square 0.02 \\
+    --target-link ARM-R-J7_Link \\
+    --mode eye-in-hand
 """
 
 import argparse
@@ -186,8 +195,125 @@ def tsai_hand_eye(bHg: list, cHw: list) -> np.ndarray:
 # SDK 内参 / 外参获取
 # ===================================================================
 
+def _load_camera_config(camera_id: str, config_path: Path = _DEFAULT_CONFIG) -> dict:
+    """从 camera_config.yaml 读取指定 camera_id 的配置项。
+
+    匹配: 先精确匹配 id，再尝试 camera_id 是否包含在 id 中
+    (如 --camera right 可匹配 right_arm)。
+    """
+    try:
+        data = yaml.safe_load(open(config_path)) or {}
+    except FileNotFoundError:
+        return {}
+    cameras = data.get("cameras", [])
+    # 精确匹配
+    for c in cameras:
+        if c.get("id") == camera_id:
+            return c
+    # 模糊匹配: camera_id 包含在某个 id 中
+    for c in cameras:
+        cid = c.get("id", "")
+        if camera_id in cid or cid in camera_id:
+            return c
+    return {}
+
+
+def _update_config_serial(camera_id: str, serial: str, config_path=None):
+    """将检测到的 serial 回写到 camera_config.yaml 对应相机条目中。"""
+    if config_path is None:
+        config_path = _DEFAULT_CONFIG
+    path = Path(config_path)
+    data = yaml.safe_load(open(path)) if path.exists() else {}
+    for c in data.get("cameras", []):
+        if c.get("id") == camera_id and not c.get("serial"):
+            c["serial"] = serial
+            with open(path, "w") as f:
+                yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            print(f"已更新 {path.name}: {camera_id}.serial = {serial}")
+            return
+
+
+def _find_device(camera_id: str, serial_override: str = "",
+                 config_path: Path = _DEFAULT_CONFIG):
+    """
+    按优先级匹配奥比中光相机设备:
+      1. --serial 命令行参数
+      2. camera_config.yaml 中的 serial
+      3. camera_config.yaml 中的 uid (USB 拓扑路径, 如 6-1.4-13)
+
+    Returns: (device, device_info) 或 (None, None) 如果未找到。
+    """
+    from pyorbbecsdk import Context, OBLogLevel
+
+    ctx = Context()
+    ctx.set_logger_level(OBLogLevel.ERROR)
+    device_list = ctx.query_devices()
+    n = device_list.get_count()
+
+    if n == 0:
+        return None, None
+
+    # 列出所有已连接设备
+    devices = []
+    for i in range(n):
+        d = device_list.get_device_by_index(i)
+        info = d.get_device_info()
+        uid = ""
+        try:
+            uid = info.get_uid()
+        except Exception:
+            pass
+        devices.append((d, info, uid))
+
+    # 1. serial override
+    if serial_override:
+        for d, info, uid in devices:
+            if info.get_serial_number() == serial_override:
+                print(f"已匹配设备: serial={serial_override} → {info.get_name()} (uid={uid})")
+                return d, info
+        print(f"错误: 未找到 serial={serial_override} 的设备")
+        print(f"已连接设备: {', '.join(info.get_serial_number() + ' (uid=' + uid + ')' for _, info, uid in devices)}")
+        return None, None
+
+    # 2. 从 config 读取
+    cfg = _load_camera_config(camera_id, config_path)
+    cfg_serial = cfg.get("serial", "")
+    cfg_uid = cfg.get("uid", "")
+
+    # 2a. serial 匹配
+    if cfg_serial:
+        for d, info, uid in devices:
+            if info.get_serial_number() == cfg_serial:
+                print(f"已匹配设备 (config serial): {cfg_serial} → {info.get_name()}")
+                return d, info
+        print(f"警告: 配置中 serial={cfg_serial} 未在已连接设备中找到")
+
+    # 2b. uid 匹配 (支持部分匹配, 如 uid=6-1.4 可以匹配 6-1.4-13)
+    if cfg_uid:
+        for d, info, uid in devices:
+            if uid and cfg_uid in uid:
+                print(f"已匹配设备 (config uid): uid 包含 '{cfg_uid}' → "
+                      f"{info.get_name()} serial={info.get_serial_number()} uid={uid}")
+                return d, info
+        print(f"警告: 配置中 uid={cfg_uid} 未在已连接设备中找到")
+
+    # 3. 无法匹配 — 打印所有设备让用户选择
+    print(f"错误: 无法匹配相机 '{camera_id}'")
+    print(f"  配置: serial={cfg_serial or '(无)'}  uid={cfg_uid or '(无)'}")
+    print(f"  已连接设备 ({n}个):")
+    for _, info, uid in devices:
+        print(f"    serial={info.get_serial_number()}  uid={uid}  name={info.get_name()}")
+    print(f"  解决方法:")
+    print(f"    1. 用 --serial {devices[0][1].get_serial_number()} 直接指定")
+    print(f"    2. 更新 camera_config.yaml 中 '{camera_id}' 的 serial 或 uid")
+    return None, None
+
+
 def get_camera_params(serial: str) -> dict:
-    """从 SDK 获取 color/depth 内参和外参。"""
+    """从 SDK 获取 color/depth 内参和外参。
+
+    已废弃: 请用 get_camera_params_from_device(device) 代替。
+    """
     from pyorbbecsdk import Context, OBSensorType, Pipeline, OBLogLevel
 
     ctx = Context()
@@ -205,6 +331,13 @@ def get_camera_params(serial: str) -> dict:
         print(f"未找到 serial={serial}，使用: {device.get_device_info().get_serial_number()}")
     if device is None:
         raise RuntimeError("未发现奥比中光相机")
+
+    return _get_camera_params_from_device(device)
+
+
+def _get_camera_params_from_device(device) -> dict:
+    """从已匹配的设备获取 color/depth 内参和外参。"""
+    from pyorbbecsdk import OBSensorType, Pipeline
 
     pipeline = Pipeline(device)
 
@@ -516,15 +649,24 @@ def calibrate_tsai(
     dist: np.ndarray,
     arm_poses: list,
     target_link: str,
+    mode: str = "eye-to-hand",
 ) -> dict:
     """
     Tsai 手眼标定: 计算 camera→target_link。
 
-    流程:
-      1. 对每帧 solvePnP → camera→chessboard (cHw)
-      2. 用 arm_poses 作为 bHg (base→target_link)
-      3. Tsai AX=XB 求解 X = target_link→chessboard
-      4. camera→target_link = camera→chessboard_0 * inv(X)
+    Tsai AX=XB 求解 X = gripper→camera (Tsai 原始约定)。
+
+    eye-to-hand (固定相机, 棋盘格在臂上):
+      用 arm_poses 作为 bHg (base→target_link)
+      cHw = camera→chessboard
+      X = target_link→chessboard  (Tsai 返回 gHc)
+      camera→target_link = camera→chessboard_0 * inv(X)
+
+    eye-in-hand (相机在臂上, 棋盘格固定在世界):
+      用 arm_poses 作为 bHg (base→target_link, 相机随臂动)
+      cHw = camera→chessboard
+      X = target_link→camera  (Tsai 返回 gHc)
+      camera→target_link = inv(X)
     """
     N = len(obj_points_list)
     print(f"\n运行 solvePnP ({N} 帧)...")
@@ -554,22 +696,27 @@ def calibrate_tsai(
     print(f"有效帧数: {len(cHw_list)}")
 
     # ---- Tsai AX=XB ----
-    print("\n运行 Tsai AX=XB 手眼标定...")
+    print(f"\n运行 Tsai AX=XB 手眼标定 (模式: {mode})...")
     X = tsai_hand_eye(bHg, cHw_list)
-    # X = target_link→chessboard
+    # Tsai 返回 X = gripper→camera, 对 eye-to-hand: X = target_link→chessboard
+    # 对 eye-in-hand: X = target_link→camera
 
     # 提取旋转轴/角
     R_x = X[:3, :3]
-    angle = np.arccos((np.trace(R_x) - 1) / 2)
+    angle = np.arccos(np.clip((np.trace(R_x) - 1) / 2, -1.0, 1.0))
     axis = np.array([R_x[2, 1] - R_x[1, 2],
                      R_x[0, 2] - R_x[2, 0],
                      R_x[1, 0] - R_x[0, 1]])
     if np.linalg.norm(axis) > 1e-10:
         axis = axis / np.linalg.norm(axis)
-    print(f"  target_link→chessboard 旋转轴: {axis}, 角度: {np.rad2deg(angle):.2f}°")
+    print(f"  Tsai X 旋转轴: {axis}, 角度: {np.rad2deg(angle):.2f}°")
 
-    # camera→target_link = camera→chessboard_0 * inv(X)
-    T_cam_tgt = cHw_list[0] @ np.linalg.inv(X)
+    if mode == "eye-in-hand":
+        # X = target_link→camera, 所以 camera→target_link = inv(X)
+        T_cam_tgt = np.linalg.inv(X)
+    else:
+        # eye-to-hand: camera→target_link = camera→chessboard_0 * inv(X)
+        T_cam_tgt = cHw_list[0] @ np.linalg.inv(X)
     rpy = rotmat_to_rpy(T_cam_tgt[:3, :3])
 
     result = {
@@ -584,12 +731,23 @@ def calibrate_tsai(
           f"{result['translation'][1]:.4f}, {result['translation'][2]:.4f}]")
 
     # 残差评估
-    print("\n标定残差评估 (camera→chessboard 投影):")
-    for i in range(len(cHw_list)):
-        T_pred = T_cam_tgt @ X @ np.linalg.inv(bHg[i])  # 预测的 camera→chessboard
-        # 简化: 只比较平移
-        err_t = np.linalg.norm(T_pred[:3, 3] - cHw_list[i][:3, 3])
-        print(f"  帧 {i}: 平移残差 = {err_t:.4f} m")
+    if mode == "eye-in-hand":
+        # 棋盘格固定在世界: base→chessboard 应为常量, 检查各帧一致性
+        print("\n标定残差评估 (base→chessboard 一致性):")
+        base_to_board_list = []
+        for i in range(len(cHw_list)):
+            T_base_board = bHg[i] @ np.linalg.inv(T_cam_tgt) @ cHw_list[i]
+            base_to_board_list.append(T_base_board)
+        base_to_board_mean = np.mean([T[:3, 3] for T in base_to_board_list], axis=0)
+        for i, T in enumerate(base_to_board_list):
+            err_t = np.linalg.norm(T[:3, 3] - base_to_board_mean)
+            print(f"  帧 {i}: 平移偏差 = {err_t:.4f} m")
+    else:
+        print("\n标定残差评估 (camera→chessboard 投影):")
+        for i in range(len(cHw_list)):
+            T_pred = T_cam_tgt @ X @ np.linalg.inv(bHg[i])
+            err_t = np.linalg.norm(T_pred[:3, 3] - cHw_list[i][:3, 3])
+            print(f"  帧 {i}: 平移残差 = {err_t:.4f} m")
 
     return result
 
@@ -629,6 +787,10 @@ def main():
     parser.add_argument("--chessboard", default="11x8")
     parser.add_argument("--square", type=float, default=0.02)
     parser.add_argument("--target-link", default="ARM-R-J7_Link")
+    parser.add_argument("--mode", default="eye-to-hand",
+                        choices=["eye-to-hand", "eye-in-hand"],
+                        help="eye-to-hand: 固定相机棋盘格在臂上; "
+                             "eye-in-hand: 相机在臂上棋盘格固定在世界")
     parser.add_argument("--frames", type=int, default=20)
     parser.add_argument("--config", default=str(_DEFAULT_CONFIG))
     args = parser.parse_args()
@@ -636,25 +798,23 @@ def main():
     w, h = map(int, args.chessboard.split("x"))
     chessboard_size = (w, h)
 
-    # 获取 serial
-    serial = args.serial
-    if not serial:
-        try:
-            data = yaml.safe_load(open(args.config)) or {}
-            for c in data.get("cameras", []):
-                if c.get("id") == args.camera:
-                    serial = c.get("serial", "")
-                    break
-        except FileNotFoundError:
-            pass
-    if not serial:
-        print("未指定 serial，使用第一个已连接相机")
+    # ---- 匹配设备 (serial > config serial > config uid) ----
+    device, device_info = _find_device(args.camera, args.serial)
+    if device is None:
+        sys.exit(1)
+
+    # 自动回写 serial 到 config (如果之前只配了 uid 没有 serial)
+    actual_serial = device_info.get_serial_number()
+    cfg = _load_camera_config(args.camera)
+    if not cfg.get("serial") and actual_serial:
+        _update_config_serial(args.camera, actual_serial, args.config)
+        print(f"已自动记录 serial: {actual_serial}")
 
     # 1. SDK 内参/外参
     print("=" * 60)
     print("步骤 1: SDK 内参/外参")
     print("=" * 60)
-    sdk_params = get_camera_params(serial)
+    sdk_params = _get_camera_params_from_device(device)
     c = sdk_params["color_intrinsics"]
     print(f"  Color: {c['width']}x{c['height']} fx={c['fx']:.1f} fy={c['fy']:.1f}")
     d = sdk_params["depth_intrinsics"]
@@ -664,23 +824,13 @@ def main():
     dist = np.array(c["distortion"][:5], dtype=np.float64)
 
     # 2. 启动 Pipeline
-    from pyorbbecsdk import Config, Context, OBLogLevel, OBSensorType, Pipeline
-    ctx = Context()
-    ctx.set_logger_level(OBLogLevel.ERROR)
-    dl = ctx.query_devices()
-    device = next((dl.get_device_by_index(i) for i in range(dl.get_count())
-                   if dl.get_device_by_index(i).get_device_info().get_serial_number() == serial), None)
-    if device is None and dl.get_count() > 0:
-        device = dl.get_device_by_index(0)
-    if device is None:
-        raise RuntimeError("未发现相机")
-
+    from pyorbbecsdk import Config, OBLogLevel, OBSensorType, Pipeline
     pipeline = Pipeline(device)
-    cfg = Config()
-    cfg.enable_stream(
+    cfg_pipe = Config()
+    cfg_pipe.enable_stream(
         pipeline.get_stream_profile_list(OBSensorType.COLOR_SENSOR)
         .get_default_video_stream_profile())
-    pipeline.start(cfg)
+    pipeline.start(cfg_pipe)
     print("Pipeline 已启动")
 
     try:
@@ -699,7 +849,8 @@ def main():
         print(f"{'=' * 60}")
 
         hand_eye = calibrate_tsai(
-            obj_pts, img_pts, K, dist, arm_poses, args.target_link)
+            obj_pts, img_pts, K, dist, arm_poses, args.target_link,
+            mode=args.mode)
 
         # 5. 写入配置
         print(f"\n{'=' * 60}")

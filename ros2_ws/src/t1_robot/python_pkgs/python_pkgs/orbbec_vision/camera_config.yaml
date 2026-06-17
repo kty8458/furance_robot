@@ -1,28 +1,72 @@
-# 奥比中光相机 — 位置绑定配置
-# 通过 serial 或 usb_port 匹配物理相机到逻辑 ID
-# 匹配优先级: serial > usb_port
-
 cameras:
-  - id: "head"
-    name: "头部相机"
-    serial: "CP0E163000FP"
-    usb_port: "2-1"
-    position: "head"
-    color_stream:
+- id: head
+  name: 头部相机
+  serial: CP0E163000FP
+  usb_port: 2-1
+  uid: ''
+  position: head
+  color_stream:
+    width: 1280
+    height: 720
+    fps: 30
+  depth_stream:
+    width: 848
+    height: 480
+    fps: 30
+- id: left_arm
+  name: 左臂相机
+  serial: ''
+  usb_port: 2-2
+  uid: ''
+  position: left_arm
+- id: right_arm
+  name: 右臂相机
+  serial: CPC9363000DA
+  usb_port: 2-3
+  uid: ''
+  position: right_arm
+  calibration:
+    color_intrinsics:
+      fx: 608.3646240234375
+      fy: 608.3131103515625
+      cx: 643.3547973632812
+      cy: 362.1398620605469
       width: 1280
       height: 720
-      fps: 30
-    depth_stream:
+      distortion:
+      - -0.029381293803453445
+      - 0.03324543312191963
+      - -0.00043941542389802635
+      - 2.6655088731786236e-05
+      - -0.01179406139999628
+    depth_intrinsics:
+      fx: 409.60418701171875
+      fy: 409.60418701171875
+      cx: 422.01251220703125
+      cy: 241.98751831054688
       width: 848
       height: 480
-      fps: 30
-
-  - id: "left_arm"
-    name: "左臂相机"
-    usb_port: "2-2"
-    position: "left_arm"
-
-  - id: "right_arm"
-    name: "右臂相机"
-    usb_port: "2-3"
-    position: "right_arm"
+      distortion:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+    color_to_depth:
+      rotation:
+      - 0
+      - 0
+      - 0
+      translation:
+      - 0
+      - 0
+      - 0
+    camera_to_ARM-R-J7_Link:
+      rotation:
+      - 0.0021919689821879532
+      - -0.001176961670357061
+      - 0.0012507982184735966
+      translation:
+      - -72.58205642776579
+      - 91.51272168340225
+      - -12.746880683940805
