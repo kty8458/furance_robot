@@ -914,11 +914,12 @@ def main(args=None):
     def _publish_calibration_tfs():
         """读取 config 中的 camera_to_<ee_link> 并发布静态 TF。"""
         for cid, cfg in _cam_configs.items():
-            calib = cfg.get("calibration", {})
-            for key, transform in calib.items():
-                if not key.startswith("camera_to_"):
-                    continue
-                ee_link = key[len("camera_to_"):]
+            try:
+                calib = cfg.get("calibration", {})
+                for key, transform in calib.items():
+                    if not key.startswith("camera_to_"):
+                        continue
+                    ee_link = key[len("camera_to_"):]
                 t = transform.get("translation", [0, 0, 0])
                 r = transform.get("rotation", [0, 0, 0])
                 # rotation is stored as rodrigues vector
@@ -965,6 +966,8 @@ def main(args=None):
                 _tf_msg.transform.rotation.w = float(qw)
                 _tf_broadcaster.sendTransform(_tf_msg)
                 logger.debug("TF: %s → %s published", _tf_msg.header.frame_id, ee_link)
+            except Exception:
+                logger.exception("TF publish failed for camera '%s'", cid)
 
     _tf_timer = node.create_timer(1.0, _publish_calibration_tfs)
     logger.info("TF broadcaster started for camera→ee transforms")
