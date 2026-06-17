@@ -25,7 +25,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("orbbec_vision.camera_manager")
 
 # ---------------------------------------------------------------------------
 # LD_LIBRARY_PATH 修正
@@ -290,6 +290,7 @@ class CameraManager:
         with self._lock:
             self._color_frames[camera_id] = None
             self._depth_frames[camera_id] = None
+            self._ir_frames[camera_id] = None
         logger.info("Stream stopped: %s", camera_id)
         return {"success": True, "message": f"Stopped {camera_id}"}
 
@@ -481,10 +482,18 @@ class _WsProtocol:
                         frame = self._manager.get_latest_ir(camera_id)
                     elif stream_type == "annotated":
                         frame = self._manager.get_latest_color(camera_id)
-                        if frame is not None and hasattr(self._manager, '_qr_detector'):
+                        if frame is not None:
                             try:
-                                results = self._manager._qr_detector.detect(frame, 0.058)
-                                frame = self._manager._qr_detector.draw_results(frame, results)
+                                # Try to get or create detector for this camera
+                                detector = None
+                                if hasattr(self._manager, '_qr_detectors') and camera_id in self._manager._qr_detectors:
+                                    detector = self._manager._qr_detectors[camera_id]
+                                elif hasattr(self._manager, '_qr_detector') and self._manager._qr_detector is not None:
+                                    detector = self._manager._qr_detector
+
+                                if detector is not None:
+                                    results = detector.detect(frame, 0.058)
+                                    frame = detector.draw_results(frame, results)
                             except Exception:
                                 logger.exception("annotated frame generation failed")
                     else:
@@ -615,6 +624,21 @@ def main(args=None):
 
     # QRDetector for annotated stream (lazy per camera)
     _qr_detectors: dict[str, object] = {}
+
+    # Attach a default QRDetector to manager for annotated stream
+    try:
+        from python_pkgs.orbbec_vision.qr_detector import QRDetector
+        # Create a dummy detector (will be replaced per camera if needed)
+        # Note: Real usage should create detector with proper intrinsics
+        manager._qr_detectors = _qr_detectors  # Store dict on manager
+        # Also provide a default detector for backward compatibility
+        dummy_K = np.eye(3, dtype=np.float64)
+        dummy_D = np.zeros(5, dtype=np.float64)
+        manager._qr_detector = QRDetector(dummy_K, dummy_D)
+    except Exception:
+        logger.exception("Failed to create default QRDetector")
+        manager._qr_detector = None
+        manager._qr_detectors = {}
 
     # 启动 WS server 线程
     ws_thread = threading.Thread(target=_run_ws_in_thread, args=(manager,), daemon=True)
@@ -811,8 +835,7 @@ def main(args=None):
             T_cam_qr[:3, 3] = qr_result.tvec.ravel()
 
             # 5. T_qr_workspace from scene
-            rot_vec, _ = _cv2.Rodrigues(np.array([r_ws[0], r_ws[1], r_ws[2]], dtype=np.float64))
-            # Actually rotation is stored as quaternion [x,y,z,w]
+            # Rotation is stored as quaternion [x,y,z,w]
             qx, qy, qz, qw = r_ws
             R_ws = np.array([
                 [1 - 2*qy*qy - 2*qz*qz, 2*qx*qy - 2*qz*qw, 2*qx*qz + 2*qy*qw],
@@ -837,7 +860,13 @@ def main(args=None):
             R_cam_ee, _ = _cv2.Rodrigues(np.array(cam_to_ee["rotation"], dtype=np.float64))
             T_cam_ee = np.eye(4)
             T_cam_ee[:3, :3] = R_cam_ee
-            T_cam_ee[:3, 3] = cam_to_ee["translation"]
+            # Convert translation from mm to meters if needed
+            t = cam_to_ee["translation"]
+            T_cam_ee[:3, 3] = [
+                float(t[0]) / 1000.0 if abs(t[0]) > 10 else float(t[0]),
+                float(t[1]) / 1000.0 if abs(t[1]) > 10 else float(t[1]),
+                float(t[2]) / 1000.0 if abs(t[2]) > 10 else float(t[2]),
+            ]
 
             # 8. T_ee_ws = inv(T_camera_ee) * T_camera_ws
             T_ee_ws = np.linalg.inv(T_cam_ee) @ T_cam_ws
