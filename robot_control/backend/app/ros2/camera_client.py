@@ -23,6 +23,22 @@ class CameraClientBase(ABC):
     async def stop_stream(self, camera_id: str) -> dict[str, Any]:
         ...
 
+    @abstractmethod
+    async def calibrate_qr(self, camera_id: str, arm: str, qr_id: int,
+                           marker_size: float, point_name: str,
+                           scene_id: str) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    async def scene_operation(self, action: str, scene_id: str = None,
+                              params: dict = None) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    async def compute_target_pose(self, camera_id: str, function: str,
+                                  scene_id: str, point_name: str) -> dict[str, Any]:
+        ...
+
 
 class MockCameraClient(CameraClientBase):
     def __init__(self):
@@ -47,6 +63,27 @@ class MockCameraClient(CameraClientBase):
 
     async def stop_stream(self, camera_id: str) -> dict[str, Any]:
         return {"success": True, "message": f"mock: stopped {camera_id}"}
+
+    async def calibrate_qr(self, camera_id: str, arm: str, qr_id: int,
+                           marker_size: float, point_name: str,
+                           scene_id: str) -> dict[str, Any]:
+        return {"success": True, "message": f"mock: calibrated {point_name}",
+                "data": {"translation": [0.35, -0.12, 0.20],
+                         "rotation": [0.0, 0.0, 0.0, 1.0]}}
+
+    async def scene_operation(self, action: str, scene_id: str = None,
+                              params: dict = None) -> dict[str, Any]:
+        if action == "list":
+            return {"success": True, "data": [
+                {"scene_id": "place_point", "description": "放置点 (Mock)", "qr_count": 1, "model_count": 0},
+            ]}
+        return {"success": True, "message": f"mock: scene {action}"}
+
+    async def compute_target_pose(self, camera_id: str, function: str,
+                                  scene_id: str, point_name: str) -> dict[str, Any]:
+        return {"success": True, "message": f"mock: computed {point_name}",
+                "data": {"x": 350.0, "y": -120.0, "z": 200.0,
+                         "roll": 180.0, "pitch": 0.0, "yaw": 90.0}}
 
 
 class RealCameraClient(CameraClientBase):
@@ -108,6 +145,39 @@ class RealCameraClient(CameraClientBase):
                         "pitch": result.get("pitch", 0.0), "yaw": result.get("yaw", 0.0),
                     }}}
         return result
+
+    async def calibrate_qr(self, camera_id: str, arm: str, qr_id: int,
+                           marker_size: float, point_name: str,
+                           scene_id: str) -> dict[str, Any]:
+        """现场标定: 计算 T_qr_workspace 并存入场景。"""
+        return await self._call("/camera/calibrate", {
+            "camera_id": camera_id,
+            "arm": arm,
+            "qr_id": qr_id,
+            "marker_size": marker_size,
+            "point_name": point_name,
+            "scene_id": scene_id,
+        })
+
+    async def scene_operation(self, action: str, scene_id: str = None,
+                              params: dict = None) -> dict[str, Any]:
+        """场景管理: list / get / create / delete / add_point / delete_point / update_point。"""
+        req_params = {
+            "action": action,
+            "scene_id": scene_id or "",
+            "params_json": json.dumps(params) if params else "{}",
+        }
+        return await self._call("/camera/scene", req_params)
+
+    async def compute_target_pose(self, camera_id: str, function: str,
+                                  scene_id: str, point_name: str) -> dict[str, Any]:
+        """工作流目标位姿计算。"""
+        return await self._call("/camera/compute_pose", {
+            "camera_id": camera_id,
+            "function": function,
+            "scene_id": scene_id,
+            "point_name": point_name,
+        })
 
     async def _bridge_future(self, ros_future) -> dict[str, Any]:
         import asyncio
