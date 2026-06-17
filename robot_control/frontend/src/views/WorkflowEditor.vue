@@ -321,12 +321,32 @@
                         </el-select>
                       </el-col>
                       <el-col :span="12">
-                        <div style="font-size: 11px; color: #6b7b8d">场景标识</div>
-                        <el-input v-model="step.config.scene" placeholder="例如: grasp_top" size="small" />
+                        <div style="font-size: 11px; color: #6b7b8d">功能</div>
+                        <el-select v-model="step.config.function" size="small" style="width: 100%">
+                          <el-option label="二维码" value="qr_detect" />
+                          <el-option label="视觉模型" value="vision_model" :disabled="true" />
+                        </el-select>
+                      </el-col>
+                    </el-row>
+                    <el-row :gutter="8" style="margin-bottom: 6px">
+                      <el-col :span="12">
+                        <div style="font-size: 11px; color: #6b7b8d">场景</div>
+                        <el-select v-model="step.config.scene" size="small" style="width: 100%"
+                          @change="val => { loadScenePoints(val); step.config.point_name = '' }">
+                          <el-option v-for="s in sceneList" :key="s.scene_id"
+                            :label="`${s.scene_id} (${s.description})`" :value="s.scene_id" />
+                        </el-select>
+                      </el-col>
+                      <el-col :span="12">
+                        <div style="font-size: 11px; color: #6b7b8d">标定点</div>
+                        <el-select v-model="step.config.point_name" size="small" style="width: 100%">
+                          <el-option v-for="p in (scenePoints[step.config.scene] || [])"
+                            :key="p" :label="p" :value="p" />
+                        </el-select>
                       </el-col>
                     </el-row>
                     <div style="font-size: 10px; color: #6b7b8d; margin-top: 4px">
-                      输出: grasp_pose — 后续坐标模式用「关联视觉输出」引用
+                      输出: target_pose — 后续坐标模式用「关联视觉」引用
                     </div>
                   </template>
 
@@ -453,6 +473,8 @@ const execNavPoints = reactive({})
 const manualNavPoints = reactive({})
 const teachPresets = ref([])
 const cameraList = ref([])
+const sceneList = ref([])
+const scenePoints = ref({})  // {scene_id: [point names]}
 
 let stepCounter = 0
 
@@ -483,6 +505,7 @@ onMounted(() => {
   refreshList()
   loadTeachPresets()
   loadCameraList()
+  loadSceneList()
 })
 
 async function loadTeachPresets() {
@@ -503,6 +526,25 @@ async function loadCameraList() {
   } catch {
     cameraList.value = []
   }
+}
+
+async function loadSceneList() {
+  try {
+    const { cameraApi } = await import('../api/camera')
+    const res = await cameraApi.scene('list')
+    sceneList.value = res.data || []
+  } catch { sceneList.value = [] }
+}
+
+async function loadScenePoints(sceneId) {
+  if (!sceneId) { scenePoints.value[sceneId] = []; return }
+  if (scenePoints.value[sceneId]) return
+  try {
+    const { cameraApi } = await import('../api/camera')
+    const res = await cameraApi.scene('get', sceneId)
+    const data = res.data || {}
+    scenePoints.value[sceneId] = (data.qr_transforms || []).map(p => p.name)
+  } catch { scenePoints.value[sceneId] = [] }
 }
 
 function onPresetChange(step, name) {
@@ -627,7 +669,9 @@ async function selectWorkflow(row) {
         if (s.type === 'gripper' && !s.config.arm) s.config.arm = 'left'
         if (s.type === 'gripper' && !s.config.action) s.config.action = 'open'
         if (s.type === 'gripper' && s.config.force == null) s.config.force = 0
+        if (s.type === 'vision' && !s.config.function) s.config.function = 'qr_detect'
         if (s.type === 'vision' && !s.config.scene) s.config.scene = ''
+        if (s.type === 'vision' && !s.config.point_name) s.config.point_name = ''
         if (s.type === 'vision' && !s.config.camera_id) s.config.camera_id = cameraList.value.find(c => c.connected)?.id || 'head'
         if (s.type === 'sleep' && !s.config.duration) s.config.duration = 1
         stepCounter = Math.max(stepCounter, parseInt(s.id?.split('_').pop()) || 0)
@@ -710,7 +754,7 @@ function addStep(type) {
     upper_limb: { mode: 'preset', arm: 'left', method: 'moveJ', preset_name: '', left_preset_name: '', right_preset_name: '', use_combined: true, use_composed_preset: false, reference_frame: 'base_link', left_reference_frame: 'base_link', right_reference_frame: 'base_link', position: {}, vision_source: '', left_vision_source: '', right_vision_source: '' },
     upper_body: { _waist: false, _ascend: false, _head: false, waist_angle: 300, waist_speed: 20, ascend_pos: 100, ascend_speed: 20, head_angle: 15, head_speed: 10 },
     gripper: { arm: 'left', action: 'open', force: 0 },
-    vision: { camera_id: cameraList.value.find(c => c.connected)?.id || 'head', scene: '' },
+    vision: { camera_id: cameraList.value.find(c => c.connected)?.id || 'head', function: 'qr_detect', scene: '', point_name: '' },
     sleep: { duration: 1 },
   }
   currentWorkflow.value.steps.push({
