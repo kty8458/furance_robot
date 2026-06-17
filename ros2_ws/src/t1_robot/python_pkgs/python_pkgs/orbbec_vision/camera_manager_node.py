@@ -71,6 +71,9 @@ class CameraInfo:
     depth_width: int = 0
     depth_height: int = 0
     depth_fps: int = 0
+    ir_width: int = 0
+    ir_height: int = 0
+    ir_fps: int = 0
     firmware_version: str = ""
     hardware_version: str = ""
     pid: int = 0
@@ -86,6 +89,8 @@ class CameraInfo:
             "color_fps": self.color_fps,
             "depth_width": self.depth_width, "depth_height": self.depth_height,
             "depth_fps": self.depth_fps,
+            "ir_width": self.ir_width, "ir_height": self.ir_height,
+            "ir_fps": self.ir_fps,
             "firmware_version": self.firmware_version,
             "hardware_version": self.hardware_version,
             "pid": self.pid, "vid": self.vid,
@@ -131,6 +136,7 @@ class CameraManager:
         self._lock = threading.Lock()
         self._color_frames: dict[str, Optional[np.ndarray]] = {}
         self._depth_frames: dict[str, Optional[np.ndarray]] = {}
+        self._ir_frames: dict[str, Optional[np.ndarray]] = {}
         self._frame_timestamps: dict[str, float] = {}
         self._threads: dict[str, threading.Thread] = {}
         self._running = True
@@ -190,6 +196,17 @@ class CameraManager:
                     info.depth_width, info.depth_height, info.depth_fps = dp.get_width(), dp.get_height(), dp.get_fps()
                 except Exception:
                     pass
+                try:
+                    ir_profiles = pipeline.get_stream_profile_list(OBSensorType.IR_SENSOR)
+                    ir_profile = ir_profiles.get_default_video_stream_profile()
+                    info.ir_width, info.ir_height, info.ir_fps = ir_profile.get_width(), ir_profile.get_height(), ir_profile.get_fps()
+                except Exception:
+                    try:
+                        ir_profiles = pipeline.get_stream_profile_list(OBSensorType.LEFT_IR_SENSOR)
+                        ir_profile = ir_profiles.get_default_video_stream_profile()
+                        info.ir_width, info.ir_height, info.ir_fps = ir_profile.get_width(), ir_profile.get_height(), ir_profile.get_fps()
+                    except Exception:
+                        pass
 
                 cc = cfg.get("color_stream", {})
                 if "width" in cc: info.color_width = cc["width"]
@@ -209,6 +226,7 @@ class CameraManager:
             self._streaming[cid] = False
             self._color_frames[cid] = None
             self._depth_frames[cid] = None
+            self._ir_frames[cid] = None
             self._frame_timestamps[cid] = 0.0
             self._ws_subscribers[cid] = set()
 
@@ -239,6 +257,13 @@ class CameraManager:
             config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR).get_default_video_stream_profile())
         except OBError:
             pass
+        try:
+            config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.IR_SENSOR).get_default_video_stream_profile())
+        except OBError:
+            try:
+                config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.LEFT_IR_SENSOR).get_default_video_stream_profile())
+            except OBError:
+                pass
         try:
             pipeline.start(config)
         except OBError as e:
@@ -278,6 +303,11 @@ class CameraManager:
     def get_latest_depth(self, camera_id: str) -> Optional[np.ndarray]:
         with self._lock:
             f = self._depth_frames.get(camera_id)
+            return f.copy() if f is not None else None
+
+    def get_latest_ir(self, camera_id: str) -> Optional[np.ndarray]:
+        with self._lock:
+            f = self._ir_frames.get(camera_id)
             return f.copy() if f is not None else None
 
     def get_frame_timestamp(self, camera_id: str) -> float:
@@ -320,11 +350,16 @@ class CameraManager:
                     continue
                 cf = frames.get_color_frame()
                 df = frames.get_depth_frame()
+                irf = frames.get_ir_frame()
+                if irf is None:
+                    irf = frames.get_left_ir_frame() if hasattr(frames, "get_left_ir_frame") else None
                 with self._lock:
                     if cf is not None:
                         self._color_frames[camera_id] = self._to_bgr(cf)
                     if df is not None:
                         self._depth_frames[camera_id] = self._to_depth_mm(df)
+                    if irf is not None:
+                        self._ir_frames[camera_id] = self._to_ir_gray(irf)
                     self._frame_timestamps[camera_id] = time.time()
             except Exception:
                 logger.exception("Capture error: %s", camera_id)
@@ -366,6 +401,27 @@ class CameraManager:
         scale = frame.get_depth_scale()
         raw = np.frombuffer(frame.get_data(), dtype=np.uint16)
         return raw.reshape((h, w)).astype(np.float32) * scale
+
+    @staticmethod
+    def _to_ir_gray(frame) -> Optional[np.ndarray]:
+        """IR 帧 → uint8 灰度图 (复用 test_ir_chessboard.py 已验证逻辑)。"""
+        from pyorbbecsdk import OBFormat
+        w, h, fmt = frame.get_width(), frame.get_height(), frame.get_format()
+        raw = np.frombuffer(frame.get_data(), dtype=np.uint8)
+
+        if fmt == OBFormat.Y8:
+            return raw.reshape((h, w)).copy()
+        elif fmt in (OBFormat.Y16, OBFormat.YUYV, OBFormat.YUY2):
+            raw_u16 = raw.view(np.uint16).reshape((h, w))
+            try:
+                bit_size = frame.pixel_available_bit_size()
+            except Exception:
+                bit_size = 16
+            scale = 1.0 / (2 ** (bit_size - 8)) if bit_size > 8 else 1.0
+            return (raw_u16.astype(np.float32) * scale).clip(0, 255).astype(np.uint8)
+        elif fmt == OBFormat.MJPG:
+            return cv2.imdecode(raw, cv2.IMREAD_GRAYSCALE)
+        return None
 
     def shutdown(self):
         self._running = False
@@ -421,6 +477,16 @@ class _WsProtocol:
                         frame = self._manager.get_latest_depth(camera_id)
                         if frame is not None:
                             frame = _render_depth_3d(frame)
+                    elif stream_type == "ir":
+                        frame = self._manager.get_latest_ir(camera_id)
+                    elif stream_type == "annotated":
+                        frame = self._manager.get_latest_color(camera_id)
+                        if frame is not None and hasattr(self._manager, '_qr_detector'):
+                            try:
+                                results = self._manager._qr_detector.detect(frame, 0.058)
+                                frame = self._manager._qr_detector.draw_results(frame, results)
+                            except Exception:
+                                logger.exception("annotated frame generation failed")
                     else:
                         frame = self._manager.get_latest_color(camera_id)
 
@@ -522,6 +588,34 @@ def main(args=None):
         config_path = os.path.join(get_package_share_directory("python_pkgs"), "vision", "camera_config.yaml")
     manager = CameraManager(config_path)
 
+    # ---- Vision modules ----
+    import yaml as _yaml
+    _config_dir = os.path.dirname(config_path)
+    _scenes_dir = os.path.join(_config_dir, "scenes")
+    _scene_manager = None
+    _qr_calibrator = None
+
+    # 加载相机配置供 QRCalibrator 使用
+    with open(config_path) as _f:
+        _cam_configs = {c["id"]: c for c in _yaml.safe_load(_f).get("cameras", [])}
+
+    try:
+        from python_pkgs.orbbec_vision.scene_manager import SceneManager
+        _scene_manager = SceneManager(_scenes_dir)
+        logger.info("SceneManager initialized")
+    except Exception:
+        logger.exception("Failed to init SceneManager")
+
+    try:
+        from python_pkgs.orbbec_vision.qr_calibrator import QRCalibrator
+        _qr_calibrator = QRCalibrator(_scene_manager, _cam_configs)
+        logger.info("QRCalibrator initialized")
+    except Exception:
+        logger.exception("Failed to init QRCalibrator")
+
+    # QRDetector for annotated stream (lazy per camera)
+    _qr_detectors: dict[str, object] = {}
+
     # 启动 WS server 线程
     ws_thread = threading.Thread(target=_run_ws_in_thread, args=(manager,), daemon=True)
     ws_thread.start()
@@ -555,6 +649,296 @@ def main(args=None):
     node.create_service(GenericCommand, "/camera/list", _handle_list)
     node.create_service(GenericCommand, "/camera/stream/start", _handle_stream_start)
     node.create_service(GenericCommand, "/camera/stream/stop", _handle_stream_stop)
+
+    # /camera/calibrate
+    from control_interfaces.srv import QRCalibrate
+
+    def _handle_calibrate(request, response):
+        if _qr_calibrator is None:
+            response.success = False
+            response.message = "QRCalibrator not available"
+            return response
+        # Get latest frame from the requested camera
+        color_frame = manager.get_latest_color(request.camera_id)
+        ir_frame = manager.get_latest_ir(request.camera_id)
+        result = _qr_calibrator.calibrate(
+            camera_id=request.camera_id,
+            arm=request.arm,
+            qr_id=request.qr_id,
+            marker_size=request.marker_size,
+            point_name=request.point_name,
+            scene_id=request.scene_id,
+            color_frame=color_frame,
+            ir_frame=ir_frame,
+        )
+        response.success = result["success"]
+        response.message = result["message"]
+        if result["success"]:
+            response.translation = result["translation"]
+            response.rotation = result["rotation"]
+        return response
+
+    node.create_service(QRCalibrate, "/camera/calibrate", _handle_calibrate)
+
+    # /camera/scene
+    from control_interfaces.srv import SceneOperation
+
+    def _handle_scene(request, response):
+        if _scene_manager is None:
+            response.success = False
+            response.message = "SceneManager not available"
+            return response
+        import json as _json
+        params = _json.loads(request.params_json) if request.params_json else {}
+        action = request.action
+        scene_id = request.scene_id
+        try:
+            if action == "list":
+                result = _scene_manager.list_scenes()
+                response.success = True
+                response.result_json = _json.dumps(result)
+            elif action == "get":
+                data = _scene_manager.get_scene(scene_id)
+                if data is None:
+                    response.success = False
+                    response.message = f"Scene not found: {scene_id}"
+                else:
+                    response.success = True
+                    response.result_json = _json.dumps(data)
+            elif action == "create":
+                ok = _scene_manager.create_scene(scene_id, params.get("description", ""))
+                response.success = ok
+                response.message = "Created" if ok else f"Already exists: {scene_id}"
+            elif action == "delete":
+                ok = _scene_manager.delete_scene(scene_id)
+                response.success = ok
+                response.message = "Deleted" if ok else f"Not found: {scene_id}"
+            elif action == "add_point":
+                ok = _scene_manager.add_point(
+                    scene_id=scene_id,
+                    qr_id=params.get("qr_id", 0),
+                    name=params.get("name", ""),
+                    arm=params.get("arm", "right"),
+                    marker_size=params.get("marker_size", 0.058),
+                    T_qr_workspace=params.get("T_qr_workspace", {}),
+                )
+                response.success = ok
+                response.message = "Point added" if ok else "Failed"
+            elif action == "delete_point":
+                ok = _scene_manager.delete_point(scene_id, params.get("name", ""))
+                response.success = ok
+                response.message = "Point deleted" if ok else "Not found"
+            elif action == "update_point":
+                update_kwargs = {k: v for k, v in params.items() if k != "name"}
+                ok = _scene_manager.update_point(scene_id, params.get("name", ""), **update_kwargs)
+                response.success = ok
+                response.message = "Updated" if ok else "Not found"
+            else:
+                response.success = False
+                response.message = f"Unknown action: {action}"
+        except Exception as e:
+            logger.exception("Scene operation failed: %s", action)
+            response.success = False
+            response.message = str(e)
+        return response
+
+    node.create_service(SceneOperation, "/camera/scene", _handle_scene)
+
+    # /camera/compute_pose
+    from control_interfaces.srv import ComputePose
+
+    def _handle_compute_pose(request, response):
+        if _scene_manager is None:
+            response.success = False
+            response.message = "SceneManager not available"
+            return response
+        try:
+            # 1. Get scene point
+            point = _scene_manager.find_point(request.scene_id, request.point_name)
+            if point is None:
+                response.success = False
+                response.message = f"Point not found: {request.scene_id}/{request.point_name}"
+                return response
+
+            T_qr_ws = point.get("T_qr_workspace", {})
+            t_ws = T_qr_ws.get("translation", [0, 0, 0])
+            r_ws = T_qr_ws.get("rotation", [0, 0, 0, 1])
+
+            # 2. Get camera intrinsics for QR detection
+            cfg = _cam_configs.get(request.camera_id, {})
+            calib = cfg.get("calibration", {})
+            intrinsics = calib.get("color_intrinsics", {})
+
+            if not intrinsics.get("fx"):
+                response.success = False
+                response.message = f"No intrinsics for camera: {request.camera_id}"
+                return response
+
+            # 3. Detect QR from latest frame
+            from python_pkgs.orbbec_vision.qr_detector import QRDetector
+            import numpy as np
+
+            K = np.array([
+                [intrinsics["fx"], 0, intrinsics["cx"]],
+                [0, intrinsics["fy"], intrinsics["cy"]],
+                [0, 0, 1],
+            ], dtype=np.float64)
+            D = np.array(intrinsics.get("distortion", [0, 0, 0, 0, 0]), dtype=np.float64)
+            detector = QRDetector(K, D)
+
+            color_frame = manager.get_latest_color(request.camera_id)
+            ir_frame = manager.get_latest_ir(request.camera_id)
+            frame = color_frame if color_frame is not None else ir_frame
+            if frame is None:
+                response.success = False
+                response.message = "No frame available"
+                return response
+
+            marker_size = point.get("marker_size", 0.058)
+            qr_id = point.get("qr_id", 0)
+            results = detector.detect(frame, marker_size)
+            qr_result = next((r for r in results if r.qr_id == qr_id), None)
+            if qr_result is None:
+                response.success = False
+                response.message = f"QR id={qr_id} not found"
+                return response
+
+            # 4. T_camera_qr
+            import cv2 as _cv2
+            R_cam_qr, _ = _cv2.Rodrigues(qr_result.rvec)
+            T_cam_qr = np.eye(4)
+            T_cam_qr[:3, :3] = R_cam_qr
+            T_cam_qr[:3, 3] = qr_result.tvec.ravel()
+
+            # 5. T_qr_workspace from scene
+            rot_vec, _ = _cv2.Rodrigues(np.array([r_ws[0], r_ws[1], r_ws[2]], dtype=np.float64))
+            # Actually rotation is stored as quaternion [x,y,z,w]
+            qx, qy, qz, qw = r_ws
+            R_ws = np.array([
+                [1 - 2*qy*qy - 2*qz*qz, 2*qx*qy - 2*qz*qw, 2*qx*qz + 2*qy*qw],
+                [2*qx*qy + 2*qz*qw, 1 - 2*qx*qx - 2*qz*qz, 2*qy*qz - 2*qx*qw],
+                [2*qx*qz - 2*qy*qw, 2*qy*qz + 2*qx*qw, 1 - 2*qx*qx - 2*qy*qy],
+            ])
+            T_qr_ws = np.eye(4)
+            T_qr_ws[:3, :3] = R_ws
+            T_qr_ws[:3, 3] = t_ws
+
+            # 6. T_camera_ws = T_camera_qr * T_qr_workspace
+            T_cam_ws = T_cam_qr @ T_qr_ws
+
+            # 7. Get T_camera_ee from config
+            arm = point.get("arm", "right")
+            ee_link = f"ARM-{arm.upper()}-J7_Link"
+            cam_to_ee = calib.get(f"camera_to_{ee_link}", {})
+            if not cam_to_ee.get("translation"):
+                response.success = False
+                response.message = f"No camera_to_ee calibration for {ee_link}"
+                return response
+            R_cam_ee, _ = _cv2.Rodrigues(np.array(cam_to_ee["rotation"], dtype=np.float64))
+            T_cam_ee = np.eye(4)
+            T_cam_ee[:3, :3] = R_cam_ee
+            T_cam_ee[:3, 3] = cam_to_ee["translation"]
+
+            # 8. T_ee_ws = inv(T_camera_ee) * T_camera_ws
+            T_ee_ws = np.linalg.inv(T_cam_ee) @ T_cam_ws
+
+            # 9. Extract xyzrpy (rotation matrix → euler xyz)
+            x, y, z = float(T_ee_ws[0, 3]), float(T_ee_ws[1, 3]), float(T_ee_ws[2, 3])
+            R_ee = T_ee_ws[:3, :3]
+            # Pure numpy: rotation matrix → euler angles (xyz convention)
+            sy = np.sqrt(R_ee[0, 0] ** 2 + R_ee[1, 0] ** 2)
+            singular = sy < 1e-6
+            if not singular:
+                roll = float(np.arctan2(R_ee[2, 1], R_ee[2, 2]))
+                pitch = float(np.arctan2(-R_ee[2, 0], sy))
+                yaw = float(np.arctan2(R_ee[1, 0], R_ee[0, 0]))
+            else:
+                roll = float(np.arctan2(-R_ee[1, 2], R_ee[1, 1]))
+                pitch = float(np.arctan2(-R_ee[2, 0], sy))
+                yaw = 0.0
+
+            response.success = True
+            response.message = "Computed"
+            response.x = x
+            response.y = y
+            response.z = z
+            response.roll = roll
+            response.pitch = pitch
+            response.yaw = yaw
+
+            logger.info("compute_pose: camera=%s scene=%s point=%s → xyz=[%.4f,%.4f,%.4f] rpy=[%.4f,%.4f,%.4f]",
+                        request.camera_id, request.scene_id, request.point_name,
+                        x, y, z, roll, pitch, yaw)
+        except Exception as e:
+            logger.exception("compute_pose failed")
+            response.success = False
+            response.message = str(e)
+        return response
+
+    node.create_service(ComputePose, "/camera/compute_pose", _handle_compute_pose)
+
+    # ---- TF Broadcaster for camera→ee transforms ----
+    import tf2_ros
+    _tf_broadcaster = tf2_ros.TransformBroadcaster(node)
+    _tf_timer = None
+
+    def _publish_calibration_tfs():
+        """读取 config 中的 camera_to_<ee_link> 并发布静态 TF。"""
+        for cid, cfg in _cam_configs.items():
+            calib = cfg.get("calibration", {})
+            for key, transform in calib.items():
+                if not key.startswith("camera_to_"):
+                    continue
+                ee_link = key[len("camera_to_"):]
+                t = transform.get("translation", [0, 0, 0])
+                r = transform.get("rotation", [0, 0, 0])
+                # rotation is stored as rodrigues vector
+                import cv2 as _cv2
+                R_mat, _ = _cv2.Rodrigues(np.array(r, dtype=np.float64))
+                # matrix → quaternion
+                from geometry_msgs.msg import TransformStamped
+                _tf_msg = TransformStamped()
+                _tf_msg.header.stamp = node.get_clock().now().to_msg()
+                _tf_msg.header.frame_id = cid + "_link" if not cid.endswith("_link") else cid
+                _tf_msg.child_frame_id = ee_link
+                _tf_msg.transform.translation.x = float(t[0]) / 1000.0 if abs(t[0]) > 10 else float(t[0])
+                _tf_msg.transform.translation.y = float(t[1]) / 1000.0 if abs(t[1]) > 10 else float(t[1])
+                _tf_msg.transform.translation.z = float(t[2]) / 1000.0 if abs(t[2]) > 10 else float(t[2])
+                # rotation matrix → quaternion
+                tr = np.trace(R_mat)
+                if tr > 0:
+                    S = np.sqrt(tr + 1.0) * 2
+                    qw = 0.25 * S
+                    qx = (R_mat[2, 1] - R_mat[1, 2]) / S
+                    qy = (R_mat[0, 2] - R_mat[2, 0]) / S
+                    qz = (R_mat[1, 0] - R_mat[0, 1]) / S
+                elif R_mat[0, 0] > R_mat[1, 1] and R_mat[0, 0] > R_mat[2, 2]:
+                    S = np.sqrt(1.0 + R_mat[0, 0] - R_mat[1, 1] - R_mat[2, 2]) * 2
+                    qw = (R_mat[2, 1] - R_mat[1, 2]) / S
+                    qx = 0.25 * S
+                    qy = (R_mat[0, 1] + R_mat[1, 0]) / S
+                    qz = (R_mat[0, 2] + R_mat[2, 0]) / S
+                elif R_mat[1, 1] > R_mat[2, 2]:
+                    S = np.sqrt(1.0 + R_mat[1, 1] - R_mat[0, 0] - R_mat[2, 2]) * 2
+                    qw = (R_mat[0, 2] - R_mat[2, 0]) / S
+                    qx = (R_mat[0, 1] + R_mat[1, 0]) / S
+                    qy = 0.25 * S
+                    qz = (R_mat[1, 2] + R_mat[2, 1]) / S
+                else:
+                    S = np.sqrt(1.0 + R_mat[2, 2] - R_mat[0, 0] - R_mat[1, 1]) * 2
+                    qw = (R_mat[1, 0] - R_mat[0, 1]) / S
+                    qx = (R_mat[0, 2] + R_mat[2, 0]) / S
+                    qy = (R_mat[1, 2] + R_mat[2, 1]) / S
+                    qz = 0.25 * S
+                _tf_msg.transform.rotation.x = float(qx)
+                _tf_msg.transform.rotation.y = float(qy)
+                _tf_msg.transform.rotation.z = float(qz)
+                _tf_msg.transform.rotation.w = float(qw)
+                _tf_broadcaster.sendTransform(_tf_msg)
+                logger.debug("TF: %s → %s published", _tf_msg.header.frame_id, ee_link)
+
+    _tf_timer = node.create_timer(1.0, _publish_calibration_tfs)
+    logger.info("TF broadcaster started for camera→ee transforms")
 
     logger.info("CameraManager node ready (WS %s:%d)", WS_HOST, WS_PORT)
 
