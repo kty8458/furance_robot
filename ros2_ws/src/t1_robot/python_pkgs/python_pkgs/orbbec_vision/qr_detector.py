@@ -25,9 +25,9 @@ class QRResult:
 
 
 class QRDetector:
-    """ArUco 二维码检测器。
+    """ArUco 二维码检测器 — AprilTag tag36h11。
 
-    使用 DICT_4X4_100 字典，cv2.aruco.ArucoDetector 检测，
+    使用 cv2.aruco.ArucoDetector 检测，
     cv2.SOLVEPNP_IPPE_SQUARE 求解位姿。
     """
 
@@ -39,9 +39,9 @@ class QRDetector:
         """
         self.camera_matrix = np.array(camera_matrix, dtype=np.float64)
         self.dist_coeffs = np.array(dist_coeffs, dtype=np.float64)
-        self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_100)
+        self.aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_APRILTAG_36H11)
         self.detector = aruco.ArucoDetector(self.aruco_dict)
-        logger.info("QRDetector initialized: fx=%.2f fy=%.2f cx=%.2f cy=%.2f",
+        logger.info("QRDetector initialized: fx=%.2f fy=%.2f cx=%.2f cy=%.2f dict=APRILTAG_36H11",
                     self.camera_matrix[0, 0], self.camera_matrix[1, 1],
                     self.camera_matrix[0, 2], self.camera_matrix[1, 2])
 
