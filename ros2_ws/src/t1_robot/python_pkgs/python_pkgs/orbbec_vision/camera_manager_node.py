@@ -18,6 +18,17 @@ import logging
 import os
 import sys
 import threading
+
+# ---- pyorbbecsdk 原生库路径修复 ----
+_SDK_LIB_DIR = os.path.join(
+    os.path.expanduser("~"), ".local", "lib", "python3.10",
+    "site-packages", "pyorbbecsdk",
+)
+if os.path.isdir(_SDK_LIB_DIR):
+    _ld = os.environ.get("LD_LIBRARY_PATH", "")
+    if _SDK_LIB_DIR not in _ld.split(":"):
+        os.environ["LD_LIBRARY_PATH"] = f"{_SDK_LIB_DIR}:{_ld}" if _ld else _SDK_LIB_DIR
+        os.execve(sys.executable, [sys.executable] + sys.argv, os.environ)
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -233,7 +244,8 @@ class CameraManager:
     # ---- 公共 API ----
 
     def get_camera_list(self) -> list[dict]:
-        return [i.to_dict() for i in self._cameras.values()]
+        # 只返回实际连接的相机
+        return [i.to_dict() for i in self._cameras.values() if i.connected]
 
     def start_stream(self, camera_id: str) -> dict:
         if camera_id not in self._cameras:
@@ -920,52 +932,52 @@ def main(args=None):
                     if not key.startswith("camera_to_"):
                         continue
                     ee_link = key[len("camera_to_"):]
-                t = transform.get("translation", [0, 0, 0])
-                r = transform.get("rotation", [0, 0, 0])
-                # rotation is stored as rodrigues vector
-                import cv2 as _cv2
-                R_mat, _ = _cv2.Rodrigues(np.array(r, dtype=np.float64))
-                # matrix → quaternion
-                from geometry_msgs.msg import TransformStamped
-                _tf_msg = TransformStamped()
-                _tf_msg.header.stamp = node.get_clock().now().to_msg()
-                _tf_msg.header.frame_id = cid + "_link" if not cid.endswith("_link") else cid
-                _tf_msg.child_frame_id = ee_link
-                _tf_msg.transform.translation.x = float(t[0]) / 1000.0 if abs(t[0]) > 10 else float(t[0])
-                _tf_msg.transform.translation.y = float(t[1]) / 1000.0 if abs(t[1]) > 10 else float(t[1])
-                _tf_msg.transform.translation.z = float(t[2]) / 1000.0 if abs(t[2]) > 10 else float(t[2])
-                # rotation matrix → quaternion
-                tr = np.trace(R_mat)
-                if tr > 0:
-                    S = np.sqrt(tr + 1.0) * 2
-                    qw = 0.25 * S
-                    qx = (R_mat[2, 1] - R_mat[1, 2]) / S
-                    qy = (R_mat[0, 2] - R_mat[2, 0]) / S
-                    qz = (R_mat[1, 0] - R_mat[0, 1]) / S
-                elif R_mat[0, 0] > R_mat[1, 1] and R_mat[0, 0] > R_mat[2, 2]:
-                    S = np.sqrt(1.0 + R_mat[0, 0] - R_mat[1, 1] - R_mat[2, 2]) * 2
-                    qw = (R_mat[2, 1] - R_mat[1, 2]) / S
-                    qx = 0.25 * S
-                    qy = (R_mat[0, 1] + R_mat[1, 0]) / S
-                    qz = (R_mat[0, 2] + R_mat[2, 0]) / S
-                elif R_mat[1, 1] > R_mat[2, 2]:
-                    S = np.sqrt(1.0 + R_mat[1, 1] - R_mat[0, 0] - R_mat[2, 2]) * 2
-                    qw = (R_mat[0, 2] - R_mat[2, 0]) / S
-                    qx = (R_mat[0, 1] + R_mat[1, 0]) / S
-                    qy = 0.25 * S
-                    qz = (R_mat[1, 2] + R_mat[2, 1]) / S
-                else:
-                    S = np.sqrt(1.0 + R_mat[2, 2] - R_mat[0, 0] - R_mat[1, 1]) * 2
-                    qw = (R_mat[1, 0] - R_mat[0, 1]) / S
-                    qx = (R_mat[0, 2] + R_mat[2, 0]) / S
-                    qy = (R_mat[1, 2] + R_mat[2, 1]) / S
-                    qz = 0.25 * S
-                _tf_msg.transform.rotation.x = float(qx)
-                _tf_msg.transform.rotation.y = float(qy)
-                _tf_msg.transform.rotation.z = float(qz)
-                _tf_msg.transform.rotation.w = float(qw)
-                _tf_broadcaster.sendTransform(_tf_msg)
-                logger.debug("TF: %s → %s published", _tf_msg.header.frame_id, ee_link)
+                    t = transform.get("translation", [0, 0, 0])
+                    r = transform.get("rotation", [0, 0, 0])
+                    # rotation is stored as rodrigues vector
+                    import cv2 as _cv2
+                    R_mat, _ = _cv2.Rodrigues(np.array(r, dtype=np.float64))
+                    # matrix → quaternion
+                    from geometry_msgs.msg import TransformStamped
+                    _tf_msg = TransformStamped()
+                    _tf_msg.header.stamp = node.get_clock().now().to_msg()
+                    _tf_msg.header.frame_id = cid + "_link" if not cid.endswith("_link") else cid
+                    _tf_msg.child_frame_id = ee_link
+                    _tf_msg.transform.translation.x = float(t[0]) / 1000.0 if abs(t[0]) > 10 else float(t[0])
+                    _tf_msg.transform.translation.y = float(t[1]) / 1000.0 if abs(t[1]) > 10 else float(t[1])
+                    _tf_msg.transform.translation.z = float(t[2]) / 1000.0 if abs(t[2]) > 10 else float(t[2])
+                    # rotation matrix → quaternion
+                    tr = np.trace(R_mat)
+                    if tr > 0:
+                        S = np.sqrt(tr + 1.0) * 2
+                        qw = 0.25 * S
+                        qx = (R_mat[2, 1] - R_mat[1, 2]) / S
+                        qy = (R_mat[0, 2] - R_mat[2, 0]) / S
+                        qz = (R_mat[1, 0] - R_mat[0, 1]) / S
+                    elif R_mat[0, 0] > R_mat[1, 1] and R_mat[0, 0] > R_mat[2, 2]:
+                        S = np.sqrt(1.0 + R_mat[0, 0] - R_mat[1, 1] - R_mat[2, 2]) * 2
+                        qw = (R_mat[2, 1] - R_mat[1, 2]) / S
+                        qx = 0.25 * S
+                        qy = (R_mat[0, 1] + R_mat[1, 0]) / S
+                        qz = (R_mat[0, 2] + R_mat[2, 0]) / S
+                    elif R_mat[1, 1] > R_mat[2, 2]:
+                        S = np.sqrt(1.0 + R_mat[1, 1] - R_mat[0, 0] - R_mat[2, 2]) * 2
+                        qw = (R_mat[0, 2] - R_mat[2, 0]) / S
+                        qx = (R_mat[0, 1] + R_mat[1, 0]) / S
+                        qy = 0.25 * S
+                        qz = (R_mat[1, 2] + R_mat[2, 1]) / S
+                    else:
+                        S = np.sqrt(1.0 + R_mat[2, 2] - R_mat[0, 0] - R_mat[1, 1]) * 2
+                        qw = (R_mat[1, 0] - R_mat[0, 1]) / S
+                        qx = (R_mat[0, 2] + R_mat[2, 0]) / S
+                        qy = (R_mat[1, 2] + R_mat[2, 1]) / S
+                        qz = 0.25 * S
+                    _tf_msg.transform.rotation.x = float(qx)
+                    _tf_msg.transform.rotation.y = float(qy)
+                    _tf_msg.transform.rotation.z = float(qz)
+                    _tf_msg.transform.rotation.w = float(qw)
+                    _tf_broadcaster.sendTransform(_tf_msg)
+                    logger.debug("TF: %s → %s published", _tf_msg.header.frame_id, ee_link)
             except Exception:
                 logger.exception("TF publish failed for camera '%s'", cid)
 
