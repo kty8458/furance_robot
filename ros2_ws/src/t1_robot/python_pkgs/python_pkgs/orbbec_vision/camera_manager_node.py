@@ -20,6 +20,7 @@ import sys
 import threading
 
 # ---- pyorbbecsdk 原生库路径修复 ----
+# 必须在 import pyorbbecsdk 之前设置 LD_LIBRARY_PATH
 _SDK_LIB_DIR = os.path.join(
     os.path.expanduser("~"), ".local", "lib", "python3.10",
     "site-packages", "pyorbbecsdk",
@@ -28,7 +29,6 @@ if os.path.isdir(_SDK_LIB_DIR):
     _ld = os.environ.get("LD_LIBRARY_PATH", "")
     if _SDK_LIB_DIR not in _ld.split(":"):
         os.environ["LD_LIBRARY_PATH"] = f"{_SDK_LIB_DIR}:{_ld}" if _ld else _SDK_LIB_DIR
-        os.execve(sys.executable, [sys.executable] + sys.argv, os.environ)
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -163,26 +163,39 @@ class CameraManager:
         configs = data.get("cameras", [])
 
         ctx = Context()
-        ctx.set_logger_level(OBLogLevel.WARNING)
+        ctx.set_logger_level(OBLogLevel.INFO)
         device_list = ctx.query_devices()
+
+        logger.info("_init_cameras: config has %d cameras, SDK found %d devices",
+                    len(configs), device_list.get_count())
 
         devices_by_serial = {}
         for i in range(device_list.get_count()):
             d = device_list.get_device_by_index(i)
             s = d.get_device_info().get_serial_number()
+            logger.info("  device[%d]: serial='%s' name='%s'",
+                        i, s, d.get_device_info().get_name())
             if s:
                 devices_by_serial[s] = d
+        logger.info("  serial index: %s", list(devices_by_serial.keys()))
 
         for cfg in configs:
             cid = cfg["id"]
+            cfg_serial = cfg.get("serial", "")
             info = CameraInfo(
                 id=cid, name=cfg.get("name", cid),
-                serial=cfg.get("serial", ""), usb_port=cfg.get("usb_port", ""),
+                serial=cfg_serial, usb_port=cfg.get("usb_port", ""),
                 position=cfg.get("position", ""),
             )
             device = None
-            if info.serial and info.serial in devices_by_serial:
-                device = devices_by_serial[info.serial]
+            if cfg_serial and cfg_serial in devices_by_serial:
+                device = devices_by_serial[cfg_serial]
+                logger.info("  camera '%s': serial '%s' MATCHED device", cid, cfg_serial)
+            elif cfg_serial:
+                logger.warning("  camera '%s': serial '%s' NOT in detected devices %s",
+                               cid, cfg_serial, list(devices_by_serial.keys()))
+            else:
+                logger.warning("  camera '%s': no serial configured, skipping", cid)
 
             if device:
                 di = device.get_device_info()
@@ -606,7 +619,7 @@ def main(args=None):
     config_path = os.environ.get("CAMERA_CONFIG_PATH", "")
     if not config_path:
         from ament_index_python.packages import get_package_share_directory
-        config_path = os.path.join(get_package_share_directory("python_pkgs"), "vision", "camera_config.yaml")
+        config_path = os.path.join(get_package_share_directory("python_pkgs"), "orbbec_vision", "camera_config.yaml")
     manager = CameraManager(config_path)
 
     # ---- Vision modules ----

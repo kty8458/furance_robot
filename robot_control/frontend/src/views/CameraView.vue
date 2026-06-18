@@ -190,7 +190,7 @@ import { View, Aim, VideoCamera, Connection } from '@element-plus/icons-vue'
 const poseFields = ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
 
 const cameras = ref([])
-const cameraId = ref('head')
+const cameraId = ref('')
 const streamType = ref('raw')
 const streaming = ref(false)
 const connecting = ref(false)

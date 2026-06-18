@@ -77,9 +77,15 @@ class RealRos2ServiceClient(Ros2ServiceClientBase):
         """
         client = self._get_or_create_client(service_name)
 
-        # Wait for service to be available
-        if not client.wait_for_service(timeout_sec=5.0):
-            logger.error("Service %s not available after 5s", service_name)
+        # 异步轮询等待服务可用 (避免阻塞 rclpy executor 线程)
+        waited = 0.0
+        poll_interval = 0.2
+        while not client.service_is_ready() and waited < 5.0:
+            await asyncio.sleep(poll_interval)
+            waited += poll_interval
+
+        if not client.service_is_ready():
+            logger.error("Service %s not available after %.1fs", service_name, waited)
             return {
                 "success": False,
                 "message": f"Service {service_name} not available",
