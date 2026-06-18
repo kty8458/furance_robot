@@ -28,6 +28,7 @@
               <el-option label="深度图" value="depth" />
               <el-option label="红外图" value="ir" />
               <el-option label="带框标注" value="annotated" />
+              <el-option label="红外标注" value="ir_annotated" />
             </el-select>
           </div>
           <el-row :gutter="8">
@@ -216,7 +217,7 @@ let ws = null
 const frameData = ref('')
 
 const streamTypeLabel = computed(() => {
-  const labels = { raw: '原始画面', depth: '深度图', ir: '红外图', annotated: '带框标注' }
+  const labels = { raw: '原始画面', depth: '深度图', ir: '红外图', annotated: '带框标注', ir_annotated: '红外标注' }
   return labels[streamType.value] || streamType.value
 })
 

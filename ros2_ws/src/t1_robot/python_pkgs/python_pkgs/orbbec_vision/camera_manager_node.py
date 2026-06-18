@@ -113,6 +113,106 @@ class CameraInfo:
 # 深度渲染
 # ---------------------------------------------------------------------------
 
+def _rotmat_to_euler(R: np.ndarray) -> tuple[float, float, float]:
+    """旋转矩阵 → xyz 欧拉角 (roll, pitch, yaw) 度, 纯 numpy"""
+    sy = np.sqrt(R[0, 0] ** 2 + R[1, 0] ** 2)
+    singular = sy < 1e-6
+    if not singular:
+        roll = np.arctan2(R[2, 1], R[2, 2])
+        pitch = np.arctan2(-R[2, 0], sy)
+        yaw = np.arctan2(R[1, 0], R[0, 0])
+    else:
+        roll = np.arctan2(-R[1, 2], R[1, 1])
+        pitch = np.arctan2(-R[2, 0], sy)
+        yaw = 0.0
+    return (float(np.degrees(roll)), float(np.degrees(pitch)), float(np.degrees(yaw)))
+
+
+class PoseStabilityTracker:
+    """滑动窗口位姿稳定性统计。
+
+    指标 (叠加在 annotated 推流画面上):
+      t_std:  平移各轴标准差 (mm)
+      t_ptp:  平移各轴峰峰值 (mm)
+      r_std:  旋转各轴标准差 (deg)
+      r_ptp:  旋转各轴峰峰值 (deg)
+    """
+
+    def __init__(self, window: int = 60):
+        self._window = window
+        self._tvecs: list[np.ndarray] = []
+        self._rvecs: list[np.ndarray] = []  # 欧拉角 (deg)
+
+    def push(self, tvec: np.ndarray, rvec: np.ndarray):
+        self._tvecs.append(np.asarray(tvec).ravel().copy())
+        r_flat = np.asarray(rvec).ravel()
+        R, _ = cv2.Rodrigues(r_flat)
+        euler = _rotmat_to_euler(R)
+        self._rvecs.append(np.array(euler))
+        while len(self._tvecs) > self._window:
+            self._tvecs.pop(0)
+            self._rvecs.pop(0)
+
+    @property
+    def ready(self) -> bool:
+        return len(self._tvecs) >= 5
+
+    @property
+    def stats(self) -> dict:
+        if len(self._tvecs) < 3:
+            return {"samples": len(self._tvecs)}
+        t = np.array(self._tvecs)
+        r = np.array(self._rvecs)
+        return {
+            "samples": len(self._tvecs),
+            "t_std": tuple(float(v) for v in np.std(t, axis=0) * 1000),
+            "t_ptp": tuple(float(v) for v in (np.max(t, axis=0) - np.min(t, axis=0)) * 1000),
+            "r_std": tuple(float(v) for v in np.std(r, axis=0)),
+            "r_ptp": tuple(float(v) for v in (np.max(r, axis=0) - np.min(r, axis=0))),
+        }
+
+    def reset(self):
+        self._tvecs.clear()
+        self._rvecs.clear()
+
+
+def _annotate_frame(manager, camera_id: str, frame: np.ndarray) -> np.ndarray:
+    """对帧进行 QR 检测 + 标注 + 稳定性叠印 (供 annotated / ir_annotated 复用)。"""
+    detector = None
+    if hasattr(manager, '_qr_detectors') and camera_id in manager._qr_detectors:
+        detector = manager._qr_detectors[camera_id]
+
+    if detector is not None:
+        results = detector.detect(frame, 0.058)
+        frame = detector.draw_results(frame, results)
+
+        if hasattr(manager, '_stability_trackers'):
+            tracker = manager._stability_trackers.get(camera_id)
+            if tracker is not None:
+                target = next((r for r in results if r.qr_id == 1), None)
+                if target:
+                    tracker.push(target.tvec, target.rvec)
+                frame = _draw_stability_overlay(frame, tracker)
+    return frame
+
+
+def _draw_stability_overlay(frame: np.ndarray, tracker: PoseStabilityTracker) -> np.ndarray:
+    """在 annotated 帧左上角叠加稳定性统计指标。"""
+    if not tracker.ready:
+        return frame
+    s = tracker.stats
+    out = frame.copy()
+    lines = [
+        f"t_std:[{s['t_std'][0]:.2f},{s['t_std'][1]:.2f},{s['t_std'][2]:.2f}]mm",
+        f"t_ptp:[{s['t_ptp'][0]:.2f},{s['t_ptp'][1]:.2f},{s['t_ptp'][2]:.2f}]mm",
+        f"r_std:[{s['r_std'][0]:.2f},{s['r_std'][1]:.2f},{s['r_std'][2]:.2f}]deg",
+        f"r_ptp:[{s['r_ptp'][0]:.2f},{s['r_ptp'][1]:.2f},{s['r_ptp'][2]:.2f}]deg",
+    ]
+    for j, line in enumerate(lines):
+        cv2.putText(out, line, (10, 80 + j * 28),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 200, 50), 2)
+    return out
+
 def _render_depth_3d(depth_mm: np.ndarray) -> np.ndarray:
     depth_clipped = np.clip(depth_mm, MIN_DEPTH_MM, MAX_DEPTH_MM)
     depth_norm = (depth_clipped - MIN_DEPTH_MM) / (MAX_DEPTH_MM - MIN_DEPTH_MM + 1e-6)
@@ -430,13 +530,13 @@ class CameraManager:
 
     @staticmethod
     def _to_ir_gray(frame) -> Optional[np.ndarray]:
-        """IR 帧 → uint8 灰度图 (复用 test_ir_chessboard.py 已验证逻辑)。"""
+        """IR 帧 → uint8 灰度图 (多级去噪: 中值滤波→高斯模糊→形态学开运算)。"""
         from pyorbbecsdk import OBFormat
         w, h, fmt = frame.get_width(), frame.get_height(), frame.get_format()
         raw = np.frombuffer(frame.get_data(), dtype=np.uint8)
 
         if fmt == OBFormat.Y8:
-            return raw.reshape((h, w)).copy()
+            gray = raw.reshape((h, w)).copy()
         elif fmt in (OBFormat.Y16, OBFormat.YUYV, OBFormat.YUY2):
             raw_u16 = raw.view(np.uint16).reshape((h, w))
             try:
@@ -444,10 +544,22 @@ class CameraManager:
             except Exception:
                 bit_size = 16
             scale = 1.0 / (2 ** (bit_size - 8)) if bit_size > 8 else 1.0
-            return (raw_u16.astype(np.float32) * scale).clip(0, 255).astype(np.uint8)
+            gray = (raw_u16.astype(np.float32) * scale).clip(0, 255).astype(np.uint8)
         elif fmt == OBFormat.MJPG:
-            return cv2.imdecode(raw, cv2.IMREAD_GRAYSCALE)
-        return None
+            gray = cv2.imdecode(raw, cv2.IMREAD_GRAYSCALE)
+        else:
+            return None
+
+        if gray is None:
+            return None
+
+        # ---- 多级去噪 ----
+        gray = cv2.medianBlur(gray, 5)
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        gray = cv2.morphologyEx(gray, cv2.MORPH_OPEN, kernel)
+
+        return gray
 
     def shutdown(self):
         self._running = False
@@ -509,18 +621,17 @@ class _WsProtocol:
                         frame = self._manager.get_latest_color(camera_id)
                         if frame is not None:
                             try:
-                                # Try to get or create detector for this camera
-                                detector = None
-                                if hasattr(self._manager, '_qr_detectors') and camera_id in self._manager._qr_detectors:
-                                    detector = self._manager._qr_detectors[camera_id]
-                                elif hasattr(self._manager, '_qr_detector') and self._manager._qr_detector is not None:
-                                    detector = self._manager._qr_detector
-
-                                if detector is not None:
-                                    results = detector.detect(frame, 0.058)
-                                    frame = detector.draw_results(frame, results)
+                                frame = _annotate_frame(self._manager, camera_id, frame)
                             except Exception:
                                 logger.exception("annotated frame generation failed")
+                    elif stream_type == "ir_annotated":
+                        frame = self._manager.get_latest_ir(camera_id)
+                        if frame is not None:
+                            try:
+                                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                                frame = _annotate_frame(self._manager, camera_id, frame)
+                            except Exception:
+                                logger.exception("ir_annotated frame generation failed")
                     else:
                         frame = self._manager.get_latest_color(camera_id)
 
@@ -647,23 +758,30 @@ def main(args=None):
     except Exception:
         logger.exception("Failed to init QRCalibrator")
 
-    # QRDetector for annotated stream (lazy per camera)
+    # QRDetector + stability tracker for annotated stream (per camera)
     _qr_detectors: dict[str, object] = {}
+    _stability_trackers: dict[str, PoseStabilityTracker] = {}
 
-    # Attach a default QRDetector to manager for annotated stream
-    try:
-        from python_pkgs.orbbec_vision.qr_detector import QRDetector
-        # Create a dummy detector (will be replaced per camera if needed)
-        # Note: Real usage should create detector with proper intrinsics
-        manager._qr_detectors = _qr_detectors  # Store dict on manager
-        # Also provide a default detector for backward compatibility
-        dummy_K = np.eye(3, dtype=np.float64)
-        dummy_D = np.zeros(5, dtype=np.float64)
-        manager._qr_detector = QRDetector(dummy_K, dummy_D)
-    except Exception:
-        logger.exception("Failed to create default QRDetector")
-        manager._qr_detector = None
-        manager._qr_detectors = {}
+    for cid, cfg in _cam_configs.items():
+        calib = cfg.get("calibration", {})
+        intrinsics = calib.get("color_intrinsics", {})
+        if intrinsics.get("fx"):
+            try:
+                from python_pkgs.orbbec_vision.qr_detector import QRDetector
+                K = np.array([
+                    [intrinsics["fx"], 0, intrinsics["cx"]],
+                    [0, intrinsics["fy"], intrinsics["cy"]],
+                    [0, 0, 1],
+                ], dtype=np.float64)
+                D = np.array(intrinsics.get("distortion", [0, 0, 0, 0, 0]), dtype=np.float64)
+                _qr_detectors[cid] = QRDetector(K, D)
+                _stability_trackers[cid] = PoseStabilityTracker(60)
+                logger.info("QRDetector + stability tracker ready for camera '%s'", cid)
+            except Exception:
+                logger.exception("Failed to create QRDetector for camera '%s'", cid)
+
+    manager._qr_detectors = _qr_detectors
+    manager._stability_trackers = _stability_trackers
 
     # 启动 WS server 线程
     ws_thread = threading.Thread(target=_run_ws_in_thread, args=(manager,), daemon=True)
