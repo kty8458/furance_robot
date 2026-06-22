@@ -60,6 +60,7 @@ async def calibrate_qr(robot_id: str, req: dict, request: Request):
         marker_size=req.get("marker_size", 0.058),
         point_name=req.get("point_name", ""),
         scene_id=req.get("scene_id", ""),
+        stream_type=req.get("stream_type", "color"),
     )
     if not result.get("success"):
         return ApiResponse(code=3001, message=result.get("message", "Calibration failed"))

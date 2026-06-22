@@ -124,6 +124,14 @@
             <el-input v-model="calibPointName" placeholder="例如: 主放置位" size="small" />
           </div>
 
+          <div style="margin-bottom: 10px">
+            <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">标定视频流</div>
+            <el-radio-group v-model="calibStreamType" size="small">
+              <el-radio-button value="color">彩色</el-radio-button>
+              <el-radio-button value="ir">红外</el-radio-button>
+            </el-radio-group>
+          </div>
+
           <el-row :gutter="8" style="margin-bottom: 10px">
             <el-col :span="12">
               <div style="font-size: 12px; color: #9ca3af; margin-bottom: 4px">QR ID</div>
@@ -204,6 +212,7 @@ const calibCameraId = ref('head')
 const calibArm = ref('right')
 const calibSceneId = ref('')
 const calibPointName = ref('')
+const calibStreamType = ref('color')  // color / ir
 const calibQrId = ref(0)
 const calibMarkerSize = ref(0.058)
 const calibrating = ref(false)
@@ -343,6 +352,7 @@ async function runCalibration() {
       marker_size: calibMarkerSize.value,
       point_name: calibPointName.value,
       scene_id: calibSceneId.value,
+      stream_type: calibStreamType.value,
     })
     calibResult.value = res.data || res
     ElMessage.success('标定完成')

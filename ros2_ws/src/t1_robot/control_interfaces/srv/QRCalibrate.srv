@@ -4,6 +4,7 @@ int32 qr_id
 float32 marker_size
 string point_name
 string scene_id
+string stream_type          # color / ir — 标定使用的视频流
 ---
 bool success
 string message

@@ -107,6 +107,7 @@ class QRCalibrator:
 
     def calibrate(self, camera_id: str, arm: str, qr_id: int,
                   marker_size: float, point_name: str, scene_id: str,
+                  stream_type: str = "color",
                   color_frame: Optional[np.ndarray] = None,
                   ir_frame: Optional[np.ndarray] = None,
                   T_base_ee: Optional[np.ndarray] = None) -> dict:
@@ -136,7 +137,7 @@ class QRCalibrator:
         if detector is None:
             return {"success": False, "message": f"No intrinsics for camera: {camera_id}"}
 
-        frame = color_frame if color_frame is not None else ir_frame
+        frame = color_frame if stream_type == "color" else ir_frame
         if frame is None:
             return {"success": False, "message": "No frame available"}
 
@@ -186,6 +187,7 @@ class QRCalibrator:
             name=point_name,
             arm=arm,
             marker_size=marker_size,
+            stream_type=stream_type,
             T_qr_workspace={"translation": translation, "rotation": rotation},
         )
         if not ok:

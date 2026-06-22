@@ -26,7 +26,7 @@ class CameraClientBase(ABC):
     @abstractmethod
     async def calibrate_qr(self, camera_id: str, arm: str, qr_id: int,
                            marker_size: float, point_name: str,
-                           scene_id: str) -> dict[str, Any]:
+                           scene_id: str, stream_type: str = "color") -> dict[str, Any]:
         ...
 
     @abstractmethod
@@ -66,7 +66,7 @@ class MockCameraClient(CameraClientBase):
 
     async def calibrate_qr(self, camera_id: str, arm: str, qr_id: int,
                            marker_size: float, point_name: str,
-                           scene_id: str) -> dict[str, Any]:
+                           scene_id: str, stream_type: str = "color") -> dict[str, Any]:
         return {"success": True, "message": f"mock: calibrated {point_name}",
                 "data": {"translation": [0.35, -0.12, 0.20],
                          "rotation": [0.0, 0.0, 0.0, 1.0]}}
@@ -148,7 +148,7 @@ class RealCameraClient(CameraClientBase):
 
     async def calibrate_qr(self, camera_id: str, arm: str, qr_id: int,
                            marker_size: float, point_name: str,
-                           scene_id: str) -> dict[str, Any]:
+                           scene_id: str, stream_type: str = "color") -> dict[str, Any]:
         """现场标定: 计算 T_qr_workspace 并存入场景。"""
         return await self._call("/camera/calibrate", {
             "camera_id": camera_id,
@@ -157,6 +157,7 @@ class RealCameraClient(CameraClientBase):
             "marker_size": marker_size,
             "point_name": point_name,
             "scene_id": scene_id,
+            "stream_type": stream_type,
         })
 
     async def scene_operation(self, action: str, scene_id: str = None,

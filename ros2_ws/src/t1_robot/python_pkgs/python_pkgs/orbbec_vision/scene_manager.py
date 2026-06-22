@@ -9,6 +9,22 @@ import yaml
 
 logger = logging.getLogger("orbbec_vision.scene_manager")
 
+
+def _to_json_safe(obj):
+    """递归将 numpy 类型转为纯 Python 类型，确保 yaml/json 可序列化。"""
+    import numpy as np
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    elif isinstance(obj, (np.integer,)):
+        return int(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {k: _to_json_safe(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_to_json_safe(v) for v in obj]
+    return obj
+
 DEFAULT_SCENE_TEMPLATE = {
     "scene_id": "",
     "description": "",
@@ -39,6 +55,7 @@ class SceneManager:
 
     def _save(self, scene_id: str, data: dict):
         data["scene_id"] = scene_id
+        data = _to_json_safe(data)
         with open(self._path(scene_id), "w") as f:
             yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)
         logger.info("Scene saved: %s", scene_id)
@@ -98,7 +115,8 @@ class SceneManager:
         return True
 
     def add_point(self, scene_id: str, qr_id: int, name: str, arm: str,
-                  marker_size: float, T_qr_workspace: Dict[str, Any]) -> bool:
+                  marker_size: float, T_qr_workspace: Dict[str, Any],
+                  stream_type: str = "color") -> bool:
         """添加标定点到场景。"""
         data = self._load(scene_id)
         if data is None:
@@ -112,6 +130,7 @@ class SceneManager:
             "name": name,
             "arm": arm,
             "marker_size": marker_size,
+            "stream_type": stream_type,
             "T_qr_workspace": T_qr_workspace,
         })
         self._save(scene_id, data)
