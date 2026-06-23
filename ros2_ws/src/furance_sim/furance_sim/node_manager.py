@@ -135,7 +135,7 @@ class NodeManager(Node):
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                preexec_fn=os.setsid if is_launch else None,
+                preexec_fn=os.setsid,  # 创建新进程组，停止时确保杀干净所有子进程
                 env=env,
             )
             self._processes[name] = proc
@@ -189,7 +189,6 @@ class NodeManager(Node):
 
         proc = self._processes[name]
         info = NODE_REGISTRY[name]
-        is_launch = info['type'] == 'launch'
         self.get_logger().info(f'NodeStop: stopping {name} (pid={proc.pid})')
 
         # Write stop marker
@@ -203,24 +202,20 @@ class NodeManager(Node):
                 pass
             self._log_files.pop(name, None)
 
-        if is_launch:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGINT)
-            except ProcessLookupError:
-                pass
-        else:
-            proc.send_signal(signal.SIGINT)
+        # 始终用进程组杀，确保 ros2 run 的包装脚本和实际节点都被终止
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGINT)
+        except (ProcessLookupError, OSError):
+            pass
 
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            if is_launch:
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            else:
-                proc.kill()
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+            proc.kill()
             proc.wait()
 
         del self._processes[name]
@@ -278,25 +273,18 @@ class NodeManager(Node):
                         log_file.close()
                     except Exception:
                         pass
-                info = NODE_REGISTRY.get(name, {})
-                is_launch = info.get('type') == 'launch'
-                if is_launch:
-                    try:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGINT)
-                    except ProcessLookupError:
-                        pass
-                else:
-                    proc.send_signal(signal.SIGINT)
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGINT)
+                except (ProcessLookupError, OSError):
+                    pass
                 try:
                     proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    if is_launch:
-                        try:
-                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
-                    else:
-                        proc.kill()
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
+                        pass
+                    proc.kill()
         self._log_files.clear()
         super().destroy_node()
 

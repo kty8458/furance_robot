@@ -117,7 +117,7 @@ class RealCameraClient(CameraClientBase):
         return {"success": False, "message": result.get("message", "Failed")}
 
     async def start_stream(self, camera_id: str, stream_type: str = "raw") -> dict[str, Any]:
-        return await self._call("/camera/stream/start", {"camera_id": camera_id})
+        return await self._call("/camera/stream/start", {"camera_id": camera_id, "stream_type": stream_type})
 
     async def stop_stream(self, camera_id: str) -> dict[str, Any]:
         return await self._call("/camera/stream/stop", {"camera_id": camera_id})

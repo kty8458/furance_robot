@@ -243,7 +243,9 @@ class CameraManager:
     def __init__(self, config_path: str):
         self._cameras: dict[str, CameraInfo] = {}
         self._pipelines: dict[str, Any] = {}
+        self._devices: dict[str, Any] = {}  # 缓存设备对象，按需创建 pipeline
         self._streaming: dict[str, bool] = {}
+        self._stream_types: dict[str, str] = {}  # camera_id -> stream_type
         self._lock = threading.Lock()
         self._color_frames: dict[str, Optional[np.ndarray]] = {}
         self._depth_frames: dict[str, Optional[np.ndarray]] = {}
@@ -307,6 +309,8 @@ class CameraManager:
                 info.vid = di.get_vid()
                 info.connection_type = di.get_connection_type()
 
+                self._devices[cid] = device
+                # 创建 Pipeline（整个节点生命周期内复用，不反复创建销毁）
                 from pyorbbecsdk import OBSensorType, Pipeline
                 pipeline = Pipeline(device)
                 self._pipelines[cid] = pipeline
@@ -360,7 +364,7 @@ class CameraManager:
         # 只返回实际连接的相机
         return [i.to_dict() for i in self._cameras.values() if i.connected]
 
-    def start_stream(self, camera_id: str) -> dict:
+    def start_stream(self, camera_id: str, stream_type: str = "raw") -> dict:
         if camera_id not in self._cameras:
             return {"success": False, "message": f"Unknown camera: {camera_id}"}
         if not self._cameras[camera_id].connected:
@@ -374,31 +378,40 @@ class CameraManager:
 
         from pyorbbecsdk import Config, OBSensorType, OBError
         config = Config()
-        try:
-            config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.COLOR_SENSOR).get_default_video_stream_profile())
-        except OBError:
-            pass
-        try:
-            config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR).get_default_video_stream_profile())
-        except OBError:
-            pass
-        try:
-            config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.IR_SENSOR).get_default_video_stream_profile())
-        except OBError:
+        need_color = stream_type in ("raw", "annotated")
+        need_depth = stream_type == "depth"
+        need_ir = stream_type in ("ir", "ir_annotated")
+
+        if need_color:
             try:
-                config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.LEFT_IR_SENSOR).get_default_video_stream_profile())
+                config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.COLOR_SENSOR).get_default_video_stream_profile())
             except OBError:
                 pass
+        if need_depth:
+            try:
+                config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR).get_default_video_stream_profile())
+            except OBError:
+                pass
+        if need_ir:
+            try:
+                config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.IR_SENSOR).get_default_video_stream_profile())
+            except OBError:
+                try:
+                    config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.LEFT_IR_SENSOR).get_default_video_stream_profile())
+                except OBError:
+                    pass
         try:
             pipeline.start(config)
         except OBError as e:
             return {"success": False, "message": f"Pipeline start failed: {e}"}
 
         self._streaming[camera_id] = True
+        self._stream_types[camera_id] = stream_type
         t = threading.Thread(target=self._capture_loop, args=(camera_id,), daemon=True)
         self._threads[camera_id] = t
         t.start()
-        logger.info("Stream started: %s", camera_id)
+        logger.info("Stream started: %s type=%s need_color=%s need_depth=%s need_ir=%s",
+                    camera_id, stream_type, need_color, need_depth, need_ir)
         return {"success": True, "message": f"Streaming {camera_id}"}
 
     def stop_stream(self, camera_id: str) -> dict:
@@ -408,6 +421,7 @@ class CameraManager:
         t = self._threads.pop(camera_id, None)
         if t and t.is_alive():
             t.join(timeout=2.0)
+        # 只停止视频流，不销毁 Pipeline
         p = self._pipelines.get(camera_id)
         if p:
             try: p.stop()
@@ -416,7 +430,7 @@ class CameraManager:
             self._color_frames[camera_id] = None
             self._depth_frames[camera_id] = None
             self._ir_frames[camera_id] = None
-        logger.info("Stream stopped: %s", camera_id)
+        logger.info("Stream stopped: %s (pipeline preserved)", camera_id)
         return {"success": True, "message": f"Stopped {camera_id}"}
 
     # ---- 帧获取 ----
@@ -464,23 +478,39 @@ class CameraManager:
     # ---- 采集线程 ----
 
     def _capture_loop(self, camera_id: str):
-        pipeline = self._pipelines[camera_id]
+        pipeline = self._pipelines.get(camera_id)
+        if pipeline is None:
+            return
         fps = max(self._cameras[camera_id].color_fps, 15)
         interval = 1.0 / fps
         error_count = 0
-        max_errors = 10  # 连续10次错误后尝试重启流
+        max_errors = 10
+        empty_count = 0
+        max_empty = 30
+        stream_type = self._stream_types.get(camera_id, "raw")
 
         while self._running and self._streaming.get(camera_id, False):
             try:
                 frames = pipeline.wait_for_frames(100)
                 if frames is None:
+                    empty_count += 1
+                    if empty_count >= max_empty:
+                        logger.warning("No frames for %s for ~3s, restarting streams", camera_id)
+                        self._restart_streams(camera_id, stream_type)
+                        pipeline = self._pipelines.get(camera_id)
+                        empty_count = 0
+                        error_count = 0
                     time.sleep(0.01)
                     continue
+                empty_count = 0
+
+                # 只采集当前流类型需要的帧
                 cf = frames.get_color_frame()
                 df = frames.get_depth_frame()
                 irf = frames.get_ir_frame()
                 if irf is None:
                     irf = frames.get_left_ir_frame() if hasattr(frames, "get_left_ir_frame") else None
+
                 with self._lock:
                     if cf is not None:
                         self._color_frames[camera_id] = self._to_bgr(cf)
@@ -489,24 +519,47 @@ class CameraManager:
                     if irf is not None:
                         self._ir_frames[camera_id] = self._to_ir_gray(irf)
                     self._frame_timestamps[camera_id] = time.time()
-                error_count = 0  # 成功获取帧，重置错误计数
+                error_count = 0
             except Exception:
                 error_count += 1
                 logger.exception("Capture error: %s (consecutive: %d)", camera_id, error_count)
                 if error_count >= max_errors:
-                    logger.warning("Too many capture errors for %s, restarting stream", camera_id)
-                    try:
-                        pipeline.stop()
-                    except Exception:
-                        pass
-                    time.sleep(1.0)
-                    try:
-                        pipeline.start(self._get_stream_config())
-                    except Exception:
-                        logger.exception("Failed to restart stream for %s", camera_id)
-                        break
+                    logger.warning("Too many capture errors for %s, restarting streams", camera_id)
+                    self._restart_streams(camera_id, stream_type)
+                    pipeline = self._pipelines.get(camera_id)
                     error_count = 0
+                    empty_count = 0
             time.sleep(interval)
+
+    def _restart_streams(self, camera_id: str, stream_type: str = "raw"):
+        """停止并重新启动 Pipeline 的视频流（不销毁 Pipeline 对象，只开启需要的流）。"""
+        pipeline = self._pipelines.get(camera_id)
+        if pipeline is None:
+            return
+        try: pipeline.stop()
+        except Exception: pass
+        time.sleep(0.5)
+
+        from pyorbbecsdk import Config, OBSensorType
+        config = Config()
+        need_color = stream_type in ("raw", "annotated")
+        need_depth = stream_type == "depth"
+        need_ir = stream_type in ("ir", "ir_annotated")
+
+        if need_color:
+            config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.COLOR_SENSOR).get_default_video_stream_profile())
+        if need_depth:
+            config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR).get_default_video_stream_profile())
+        if need_ir:
+            try:
+                config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.IR_SENSOR).get_default_video_stream_profile())
+            except Exception:
+                try:
+                    config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.LEFT_IR_SENSOR).get_default_video_stream_profile())
+                except Exception:
+                    pass
+        pipeline.start(config)
+        logger.info("Streams restarted for %s type=%s", camera_id, stream_type)
 
     @staticmethod
     def _to_bgr(frame) -> Optional[np.ndarray]:
@@ -578,40 +631,17 @@ class CameraManager:
 
         return gray
 
-    def _get_stream_config(self):
-        """创建并返回一个配置了COLOR+DEPTH+IR流的Config对象。"""
-        from pyorbbecsdk import Config, OBSensorType
-        config = Config()
-        for cid, pipeline in self._pipelines.items():
-            try:
-                config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.COLOR_SENSOR).get_default_video_stream_profile())
-            except Exception:
-                pass
-            try:
-                config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR).get_default_video_stream_profile())
-            except Exception:
-                pass
-            try:
-                config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.IR_SENSOR).get_default_video_stream_profile())
-            except Exception:
-                try:
-                    config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.LEFT_IR_SENSOR).get_default_video_stream_profile())
-                except Exception:
-                    pass
-        return config
-
     def shutdown(self):
         self._running = False
         for cid in list(self._streaming):
             if self._streaming[cid]:
                 self.stop_stream(cid)
-        # 清理所有pipeline
-        for pipeline in self._pipelines.values():
-            try:
-                pipeline.stop()
-            except Exception:
-                pass
+        # 清理所有残留 pipeline 和 device
+        for cid in list(self._pipelines.keys()):
+            try: self._pipelines[cid].stop()
+            except Exception: pass
         self._pipelines.clear()
+        self._devices.clear()
         self._cameras.clear()
         logger.info("CameraManager shutdown complete")
 
@@ -715,7 +745,8 @@ class _WsProtocol:
                         await ws.send(json.dumps({"type": "error", "message": f"Camera not found: {camera_id}"}))
                         continue
                     if not self._manager.is_streaming(camera_id):
-                        self._manager.start_stream(camera_id)
+                        await ws.send(json.dumps({"type": "error", "message": f"Camera {camera_id} not streaming. Start stream first via API."}))
+                        continue
                     if push_task:
                         push_task.cancel()
                     push_task = asyncio.create_task(push_loop())
@@ -744,7 +775,7 @@ async def _run_ws_server(manager: CameraManager):
         async def handler(websocket):
             await proto.handle(websocket)
 
-        server = await ws_lib.serve(handler, WS_HOST, WS_PORT)
+        server = await ws_lib.serve(handler, WS_HOST, WS_PORT, reuse_port=True)
         logger.info("WS server listening on %s:%d", WS_HOST, WS_PORT)
 
         # 等待直到manager停止
@@ -756,8 +787,19 @@ async def _run_ws_server(manager: CameraManager):
         await server.wait_closed()
         logger.info("WS server closed")
     except OSError as e:
-        if e.errno == 98:  # Address already in use
-            logger.warning("WS port %d already in use, skipping WS server", WS_PORT)
+        if e.errno == 98:
+            logger.warning("WS port %d still in use, retrying after 2s...", WS_PORT)
+            await asyncio.sleep(2.0)
+            try:
+                server = await ws_lib.serve(handler, WS_HOST, WS_PORT, reuse_port=True)
+                logger.info("WS server listening on %s:%d (retry)", WS_HOST, WS_PORT)
+                while manager._running:
+                    await asyncio.sleep(0.5)
+                server.close()
+                await server.wait_closed()
+                logger.info("WS server closed")
+            except OSError as e2:
+                logger.error("WS port %d still unavailable: %s", WS_PORT, e2)
         else:
             logger.exception("WS server error")
     except ImportError:
@@ -872,7 +914,8 @@ def main(args=None):
     def _handle_stream_start(request, response):
         params = json.loads(request.params_json) if request.params_json else {}
         camera_id = params.get("camera_id", "")
-        result = manager.start_stream(camera_id)
+        stream_type = params.get("stream_type", "raw")
+        result = manager.start_stream(camera_id, stream_type)
         response.success = result["success"]
         response.message = result["message"]
         response.result_json = "{}"
