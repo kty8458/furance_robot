@@ -975,7 +975,8 @@ def main(args=None):
         params = json.loads(request.params_json) if request.params_json else {}
         action = params.get("action", "list")
         scene_id = params.get("scene_id", "")
-        extra = params.get("params", {}) or {}
+        # 点位数据在 params_json 字段中（由 camera_client 打包）
+        extra = json.loads(params.get("params_json", "{}")) if isinstance(params.get("params_json"), str) else (params.get("params_json") or {})
         try:
             if action == "list":
                 result = _scene_manager.list_scenes()

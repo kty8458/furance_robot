@@ -93,42 +93,21 @@
             </div>
           </div>
 
-          <!-- 点位列表 -->
-          <div v-if="mgmtSceneId" style="margin-bottom: 10px">
-            <div class="field-label">点位</div>
-            <div style="display: flex; gap: 6px; margin-bottom: 6px">
-              <el-select v-model="mgmtPointName" style="flex: 1" filterable placeholder="选择点位" @change="onMgmtPointChange">
-                <el-option v-for="p in (scenePoints[mgmtSceneId] || [])" :key="p.name" :label="p.name" :value="p.name" />
-              </el-select>
-              <el-button size="small" type="primary" @click="showNewPoint = true">新建点位</el-button>
-              <el-button size="small" type="danger" @click="deleteCurrentPoint" :disabled="!mgmtPointName">删除</el-button>
+          <!-- 点位表格 -->
+          <div v-if="mgmtSceneId">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px">
+              <div class="field-label" style="margin-bottom: 0; flex: 1">点位列表</div>
+              <el-button size="small" type="primary" @click="openCreatePointDialog">新建点位</el-button>
             </div>
-            <!-- 新建点位弹窗 -->
-            <div v-if="showNewPoint" style="display: flex; gap: 6px; margin-bottom: 6px">
-              <el-input v-model="newPointName" placeholder="点位名称" size="small" style="flex: 1" />
-              <el-select v-model="newPointArm" size="small" style="width: 80px">
-                <el-option label="左臂" value="left" />
-                <el-option label="右臂" value="right" />
-              </el-select>
-              <el-button size="small" type="primary" @click="createPoint">确认</el-button>
-              <el-button size="small" @click="showNewPoint = false">取消</el-button>
-            </div>
-          </div>
-
-          <!-- 点位数据编辑 -->
-          <div v-if="mgmtPointName && pointData" class="point-data-panel">
-            <div class="field-label">点位数据 — {{ mgmtPointName }}</div>
-            <el-row :gutter="6">
-              <el-col :span="4" v-for="(f, fi) in poseFields" :key="'pt_'+fi">
-                <div class="field-label" style="font-size: 10px">{{ f }}</div>
-                <el-input-number v-model="pointData.xyzrpy[f]" size="small" :step="f==='x'||f==='y'||f==='z'?0.001:0.1"
-                  :precision="f==='x'||f==='y'||f==='z'?4:2" controls-position="right" style="width: 100%" />
-              </el-col>
-            </el-row>
-            <div style="display: flex; gap: 6px; margin-top: 8px">
-              <el-button size="small" type="warning" @click="updatePointData" style="flex: 1">更新点位</el-button>
-              <el-button size="small" @click="reloadScenePoints">刷新</el-button>
-            </div>
+            <el-table :data="scenePoints[mgmtSceneId] || []" size="small" border style="width: 100%" max-height="300">
+              <el-table-column prop="name" label="点位名称" />
+              <el-table-column label="操作" width="120" align="center">
+                <template #default="{ row }">
+                  <el-button size="small" link type="primary" @click="openEditPointDialog(row)">编辑</el-button>
+                  <el-button size="small" link type="danger" @click="deletePointByName(row.name)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
           </div>
         </el-col>
 
@@ -150,53 +129,124 @@
             </el-select>
           </div>
 
-          <div v-if="calibPointName" style="font-size: 10px; color: #6b7b8d; margin-bottom: 10px">
-            自动读取: 相机={{ calibCameraId }} 手臂={{ calibArm }}
-          </div>
+          <!-- 选中点位后显示参数编辑区 -->
+          <div v-if="calibPointName" class="point-data-panel">
+            <div class="field-label" style="margin-bottom: 8px">标定参数 — {{ calibPointName }}</div>
 
-          <div style="margin-bottom: 10px">
-            <div class="field-label">标定视频流</div>
-            <el-radio-group v-model="calibStreamType" size="small">
-              <el-radio-button value="color">彩色</el-radio-button>
-              <el-radio-button value="ir">红外</el-radio-button>
-            </el-radio-group>
-          </div>
+            <el-row :gutter="8">
+              <el-col :span="12">
+                <div class="field-label" style="font-size: 10px">手臂</div>
+                <el-select v-model="calibArm" size="small" style="width: 100%">
+                  <el-option label="左臂" value="left" />
+                  <el-option label="右臂" value="right" />
+                </el-select>
+              </el-col>
+              <el-col :span="12">
+                <div class="field-label" style="font-size: 10px">相机</div>
+                <el-select v-model="calibCameraId" size="small" style="width: 100%">
+                  <el-option v-for="cam in cameras" :key="cam.id"
+                    :label="`${cam.name} (${cam.id})`" :value="cam.id" :disabled="!cam.connected" />
+                </el-select>
+              </el-col>
+            </el-row>
 
-          <el-row :gutter="8" style="margin-bottom: 10px">
-            <el-col :span="12">
-              <div class="field-label">QR ID</div>
-              <el-input-number v-model="calibQrId" :min="0" size="small" controls-position="right" style="width: 100%" />
-            </el-col>
-            <el-col :span="12">
-              <div class="field-label">QR 尺寸 (m)</div>
-              <el-input-number v-model="calibMarkerSize" :min="0.01" :step="0.001" :precision="3"
-                size="small" controls-position="right" style="width: 100%" />
-            </el-col>
-          </el-row>
-
-          <el-button size="small" type="success" style="width: 100%" @click="runCalibration" :loading="calibrating">
-            执行标定
-          </el-button>
-
-          <div v-if="calibResult" class="detect-result" style="margin-top: 10px">
-            <div class="detect-title">标定结果 — T_qr_workspace</div>
-            <div style="font-size: 11px; color: #9ca3af; margin-bottom: 4px">Translation (m)</div>
-            <div style="font-family: 'Consolas', monospace; font-size: 12px; color: #e5e7eb">
-              x: {{ calibResult.translation?.[0]?.toFixed(4) ?? '--' }}
-              y: {{ calibResult.translation?.[1]?.toFixed(4) ?? '--' }}
-              z: {{ calibResult.translation?.[2]?.toFixed(4) ?? '--' }}
+            <div style="margin-top: 8px">
+              <div class="field-label" style="font-size: 10px">标定视频流</div>
+              <el-radio-group v-model="calibStreamType" size="small">
+                <el-radio-button value="color">彩色</el-radio-button>
+                <el-radio-button value="ir">红外</el-radio-button>
+              </el-radio-group>
             </div>
-            <div style="font-size: 11px; color: #9ca3af; margin-bottom: 4px; margin-top: 4px">Rotation (xyzw)</div>
-            <div style="font-family: 'Consolas', monospace; font-size: 12px; color: #e5e7eb">
-              x: {{ calibResult.rotation?.[0]?.toFixed(4) ?? '--' }}
-              y: {{ calibResult.rotation?.[1]?.toFixed(4) ?? '--' }}
-              z: {{ calibResult.rotation?.[2]?.toFixed(4) ?? '--' }}
-              w: {{ calibResult.rotation?.[3]?.toFixed(4) ?? '--' }}
+
+            <el-row :gutter="8" style="margin-top: 8px">
+              <el-col :span="12">
+                <div class="field-label" style="font-size: 10px">QR ID</div>
+                <el-input-number v-model="calibQrId" :min="0" size="small" controls-position="right" style="width: 100%" />
+              </el-col>
+              <el-col :span="12">
+                <div class="field-label" style="font-size: 10px">QR 尺寸 (m)</div>
+                <el-input-number v-model="calibMarkerSize" :min="0.01" :step="0.001" :precision="3"
+                  size="small" controls-position="right" style="width: 100%" />
+              </el-col>
+            </el-row>
+
+            <el-button size="small" type="success" style="width: 100%; margin-top: 10px" @click="runCalibration" :loading="calibrating">
+              执行标定
+            </el-button>
+
+            <div v-if="calibResult" class="detect-result" style="margin-top: 10px">
+              <div class="detect-title">标定结果 — T_qr_workspace</div>
+              <el-row :gutter="4" style="margin-bottom: 4px">
+                <el-col :span="4" v-for="f in ['x','y','z','roll','pitch','yaw']" :key="'cr_'+f">
+                  <div class="field-label" style="font-size: 9px; text-align: center">{{ f }}</div>
+                  <div style="font-family: 'Consolas', monospace; font-size: 12px; color: #e5e7eb; text-align: center">
+                    {{ calibResult.xyzrpy?.[f]?.toFixed(4) ?? '--' }}
+                  </div>
+                </el-col>
+              </el-row>
             </div>
           </div>
         </el-col>
       </el-row>
     </el-card>
+
+    <!-- ====== 点位编辑弹窗 ====== -->
+    <el-dialog v-model="editDialogVisible" :title="editDialogMode === 'create' ? '新建点位' : `编辑点位 — ${editForm.name}`" width="520px" destroy-on-close>
+      <el-form label-width="90px" label-position="left" size="small">
+        <el-form-item label="场景">
+          <el-input :model-value="mgmtSceneId" disabled />
+        </el-form-item>
+        <el-form-item label="名称">
+          <el-input v-model="editForm.name" placeholder="点位名称" />
+        </el-form-item>
+        <el-form-item label="手臂">
+          <el-select v-model="editForm.arm" style="width: 100%">
+            <el-option label="左臂" value="left" />
+            <el-option label="右臂" value="right" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="相机">
+          <el-select v-model="editForm.camera_id" style="width: 100%">
+            <el-option v-for="cam in cameras" :key="cam.id"
+              :label="`${cam.name} (${cam.id})`" :value="cam.id" :disabled="!cam.connected" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="相机流">
+          <el-radio-group v-model="editForm.stream_type" size="small">
+            <el-radio-button value="color">彩色</el-radio-button>
+            <el-radio-button value="ir">红外</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="QR ID">
+          <el-input-number v-model="editForm.qr_id" :min="0" controls-position="right" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="QR 尺寸 (m)">
+          <el-input-number v-model="editForm.marker_size" :min="0.01" :step="0.001" :precision="3" controls-position="right" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="平移 xyz">
+          <el-row :gutter="6">
+            <el-col :span="8" v-for="f in ['x','y','z']" :key="'t_'+f">
+              <div style="font-size: 10px; color: #6b7b8d; text-align: center">{{ f }}</div>
+              <el-input-number v-model="editForm.xyzrpy[f]" size="small" :step="0.001" :precision="4"
+                controls-position="right" style="width: 100%" />
+            </el-col>
+          </el-row>
+        </el-form-item>
+        <el-form-item label="旋转 rpy">
+          <el-row :gutter="6">
+            <el-col :span="8" v-for="f in ['roll','pitch','yaw']" :key="'r_'+f">
+              <div style="font-size: 10px; color: #6b7b8d; text-align: center">{{ f }}</div>
+              <el-input-number v-model="editForm.xyzrpy[f]" size="small" :step="0.1" :precision="2"
+                controls-position="right" style="width: 100%" />
+            </el-col>
+          </el-row>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button size="small" @click="editDialogVisible = false">取消</el-button>
+        <el-button size="small" type="primary" @click="saveEditPoint">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -224,17 +274,24 @@ const streamTypeLabel = computed(() => {
 
 // ---- 场景 & 点位管理 ----
 const sceneList = ref([])
-const scenePoints = ref({})          // {scene_id: [{name, arm, ...}]}
-const sceneDetails = ref({})         // {scene_id: full scene data}
+const scenePoints = ref({})
 const mgmtSceneId = ref('')
-const mgmtPointName = ref('')
-const pointData = ref(null)          // { xyzrpy: {x,y,z,roll,pitch,yaw}, raw: original point dict }
 const showNewScene = ref(false)
 const newSceneId = ref('')
 const newSceneDesc = ref('')
-const showNewPoint = ref(false)
-const newPointName = ref('')
-const newPointArm = ref('right')
+
+// ---- 点位编辑弹窗 ----
+const editDialogVisible = ref(false)
+const editDialogMode = ref('edit')  // 'create' | 'edit'
+const editForm = ref(initEditForm())
+
+function initEditForm() {
+  return {
+    name: '', arm: 'right', camera_id: '', stream_type: 'color',
+    qr_id: 0, marker_size: 0.058,
+    xyzrpy: { x: 0, y: 0, z: 0, roll: 0, pitch: 0, yaw: 0 },
+  }
+}
 
 // ---- 视觉标定 ----
 const calibSceneId = ref('')
@@ -358,9 +415,9 @@ async function loadSceneDetails(sceneId) {
   try {
     const res = await cameraApi.scene('get', sceneId)
     const data = res.data || {}
-    sceneDetails.value[sceneId] = data
     scenePoints.value[sceneId] = (data.qr_transforms || []).map(p => ({
-      name: p.name, arm: p.arm, qr_id: p.qr_id, marker_size: p.marker_size,
+      name: p.name, arm: p.arm, camera_id: p.camera_id || '',
+      qr_id: p.qr_id, marker_size: p.marker_size,
       stream_type: p.stream_type || 'color',
       T_qr_workspace: p.T_qr_workspace || { translation: [0,0,0], rotation: [0,0,0,1] },
     }))
@@ -369,12 +426,9 @@ async function loadSceneDetails(sceneId) {
 
 async function reloadScenePoints() {
   if (mgmtSceneId.value) {
-    sceneDetails.value[mgmtSceneId.value] = null
     await loadSceneDetails(mgmtSceneId.value)
-    if (mgmtPointName.value) onMgmtPointChange(mgmtPointName.value)
   }
   if (calibSceneId.value) {
-    sceneDetails.value[calibSceneId.value] = null
     await loadSceneDetails(calibSceneId.value)
   }
 }
@@ -387,6 +441,7 @@ async function createScene() {
     mgmtSceneId.value = newSceneId.value
     showNewScene.value = false; newSceneId.value = ''; newSceneDesc.value = ''
     await loadSceneList()
+    await loadSceneDetails(mgmtSceneId.value)
   } catch (e) { ElMessage.error(e.message || '创建失败') }
 }
 
@@ -396,69 +451,74 @@ async function deleteCurrentScene() {
     await ElMessageBox.confirm(`确定删除场景 "${mgmtSceneId.value}"？`, '确认删除', { type: 'warning' })
     await cameraApi.scene('delete', mgmtSceneId.value)
     ElMessage.success('场景已删除')
-    mgmtSceneId.value = ''; mgmtPointName.value = ''; pointData.value = null
+    scenePoints.value[mgmtSceneId.value] = null
+    mgmtSceneId.value = ''
     await loadSceneList()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message || '删除失败') }
 }
 
 async function onMgmtSceneChange(sceneId) {
-  mgmtPointName.value = ''; pointData.value = null
   if (sceneId) await loadSceneDetails(sceneId)
 }
 
-async function createPoint() {
-  if (!newPointName.value) { ElMessage.warning('请输入点位名称'); return }
-  try {
-    await cameraApi.scene('add_point', mgmtSceneId.value, {
-      name: newPointName.value, arm: newPointArm.value,
-      qr_id: 0, marker_size: 0.058, stream_type: 'color',
-      T_qr_workspace: { translation: [0, 0, 0], rotation: [0, 0, 0, 1] },
-    })
-    ElMessage.success('点位已创建')
-    showNewPoint.value = false; newPointName.value = ''
-    await reloadScenePoints()
-  } catch (e) { ElMessage.error(e.message || '创建点位失败') }
+// ---- 点位编辑弹窗 ----
+
+function openCreatePointDialog() {
+  editDialogMode.value = 'create'
+  editForm.value = initEditForm()
+  editForm.value.camera_id = cameras.value.find(c => c.connected)?.id || ''
+  editDialogVisible.value = true
 }
 
-async function deleteCurrentPoint() {
-  if (!mgmtPointName.value) return
-  try {
-    await ElMessageBox.confirm(`确定删除点位 "${mgmtPointName.value}"？`, '确认删除', { type: 'warning' })
-    await cameraApi.scene('delete_point', mgmtSceneId.value, { name: mgmtPointName.value })
-    ElMessage.success('点位已删除')
-    mgmtPointName.value = ''; pointData.value = null
-    await reloadScenePoints()
-  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message || '删除失败') }
-}
-
-function onMgmtPointChange(pointName) {
-  if (!pointName) { pointData.value = null; return }
-  const sceneId = mgmtSceneId.value
-  const points = scenePoints.value[sceneId] || []
-  const p = points.find(pp => pp.name === pointName)
-  if (!p) { pointData.value = null; return }
-  const tw = p.T_qr_workspace || {}
+function openEditPointDialog(row) {
+  editDialogMode.value = 'edit'
+  const tw = row.T_qr_workspace || {}
   const t = tw.translation || [0, 0, 0]
   const r = tw.rotation || [0, 0, 0, 1]
   const euler = quatToEuler(r[0], r[1], r[2], r[3])
-  pointData.value = {
+  editForm.value = {
+    name: row.name,
+    arm: row.arm || 'right',
+    camera_id: row.camera_id || cameras.value.find(c => c.connected)?.id || '',
+    stream_type: row.stream_type || 'color',
+    qr_id: row.qr_id || 0,
+    marker_size: row.marker_size || 0.058,
     xyzrpy: { x: t[0], y: t[1], z: t[2], roll: euler.roll, pitch: euler.pitch, yaw: euler.yaw },
-    raw: p,
   }
+  editDialogVisible.value = true
 }
 
-async function updatePointData() {
-  if (!mgmtPointName.value || !pointData.value) return
-  const d = pointData.value.xyzrpy
+async function saveEditPoint() {
+  if (!editForm.value.name) { ElMessage.warning('请输入点位名称'); return }
+  const f = editForm.value
+  const d = f.xyzrpy
   const quat = eulerToQuat(d.roll, d.pitch, d.yaw)
+  const pointData = {
+    name: f.name, arm: f.arm, camera_id: f.camera_id,
+    stream_type: f.stream_type, qr_id: f.qr_id, marker_size: f.marker_size,
+    T_qr_workspace: { translation: [d.x, d.y, d.z], rotation: quat },
+  }
   try {
-    await cameraApi.scene('update_point', mgmtSceneId.value, {
-      name: mgmtPointName.value,
-      T_qr_workspace: { translation: [d.x, d.y, d.z], rotation: quat },
-    })
-    ElMessage.success('点位数据已更新')
+    if (editDialogMode.value === 'create') {
+      await cameraApi.scene('add_point', mgmtSceneId.value, pointData)
+      ElMessage.success('点位已创建')
+    } else {
+      // 更新时先删旧名再新建（如果名称变了），否则直接 update
+      await cameraApi.scene('update_point', mgmtSceneId.value, pointData)
+      ElMessage.success('点位已更新')
+    }
+    editDialogVisible.value = false
     await reloadScenePoints()
-  } catch (e) { ElMessage.error(e.message || '更新失败') }
+  } catch (e) { ElMessage.error(e.message || '保存失败') }
+}
+
+async function deletePointByName(name) {
+  try {
+    await ElMessageBox.confirm(`确定删除点位 "${name}"？`, '确认删除', { type: 'warning' })
+    await cameraApi.scene('delete_point', mgmtSceneId.value, { name })
+    ElMessage.success('点位已删除')
+    await reloadScenePoints()
+  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message || '删除失败') }
 }
 
 // ========== 视觉标定 ==========
@@ -470,11 +530,10 @@ async function onCalibSceneChange(sceneId) {
 
 function onCalibPointChange(pointName) {
   if (!pointName) return
-  const sceneId = calibSceneId.value
-  const points = scenePoints.value[sceneId] || []
+  const points = scenePoints.value[calibSceneId.value] || []
   const p = points.find(pp => pp.name === pointName)
   if (p) {
-    calibCameraId.value = cameras.value.find(c => c.connected)?.id || ''
+    calibCameraId.value = p.camera_id || cameras.value.find(c => c.connected)?.id || ''
     calibArm.value = p.arm || 'right'
     calibQrId.value = p.qr_id || 0
     calibMarkerSize.value = p.marker_size || 0.058
@@ -497,7 +556,27 @@ async function runCalibration() {
       stream_type: calibStreamType.value,
     })
     calibResult.value = res.data || res
+    // 将四元数转换为 xyzrpy 显示
+    if (calibResult.value?.rotation) {
+      const r = calibResult.value.rotation
+      const euler = quatToEuler(r[0], r[1], r[2], r[3])
+      calibResult.value.xyzrpy = {
+        x: calibResult.value.translation?.[0] ?? 0,
+        y: calibResult.value.translation?.[1] ?? 0,
+        z: calibResult.value.translation?.[2] ?? 0,
+        roll: euler.roll, pitch: euler.pitch, yaw: euler.yaw,
+      }
+    }
     ElMessage.success('标定完成')
+    // 标定完成后，把视觉标定区的参数更新回点位
+    await cameraApi.scene('update_point', calibSceneId.value, {
+      name: calibPointName.value,
+      arm: calibArm.value,
+      camera_id: calibCameraId.value,
+      stream_type: calibStreamType.value,
+      qr_id: calibQrId.value,
+      marker_size: calibMarkerSize.value,
+    })
     await reloadScenePoints()
   } catch (e) {
     ElMessage.error(e.message || '标定失败')
