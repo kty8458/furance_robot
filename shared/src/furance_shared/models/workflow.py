@@ -48,8 +48,10 @@ class GripperStepConfig(BaseModel):
 
 
 class VisionStepConfig(BaseModel):
-    scene: str = ""
-    camera_id: str = "camera_1"
+    camera_id: str = ""
+    function: str = "qr_detect"    # qr_detect / vision_model
+    scene: str = ""               # scene_id
+    point_name: str = ""          # 标定点名称
 
 
 class SleepStepConfig(BaseModel):

@@ -37,6 +37,14 @@ from typing import Any, Optional
 import numpy as np
 
 logger = logging.getLogger("orbbec_vision.camera_manager")
+# 配置 orbbec_vision 命名空间下所有 logger 输出到 stderr
+_ov = logging.getLogger("orbbec_vision")
+if not _ov.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("[%(name)s %(levelname)s] %(message)s"))
+    _ov.addHandler(_h)
+    _ov.setLevel(logging.INFO)
+    _ov.propagate = False
 
 # ---------------------------------------------------------------------------
 # LD_LIBRARY_PATH 修正
@@ -170,6 +178,18 @@ class PoseStabilityTracker:
             "r_std": tuple(float(v) for v in np.std(r, axis=0)),
             "r_ptp": tuple(float(v) for v in (np.max(r, axis=0) - np.min(r, axis=0))),
         }
+
+    def mean_tvec(self) -> np.ndarray | None:
+        """返回滑窗内平移向量的均值 (3,) 单位: m，用于抑制单帧跳变。"""
+        if len(self._tvecs) < 3:
+            return None
+        return np.mean(np.array(self._tvecs), axis=0)
+
+    def mean_rvec(self) -> np.ndarray | None:
+        """返回滑窗内旋转向量的均值 (3,) 单位: deg，用于抑制单帧跳变。"""
+        if len(self._rvecs) < 3:
+            return None
+        return np.mean(np.array(self._rvecs), axis=0)
 
     def reset(self):
         self._tvecs.clear()
@@ -874,13 +894,16 @@ def main(args=None):
     except Exception:
         logger.exception("Failed to init QRCalibrator")
 
-    # QRDetector + stability tracker for annotated stream (per camera)
+    # QRDetector + stability tracker + pose averager for annotated stream (per camera)
     _qr_detectors: dict[str, object] = {}
     _stability_trackers: dict[str, PoseStabilityTracker] = {}
+    _pose_averagers: dict[str, list] = {}  # camera_id -> list of (tvec, rvec) for sliding average
+    POSE_AVG_WINDOW = 10  # 滑动平均窗口大小
 
     for cid, cfg in _cam_configs.items():
         calib = cfg.get("calibration", {})
         intrinsics = calib.get("color_intrinsics", {})
+        _pose_averagers[cid] = []
         if intrinsics.get("fx"):
             try:
                 from python_pkgs.orbbec_vision.qr_detector import QRDetector
@@ -941,27 +964,56 @@ def main(args=None):
             response.message = "QRCalibrator not available"
             return response
         params = json.loads(request.params_json) if request.params_json else {}
+        camera_id = params.get("camera_id", "")
+        arm = params.get("arm", "right")
         stream_type = params.get("stream_type", "color") or "color"
-        color_frame = manager.get_latest_color(params.get("camera_id", ""))
-        ir_frame = manager.get_latest_ir(params.get("camera_id", ""))
-        result = _qr_calibrator.calibrate(
-            camera_id=params.get("camera_id", ""),
-            arm=params.get("arm", "right"),
-            qr_id=params.get("qr_id", 0),
-            marker_size=params.get("marker_size", 0.058),
-            point_name=params.get("point_name", ""),
-            scene_id=params.get("scene_id", ""),
-            stream_type=stream_type,
-            color_frame=color_frame,
-            ir_frame=ir_frame,
-        )
-        response.success = result["success"]
-        response.message = result["message"]
-        if result["success"]:
-            response.result_json = json.dumps({
-                "translation": result["translation"],
-                "rotation": result["rotation"],
-            })
+
+        # 自动按需启动推流
+        was_streaming = manager.is_streaming(camera_id)
+        if not was_streaming:
+            stream_to_start = "ir" if stream_type == "ir" else "raw"
+            result = manager.start_stream(camera_id, stream_to_start)
+            if not result["success"]:
+                response.success = False
+                response.message = f"Failed to start stream: {result['message']}"
+                return response
+            for _ in range(30):
+                frame = (manager.get_latest_ir(camera_id) if stream_type == "ir"
+                         else manager.get_latest_color(camera_id))
+                if frame is not None:
+                    break
+                time.sleep(0.1)
+
+        try:
+            # 采集多帧做平均检测
+            calib_frames = []
+            for _ in range(20):
+                cf = manager.get_latest_color(camera_id)
+                irf = manager.get_latest_ir(camera_id)
+                frame = cf if stream_type == "color" else irf
+                if frame is not None:
+                    calib_frames.append(frame)
+                time.sleep(0.05)
+            result = _qr_calibrator.calibrate(
+                camera_id=params.get("camera_id", ""),
+                arm=arm,
+                qr_id=params.get("qr_id", 0),
+                marker_size=params.get("marker_size", 0.058),
+                point_name=params.get("point_name", ""),
+                scene_id=params.get("scene_id", ""),
+                stream_type=stream_type,
+                frames=calib_frames if calib_frames else None,
+            )
+            response.success = result["success"]
+            response.message = result["message"]
+            if result["success"]:
+                response.result_json = json.dumps({
+                    "translation": result["translation"],
+                    "rotation": result["rotation"],
+                })
+        finally:
+            if not was_streaming:
+                manager.stop_stream(camera_id)
         return response
 
     node.create_service(GenericCommand, "/camera/calibrate", _handle_calibrate)
@@ -1047,10 +1099,14 @@ def main(args=None):
                 response.success = False
                 response.message = f"Point not found: {scene_id}/{point_name}"
                 return response
+            logger.info("compute_pose: loaded point '%s' from scene '%s': arm=%s qr_id=%s marker_size=%s stream_type=%s",
+                        point_name, scene_id, point.get("arm"), point.get("qr_id"),
+                        point.get("marker_size"), point.get("stream_type", "color"))
 
             T_qr_ws = point.get("T_qr_workspace", {})
             t_ws = T_qr_ws.get("translation", [0, 0, 0])
             r_ws = T_qr_ws.get("rotation", [0, 0, 0, 1])
+            logger.info("compute_pose: T_qr_workspace from scene: t=%s r=%s", t_ws, r_ws)
 
             cfg = _cam_configs.get(camera_id, {})
             calib = cfg.get("calibration", {})
@@ -1061,69 +1117,139 @@ def main(args=None):
                 return response
 
             point_stream_type = point.get("stream_type", "color")
-            color_frame = manager.get_latest_color(camera_id)
-            ir_frame = manager.get_latest_ir(camera_id)
-            frame = (ir_frame if point_stream_type == "ir" else color_frame) or (color_frame or ir_frame)
-            if frame is None:
-                response.success = False
-                response.message = "No frame available"
-                return response
-
-            from python_pkgs.orbbec_vision.qr_detector import QRDetector
-            import numpy as np
-            K = np.array([[intrinsics["fx"], 0, intrinsics["cx"]], [0, intrinsics["fy"], intrinsics["cy"]], [0, 0, 1]], dtype=np.float64)
-            D = np.array(intrinsics.get("distortion", [0,0,0,0,0]), dtype=np.float64)
-            detector = QRDetector(K, D)
-
-            marker_size = point.get("marker_size", 0.058)
             qr_id = point.get("qr_id", 0)
-            results = detector.detect(frame, marker_size)
-            qr_result = next((r for r in results if r.qr_id == qr_id), None)
-            if qr_result is None:
-                response.success = False
-                response.message = f"QR id={qr_id} not found"
-                return response
+            marker_size = point.get("marker_size", 0.058)
+
+            # 自动按需启动推流（如果当前没有推流）
+            was_streaming = manager.is_streaming(camera_id)
+            if not was_streaming:
+                stream_to_start = "ir" if point_stream_type == "ir" else "raw"
+                result = manager.start_stream(camera_id, stream_to_start)
+                if not result["success"]:
+                    response.success = False
+                    response.message = f"Failed to start stream: {result['message']}"
+                    return response
+                # 等待帧积累
+                for _ in range(30):
+                    frame = (manager.get_latest_ir(camera_id) if point_stream_type == "ir"
+                             else manager.get_latest_color(camera_id))
+                    if frame is not None:
+                        break
+                    time.sleep(0.1)
+
+            try:
+                from python_pkgs.orbbec_vision.qr_detector import QRDetector
+                import numpy as np
+                K = np.array([[intrinsics["fx"], 0, intrinsics["cx"]], [0, intrinsics["fy"], intrinsics["cy"]], [0, 0, 1]], dtype=np.float64)
+                D = np.array(intrinsics.get("distortion", [0,0,0,0,0]), dtype=np.float64)
+                detector = QRDetector(K, D)
+
+                avg_samples = 10
+                avg_tvecs: list[np.ndarray] = []
+                avg_rvecs: list[np.ndarray] = []
+                max_attempts = avg_samples * 3
+
+                for _attempt in range(max_attempts):
+                    color_frame = manager.get_latest_color(camera_id)
+                    ir_frame = manager.get_latest_ir(camera_id)
+                    if point_stream_type == "ir":
+                        frame = ir_frame if ir_frame is not None else color_frame
+                    else:
+                        frame = color_frame if color_frame is not None else ir_frame
+                    if frame is None:
+                        time.sleep(0.05)
+                        continue
+                    results = detector.detect(frame, marker_size)
+                    qr_result = next((r for r in results if r.qr_id == qr_id), None)
+                    if qr_result is not None:
+                        avg_tvecs.append(np.asarray(qr_result.tvec).ravel())
+                        avg_rvecs.append(np.asarray(qr_result.rvec).ravel())
+                        if len(avg_tvecs) >= avg_samples:
+                            break
+                    time.sleep(0.03)
+
+                if len(avg_tvecs) < 3:
+                    response.success = False
+                    response.message = f"QR id={qr_id} not found in enough frames ({len(avg_tvecs)}/{avg_samples})"
+                    return response
+            finally:
+                if not was_streaming:
+                    manager.stop_stream(camera_id)
+
+            avg_tvec = np.mean(avg_tvecs, axis=0)
+            avg_rvec = np.mean(avg_rvecs, axis=0)
+            logger.info("compute_pose: averaged %d samples", len(avg_tvecs))
+            logger.info("  avg_tvec (camera→qr, m): [%.4f, %.4f, %.4f]", avg_tvec[0], avg_tvec[1], avg_tvec[2])
+            logger.info("  avg_rvec (camera→qr, rodrigues): [%.4f, %.4f, %.4f]", avg_rvec[0], avg_rvec[1], avg_rvec[2])
 
             import cv2 as _cv2
-            R_cam_qr, _ = _cv2.Rodrigues(qr_result.rvec)
-            T_cam_qr = np.eye(4); T_cam_qr[:3,:3] = R_cam_qr; T_cam_qr[:3,3] = qr_result.tvec.ravel()
+            R_cam_qr, _ = _cv2.Rodrigues(avg_rvec)
+            T_cam_qr = np.eye(4); T_cam_qr[:3,:3] = R_cam_qr; T_cam_qr[:3,3] = avg_tvec
+            logger.info("  T_camera_qr (4x4):\n%s", T_cam_qr)
 
+            # 存储的是 T_qr_ee (末端在 QR 坐标系下的固定位姿)
             qx, qy, qz, qw = r_ws
-            R_ws = np.array([
+            logger.info("  stored T_qr_ee.rot (quat): [%.4f, %.4f, %.4f, %.4f]", qx, qy, qz, qw)
+            logger.info("  stored T_qr_ee.t (m): [%.4f, %.4f, %.4f]", t_ws[0], t_ws[1], t_ws[2])
+            R_qr_ee = np.array([
                 [1-2*qy*qy-2*qz*qz, 2*qx*qy-2*qz*qw, 2*qx*qz+2*qy*qw],
                 [2*qx*qy+2*qz*qw, 1-2*qx*qx-2*qz*qz, 2*qy*qz-2*qx*qw],
                 [2*qx*qz-2*qy*qw, 2*qy*qz+2*qx*qw, 1-2*qx*qx-2*qy*qy]])
-            T_qr_ws_mat = np.eye(4); T_qr_ws_mat[:3,:3] = R_ws; T_qr_ws_mat[:3,3] = t_ws
-            T_cam_ws = T_cam_qr @ T_qr_ws_mat
+            T_qr_ee = np.eye(4); T_qr_ee[:3,:3] = R_qr_ee; T_qr_ee[:3,3] = t_ws
+            logger.info("  T_qr_ee (4x4, stored):\n%s", T_qr_ee)
 
+            # T_camera_ee from config
             arm = point.get("arm", "right")
-            ee_link = f"ARM-{arm.upper()}-J7_Link"
+            arm_letter = arm[0].upper() if arm else "R"
+            ee_link = f"ARM-{arm_letter}-J7_Link"
             cam_to_ee = calib.get(f"camera_to_{ee_link}", {})
             if not cam_to_ee.get("translation"):
                 response.success = False
                 response.message = f"No camera_to_ee calibration for {ee_link}"
                 return response
+            logger.info("  cam_to_ee (from config, raw): rot=%s trans=%s",
+                        cam_to_ee.get("rotation"), cam_to_ee.get("translation"))
             R_cam_ee, _ = _cv2.Rodrigues(np.array(cam_to_ee["rotation"], dtype=np.float64))
             T_cam_ee = np.eye(4); T_cam_ee[:3,:3] = R_cam_ee
-            t = cam_to_ee["translation"]
-            T_cam_ee[:3,3] = [float(t[0])/1000.0 if abs(t[0])>10 else float(t[0]),
-                              float(t[1])/1000.0 if abs(t[1])>10 else float(t[1]),
-                              float(t[2])/1000.0 if abs(t[2])>10 else float(t[2])]
-            T_ee_ws = np.linalg.inv(T_cam_ee) @ T_cam_ws
+            t_raw = cam_to_ee["translation"]
+            T_cam_ee[:3,3] = [float(t_raw[0])/1000.0 if abs(t_raw[0])>10 else float(t_raw[0]),
+                              float(t_raw[1])/1000.0 if abs(t_raw[1])>10 else float(t_raw[1]),
+                              float(t_raw[2])/1000.0 if abs(t_raw[2])>10 else float(t_raw[2])]
+            logger.info("  T_camera_ee (4x4, mm→m if needed):\n%s", T_cam_ee)
 
-            x, y, z = float(T_ee_ws[0,3]), float(T_ee_ws[1,3]), float(T_ee_ws[2,3])
-            R_ee = T_ee_ws[:3,:3]
-            sy = np.sqrt(R_ee[0,0]**2 + R_ee[1,0]**2)
+            # 从 TF 获取当前末端位姿
+            T_base_ee_now = _get_T_base_ee(arm)
+            if T_base_ee_now is None:
+                response.success = False
+                response.message = f"TF not available for arm={arm}"
+                return response
+            logger.info("  T_base_ee (TF, current):\n%s", T_base_ee_now)
+
+            # T_ee_qr (current) = inv(T_camera_ee) @ T_camera_qr
+            T_ee_qr_now = np.linalg.inv(T_cam_ee) @ T_cam_qr
+            logger.info("  T_ee_qr (current) = inv(T_camera_ee) @ T_camera_qr:\n%s", T_ee_qr_now)
+
+            # T_base_qr (current) = T_base_ee @ T_ee_qr
+            T_base_qr_now = T_base_ee_now @ T_ee_qr_now
+            logger.info("  T_base_qr (current) = T_base_ee @ T_ee_qr:\n%s", T_base_qr_now)
+
+            # 目标末端位姿: T_base_ee_target = T_base_qr_now @ T_qr_ee
+            T_base_ee_target = T_base_qr_now @ T_qr_ee
+            logger.info("  T_base_ee_target = T_base_qr_now @ T_qr_ee:\n%s", T_base_ee_target)
+
+            x, y, z = float(T_base_ee_target[0,3]), float(T_base_ee_target[1,3]), float(T_base_ee_target[2,3])
+            R_target = T_base_ee_target[:3,:3]
+            sy = np.sqrt(R_target[0,0]**2 + R_target[1,0]**2)
             singular = sy < 1e-6
-            roll = float(np.arctan2(-R_ee[1,2], R_ee[1,1]) if singular else np.arctan2(R_ee[2,1], R_ee[2,2]))
-            pitch = float(np.arctan2(-R_ee[2,0], sy))
-            yaw = float(0.0 if singular else np.arctan2(R_ee[1,0], R_ee[0,0]))
+            roll = float(np.arctan2(-R_target[1,2], R_target[1,1]) if singular else np.arctan2(R_target[2,1], R_target[2,2]))
+            pitch = float(np.arctan2(-R_target[2,0], sy))
+            yaw = float(0.0 if singular else np.arctan2(R_target[1,0], R_target[0,0]))
 
             response.success = True
             response.message = "Computed"
             response.result_json = json.dumps({"x":x,"y":y,"z":z,"roll":roll,"pitch":pitch,"yaw":yaw})
-            logger.info("compute_pose: camera=%s scene=%s point=%s → xyz=[%.4f,%.4f,%.4f] rpy=[%.4f,%.4f,%.4f]",
-                        camera_id, scene_id, point_name, x, y, z, roll, pitch, yaw)
+            logger.info("compute_pose: result T_base_ee_target → xyz=[%.4f, %.4f, %.4f] rpy=[%.4f, %.4f, %.4f]",
+                        x, y, z, roll, pitch, yaw)
         except Exception as e:
             logger.exception("compute_pose failed")
             response.success = False
@@ -1132,10 +1258,40 @@ def main(args=None):
 
     node.create_service(GenericCommand, "/camera/compute_pose", _handle_compute_pose)
 
-    # ---- TF Broadcaster for camera→ee transforms ----
+    # ---- TF Broadcaster + Listener ----
     import tf2_ros
     _tf_broadcaster = tf2_ros.TransformBroadcaster(node)
+    _tf_buffer = tf2_ros.Buffer()
+    _tf_listener = tf2_ros.TransformListener(_tf_buffer, node)
     _tf_timer = None
+
+    # 帮助函数: 从 TF 获取 base_link → ee_link 的 4x4 变换
+    def _get_T_base_ee(arm: str):
+        import numpy as np
+        from rclpy.duration import Duration
+        arm_letter = arm[0].upper() if arm else "R"
+        ee_link = f"ARM-{arm_letter}-J7_Link"
+        try:
+            tf_msg = _tf_buffer.lookup_transform("base_link", ee_link,
+                                                 rclpy.time.Time(),
+                                                 timeout=Duration(seconds=1.0))
+            t = tf_msg.transform.translation
+            q = tf_msg.transform.rotation
+            qx, qy, qz, qw = q.x, q.y, q.z, q.w
+            R = np.array([
+                [1-2*qy*qy-2*qz*qz, 2*qx*qy-2*qz*qw, 2*qx*qz+2*qy*qw],
+                [2*qx*qy+2*qz*qw, 1-2*qx*qx-2*qz*qz, 2*qy*qz-2*qx*qw],
+                [2*qx*qz-2*qy*qw, 2*qy*qz+2*qx*qw, 1-2*qx*qx-2*qy*qy],
+            ])
+            T = np.eye(4)
+            T[:3, :3] = R
+            T[:3, 3] = [t.x, t.y, t.z]
+            logger.info("TF lookup base_link→%s: trans=[%.4f, %.4f, %.4f]",
+                        ee_link, t.x, t.y, t.z)
+            return T
+        except Exception as e:
+            logger.warning("TF lookup base_link→%s failed: %s", ee_link, e)
+            return None
 
     def _publish_calibration_tfs():
         """读取 config 中的 camera_to_<ee_link> 并发布静态 TF。"""

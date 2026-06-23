@@ -587,14 +587,26 @@ class WorkflowService:
             return StepResult(step_id=step.id, success=False, message="ROS2 client not available")
 
         config = VisionStepConfig(**step.config)
-        result = await self._ros2.call_service("/vision_detect", {"scene": config.scene, "camera_id": config.camera_id})
+        # 调用 /camera/compute_pose 进行 QR 检测 + 位姿计算
+        result = await self._ros2.call_service("/camera/compute_pose", {
+            "camera_id": config.camera_id,
+            "function": config.function,
+            "scene_id": config.scene,
+            "point_name": config.point_name,
+        })
         if result.get("success") is False:
             return StepResult(step_id=step.id, success=False, message=result.get("message", "Vision detection failed"))
 
         data = result.get("data", {})
-        grasp_pose = data.get("grasp_pose") or data
-        context[step.id] = {"grasp_pose": grasp_pose}
-        return StepResult(step_id=step.id, success=True, message="Vision detection completed", data={"grasp_pose": grasp_pose})
+        target_pose = {
+            "x": data.get("x", 0.0), "y": data.get("y", 0.0), "z": data.get("z", 0.0),
+            "roll": data.get("roll", 0.0), "pitch": data.get("pitch", 0.0), "yaw": data.get("yaw", 0.0),
+        }
+        pose_msg = (f"target_pose x={target_pose['x']:.4f} y={target_pose['y']:.4f} z={target_pose['z']:.4f} "
+                    f"roll={target_pose['roll']:.4f} pitch={target_pose['pitch']:.4f} yaw={target_pose['yaw']:.4f}")
+        context[step.id] = {"target_pose": target_pose}
+        logger.info("Vision detection completed: %s", pose_msg)
+        return StepResult(step_id=step.id, success=True, message=pose_msg, data={"target_pose": target_pose})
 
     async def _execute_sleep(self, step, nav_lookup, context, robot_id) -> StepResult:
         config = SleepStepConfig(**step.config)

@@ -1,12 +1,12 @@
-"""现场标定模块 — 计算 QR 码到工作位置的固定变换 T_qr_workspace。
+"""现场标定模块 — 计算并存储末端在 QR 坐标系下的固定位姿 T_qr_ee。
 
 流程:
   1. QRDetector 检测 QR → T_camera_qr
-  2. TF 获取当前末端位姿 T_base_ee
-  3. config 读取 T_camera_ee (相机到末端)
-  4. T_ee_qr = inv(T_camera_ee) * T_camera_qr
-  5. T_qr_workspace = inv(T_ee_qr)  (末端对准工作位置)
-  6. SceneManager.add_point() 存储
+  2. config 读取 T_camera_ee (相机到末端)
+  3. T_qr_ee = inv(T_camera_qr) * T_camera_ee  (不依赖 base_link)
+  4. 存储 T_qr_ee
+
+后续识别: 检测新的 T_camera_qr → 推出当前 T_base_qr → T_base_ee_target = T_base_qr * T_qr_ee
 """
 
 import logging
@@ -108,11 +108,9 @@ class QRCalibrator:
     def calibrate(self, camera_id: str, arm: str, qr_id: int,
                   marker_size: float, point_name: str, scene_id: str,
                   stream_type: str = "color",
-                  color_frame: Optional[np.ndarray] = None,
-                  ir_frame: Optional[np.ndarray] = None,
-                  T_base_ee: Optional[np.ndarray] = None) -> dict:
+                  frames: Optional[list[np.ndarray]] = None) -> dict:
         """
-        执行现场标定。
+        执行现场标定。支持多帧平均抑制跳变。
 
         Args:
             camera_id: 相机 ID
@@ -121,34 +119,49 @@ class QRCalibrator:
             marker_size: QR 码物理边长 (米)
             point_name: 标定点名称
             scene_id: 场景 ID
-            color_frame: 彩色帧 (BGR)，可选
-            ir_frame: 红外帧 (灰度)，可选
+            stream_type: "color" / "ir"
+            frames: 帧列表 (BGR 或灰度)，多帧则平均检测结果
             T_base_ee: base_link → end-effector 的 4x4 变换，可选
 
         Returns:
             {success, message, translation, rotation, T_qr_workspace}
         """
         t0 = time.time()
-        logger.info("calibrate: camera=%s arm=%s qr_id=%d marker_size=%.4f point=%s scene=%s",
-                    camera_id, arm, qr_id, marker_size, point_name, scene_id)
+        logger.info("calibrate: camera=%s arm=%s qr_id=%d marker_size=%.4f point=%s scene=%s frames=%d",
+                    camera_id, arm, qr_id, marker_size, point_name, scene_id,
+                    len(frames) if frames else 0)
 
-        # 1. QR 检测 → T_camera_qr
+        # 1. QR 检测 → 多帧平均 T_camera_qr
         detector = self._detectors.get(camera_id)
         if detector is None:
             return {"success": False, "message": f"No intrinsics for camera: {camera_id}"}
 
-        frame = color_frame if stream_type == "color" else ir_frame
-        if frame is None:
-            return {"success": False, "message": "No frame available"}
+        if not frames:
+            return {"success": False, "message": "No frames available"}
 
-        results = detector.detect(frame, marker_size)
-        qr_result = next((r for r in results if r.qr_id == qr_id), None)
-        if qr_result is None:
-            return {"success": False, "message": f"QR id={qr_id} not found in frame, detected: {[r.qr_id for r in results]}"}
+        # 多帧检测，收集 tvec/rvec
+        all_tvecs: list[np.ndarray] = []
+        all_rvecs: list[np.ndarray] = []
+        for frame in frames:
+            results = detector.detect(frame, marker_size)
+            qr_result = next((r for r in results if r.qr_id == qr_id), None)
+            if qr_result is not None:
+                all_tvecs.append(np.asarray(qr_result.tvec).ravel())
+                all_rvecs.append(np.asarray(qr_result.rvec).ravel())
 
-        R_cam_qr = _rodrigues_to_matrix(qr_result.rvec)
-        T_camera_qr = _make_transform(R_cam_qr, qr_result.tvec)
-        logger.info("calibrate: T_camera_qr=\n%s", T_camera_qr)
+        if len(all_tvecs) < 3:
+            return {"success": False,
+                    "message": f"QR id={qr_id} not found in enough frames ({len(all_tvecs)}/{len(frames)})"}
+
+        avg_tvec = np.mean(all_tvecs, axis=0)
+        avg_rvec = np.mean(all_rvecs, axis=0)
+        logger.info("calibrate: averaged %d detections, tvec=[%.4f,%.4f,%.4f] rvec=[%.4f,%.4f,%.4f]",
+                    len(all_tvecs), avg_tvec[0], avg_tvec[1], avg_tvec[2],
+                    avg_rvec[0], avg_rvec[1], avg_rvec[2])
+
+        R_cam_qr = _rodrigues_to_matrix(avg_rvec)
+        T_camera_qr = _make_transform(R_cam_qr, avg_tvec)
+        logger.info("calibrate: T_camera_qr (averaged)=\n%s", T_camera_qr)
 
         # 2. 获取 T_camera_ee
         cfg = self._camera_configs.get(camera_id, {})
@@ -171,16 +184,12 @@ class QRCalibrator:
         T_camera_ee = _make_transform(R_cam_ee, trans_m)
         logger.info("calibrate: T_camera_ee (from config)=\n%s", T_camera_ee)
 
-        # 3. T_ee_qr = inv(T_camera_ee) * T_camera_qr
-        T_ee_qr = np.linalg.inv(T_camera_ee) @ T_camera_qr
-        logger.info("calibrate: T_ee_qr = inv(T_camera_ee) * T_camera_qr =\n%s", T_ee_qr)
+                # 3. T_qr_ee = inv(T_camera_qr) * T_camera_ee  (QR→末端固定位姿, 不依赖 base)
+        T_qr_ee = np.linalg.inv(T_camera_qr) @ T_camera_ee
+        logger.info("calibrate: T_qr_ee = inv(T_camera_qr) * T_camera_ee =\n%s", T_qr_ee)
 
-        # 4. T_qr_workspace = inv(T_ee_qr) (末端对准工作位置)
-        T_qr_workspace = np.linalg.inv(T_ee_qr)
-        logger.info("calibrate: T_qr_workspace = inv(T_ee_qr) =\n%s", T_qr_workspace)
-
-        # 5. 存储
-        translation, rotation = _matrix_to_pose(T_qr_workspace)
+        # 4. 存储 T_qr_ee
+        translation, rotation = _matrix_to_pose(T_qr_ee)
         ok = self._scene.add_point(
             scene_id=scene_id,
             qr_id=qr_id,
@@ -194,12 +203,12 @@ class QRCalibrator:
             return {"success": False, "message": f"Failed to save point to scene {scene_id}"}
 
         elapsed = (time.time() - t0) * 1000
-        logger.info("calibrate: done (%.1fms) T_qr_workspace trans=%s rot=%s",
+        logger.info("calibrate: done (%.1fms) T_qr_ee trans=%s rot=%s",
                     elapsed, translation, rotation)
         return {
             "success": True,
             "message": "Calibration complete",
             "translation": translation,
             "rotation": rotation,
-            "T_qr_workspace": T_qr_workspace.tolist()
+            "T_qr_ee": T_qr_ee.tolist()
         }
