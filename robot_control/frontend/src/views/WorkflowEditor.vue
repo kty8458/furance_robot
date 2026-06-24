@@ -391,6 +391,7 @@
                       <el-col :span="12">
                         <div style="font-size: 11px; color: #6b7b8d">场景</div>
                         <el-select v-model="step.config.scene" size="small" style="width: 100%"
+                          @visible-change="v => v && refreshSceneList()"
                           @change="val => { loadScenePoints(val); step.config.point_name = '' }">
                           <el-option v-for="s in sceneList" :key="s.scene_id"
                             :label="`${s.scene_id} (${s.description})`" :value="s.scene_id" />
@@ -398,9 +399,10 @@
                       </el-col>
                       <el-col :span="12">
                         <div style="font-size: 11px; color: #6b7b8d">标定点</div>
-                        <el-select v-model="step.config.point_name" size="small" style="width: 100%">
+                        <el-select v-model="step.config.point_name" size="small" style="width: 100%"
+                          @visible-change="v => v && step.config.scene && loadScenePoints(step.config.scene)">
                           <el-option v-for="p in (scenePoints[step.config.scene] || [])"
-                            :key="p" :label="p" :value="p" />
+                            :key="p.name || p" :label="p.name || p" :value="p.name || p" />
                         </el-select>
                       </el-col>
                     </el-row>
@@ -633,13 +635,24 @@ async function loadSceneList() {
 
 async function loadScenePoints(sceneId) {
   if (!sceneId) { scenePoints.value[sceneId] = []; return }
-  if (scenePoints.value[sceneId]) return
   try {
     const { cameraApi } = await import('../api/camera')
     const res = await cameraApi.scene('get', sceneId)
     const data = res.data || {}
-    scenePoints.value[sceneId] = (data.qr_transforms || []).map(p => p.name)
+    scenePoints.value[sceneId] = (data.qr_transforms || []).map(p => ({
+      name: p.name, arm: p.arm, qr_id: p.qr_id, marker_size: p.marker_size, stream_type: p.stream_type || 'color',
+    }))
   } catch { scenePoints.value[sceneId] = [] }
+}
+
+async function refreshSceneList() {
+  await loadSceneList()
+  // 刷新当前选中的场景的点位
+  for (const step of currentWorkflow.value?.steps || []) {
+    if (step.type === 'vision' && step.config.scene) {
+      await loadScenePoints(step.config.scene)
+    }
+  }
 }
 
 function onPresetChange(step, name) {
@@ -804,7 +817,8 @@ async function createWorkflow() {
   }
 }
 
-async function saveWorkflow() {
+async function saveWorkflow(opts = {}) {
+  const silent = opts.silent === true
   if (!currentWorkflow.value) return
   try {
     const wf = JSON.parse(JSON.stringify(currentWorkflow.value))
@@ -826,9 +840,10 @@ async function saveWorkflow() {
       }
     })
     await workflowApi.update(wf.name, wf)
-    ElMessage.success('保存成功')
+    if (!silent) ElMessage.success('保存成功')
   } catch (error) {
-    ElMessage.error(error.message || '保存失败')
+    if (!silent) ElMessage.error(error.message || '保存失败')
+    throw error
   }
 }
 
@@ -916,6 +931,13 @@ async function executeWorkflow() {
   if (!currentWorkflow.value) return
   executing.value = true
   try {
+    // 执行前自动保存，避免内存修改未持久化导致执行的是旧配置
+    try {
+      await saveWorkflow({ silent: true })
+    } catch (e) {
+      ElMessage.warning('自动保存失败，可能执行的是上次保存的配置')
+    }
+
     // Prepopulate all steps with pending status
     execStepRows.value = currentWorkflow.value.steps.map(s => ({
       step_id: s.id,

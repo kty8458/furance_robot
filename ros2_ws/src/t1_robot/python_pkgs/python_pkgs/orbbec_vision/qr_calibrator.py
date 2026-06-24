@@ -1,12 +1,13 @@
-"""现场标定模块 — 计算并存储末端在 QR 坐标系下的固定位姿 T_qr_ee。
+"""现场标定模块 — 多 QR 支持，存储每个 QR 各自的 T_qr_ee。
 
 流程:
-  1. QRDetector 检测 QR → T_camera_qr
-  2. config 读取 T_camera_ee (相机到末端)
-  3. T_qr_ee = inv(T_camera_qr) * T_camera_ee  (不依赖 base_link)
-  4. 存储 T_qr_ee
+  1. QRDetector 检测所有 QR (允许列表过滤)
+  2. config 读取 T_camera_ee
+  3. 对每个检测到的 QR 多帧平均 → T_camera_qr_i
+  4. T_qr_i_ee = inv(T_camera_qr_i) * T_camera_ee
+  5. 存储 {qr_ids, T_qr_ee_per_id: {qr_id: T_qr_ee}}
 
-后续识别: 检测新的 T_camera_qr → 推出当前 T_base_qr → T_base_ee_target = T_base_qr * T_qr_ee
+识别时每个 QR 独立算目标，再加权融合 + MAD 离群剔除。
 """
 
 import logging
@@ -105,110 +106,126 @@ class QRCalibrator:
                 self._detectors[cid] = QRDetector(K, D)
                 logger.info("QRCalibrator: detector ready for camera '%s'", cid)
 
-    def calibrate(self, camera_id: str, arm: str, qr_id: int,
+    def calibrate(self, camera_id: str, arm: str,
+                  qr_ids: list[int],
                   marker_size: float, point_name: str, scene_id: str,
                   stream_type: str = "color",
                   frames: Optional[list[np.ndarray]] = None) -> dict:
         """
-        执行现场标定。支持多帧平均抑制跳变。
+        多 QR 标定：为每个允许的 QR 独立计算 T_qr_ee 并存入字典。
 
         Args:
             camera_id: 相机 ID
             arm: "left" / "right"
-            qr_id: 目标 QR 码 ID
-            marker_size: QR 码物理边长 (米)
+            qr_ids: 允许参与的 QR ID 列表 (空表示通配, 接受所有检测到的)
+            marker_size: QR 物理边长 (米)
             point_name: 标定点名称
             scene_id: 场景 ID
             stream_type: "color" / "ir"
-            frames: 帧列表 (BGR 或灰度)，多帧则平均检测结果
-            T_base_ee: base_link → end-effector 的 4x4 变换，可选
+            frames: 帧列表 (BGR 或灰度)
 
         Returns:
-            {success, message, translation, rotation, T_qr_workspace}
+            {success, message, T_qr_ee_per_id, qr_ids_calibrated}
         """
         t0 = time.time()
-        logger.info("calibrate: camera=%s arm=%s qr_id=%d marker_size=%.4f point=%s scene=%s frames=%d",
-                    camera_id, arm, qr_id, marker_size, point_name, scene_id,
+        logger.info("calibrate: camera=%s arm=%s qr_ids=%s marker_size=%.4f point=%s scene=%s frames=%d",
+                    camera_id, arm, qr_ids, marker_size, point_name, scene_id,
                     len(frames) if frames else 0)
 
-        # 1. QR 检测 → 多帧平均 T_camera_qr
         detector = self._detectors.get(camera_id)
         if detector is None:
             return {"success": False, "message": f"No intrinsics for camera: {camera_id}"}
-
         if not frames:
             return {"success": False, "message": "No frames available"}
 
-        # 多帧检测，收集 tvec/rvec
-        all_tvecs: list[np.ndarray] = []
-        all_rvecs: list[np.ndarray] = []
+        # 1. 对每个 QR id 收集多帧 tvec/rvec
+        per_id_tvecs: dict[int, list[np.ndarray]] = {}
+        per_id_rvecs: dict[int, list[np.ndarray]] = {}
+        all_detected_ids: set[int] = set()  # 跟踪所有检测到的 ID, 用于错误提示
         for frame in frames:
             results = detector.detect(frame, marker_size)
-            qr_result = next((r for r in results if r.qr_id == qr_id), None)
-            if qr_result is not None:
-                all_tvecs.append(np.asarray(qr_result.tvec).ravel())
-                all_rvecs.append(np.asarray(qr_result.rvec).ravel())
+            for r in results:
+                all_detected_ids.add(r.qr_id)
+                if qr_ids and r.qr_id not in qr_ids:
+                    continue
+                per_id_tvecs.setdefault(r.qr_id, []).append(np.asarray(r.tvec).ravel())
+                per_id_rvecs.setdefault(r.qr_id, []).append(np.asarray(r.rvec).ravel())
 
-        if len(all_tvecs) < 3:
+        if not per_id_tvecs:
+            detected_str = sorted(all_detected_ids) if all_detected_ids else "none"
             return {"success": False,
-                    "message": f"QR id={qr_id} not found in enough frames ({len(all_tvecs)}/{len(frames)})"}
-
-        avg_tvec = np.mean(all_tvecs, axis=0)
-        avg_rvec = np.mean(all_rvecs, axis=0)
-        logger.info("calibrate: averaged %d detections, tvec=[%.4f,%.4f,%.4f] rvec=[%.4f,%.4f,%.4f]",
-                    len(all_tvecs), avg_tvec[0], avg_tvec[1], avg_tvec[2],
-                    avg_rvec[0], avg_rvec[1], avg_rvec[2])
-
-        R_cam_qr = _rodrigues_to_matrix(avg_rvec)
-        T_camera_qr = _make_transform(R_cam_qr, avg_tvec)
-        logger.info("calibrate: T_camera_qr (averaged)=\n%s", T_camera_qr)
+                    "message": f"No allowed QR detected. allowed={qr_ids or 'any'} actually_detected={detected_str}"}
 
         # 2. 获取 T_camera_ee
         cfg = self._camera_configs.get(camera_id, {})
         calib = cfg.get("calibration", {})
-        ee_link = ARM_EE_LINKS.get(arm, f"ARM-{arm.upper()}-J7_Link")
-        cam_to_ee_key = f"camera_to_{ee_link}"
-        cam_to_ee = calib.get(cam_to_ee_key, {})
+        arm_letter = arm[0].upper() if arm else "R"
+        ee_link = f"ARM-{arm_letter}-J7_Link"
+        cam_to_ee = calib.get(f"camera_to_{ee_link}", {})
         if not cam_to_ee.get("translation"):
             return {"success": False, "message": f"No camera_to_ee calibration for {camera_id} → {ee_link}"}
-
-        rot = cam_to_ee["rotation"]
-        trans = cam_to_ee["translation"]
-        # rotation in config is stored as rodrigues-like [rx, ry, rz]
-        R_cam_ee, _ = cv2.Rodrigues(np.array(rot, dtype=np.float64))
-        # Convert translation from mm to meters: if abs(value) > 10, divide by 1000
-        trans_m = np.array(trans, dtype=np.float64)
+        R_cam_ee, _ = cv2.Rodrigues(np.array(cam_to_ee["rotation"], dtype=np.float64))
+        trans_m = np.array(cam_to_ee["translation"], dtype=np.float64)
         for i in range(3):
             if abs(trans_m[i]) > 10:
                 trans_m[i] /= 1000.0
         T_camera_ee = _make_transform(R_cam_ee, trans_m)
         logger.info("calibrate: T_camera_ee (from config)=\n%s", T_camera_ee)
 
-                # 3. T_qr_ee = inv(T_camera_qr) * T_camera_ee  (QR→末端固定位姿, 不依赖 base)
-        T_qr_ee = np.linalg.inv(T_camera_qr) @ T_camera_ee
-        logger.info("calibrate: T_qr_ee = inv(T_camera_qr) * T_camera_ee =\n%s", T_qr_ee)
+        # 3. 每个 QR 独立平均 → T_qr_ee_i
+        # OpenCV 光学系(X右/Y下/Z前) → ROS link 约定(X前/Y左/Z上)
+        R_link_optical = np.array([
+            [ 0,  0,  1],
+            [-1,  0,  0],
+            [ 0, -1,  0],
+        ], dtype=np.float64)
+        T_link_optical = np.eye(4); T_link_optical[:3, :3] = R_link_optical
 
-        # 4. 存储 T_qr_ee
-        translation, rotation = _matrix_to_pose(T_qr_ee)
+        T_qr_ee_per_id: dict[str, dict] = {}
+        for qid, tvecs in per_id_tvecs.items():
+            if len(tvecs) < 3:
+                logger.warning("calibrate: skip QR id=%d (only %d frames)", qid, len(tvecs))
+                continue
+            avg_tvec = np.mean(tvecs, axis=0)
+            avg_rvec = np.mean(per_id_rvecs[qid], axis=0)
+            R_cam_qr = _rodrigues_to_matrix(avg_rvec)
+            T_camera_qr_optical = _make_transform(R_cam_qr, avg_tvec)
+            # 光学系 → link 约定
+            T_camera_qr = T_link_optical @ T_camera_qr_optical
+            T_qr_ee = np.linalg.inv(T_camera_qr) @ T_camera_ee
+            t, r = _matrix_to_pose(T_qr_ee)
+            T_qr_ee_per_id[str(qid)] = {"translation": t, "rotation": r}
+            logger.info("calibrate: QR id=%d (%d frames) → T_qr_ee t=%s r=%s",
+                        qid, len(tvecs), t, r)
+
+        if not T_qr_ee_per_id:
+            return {"success": False, "message": "No QR had enough frames for calibration"}
+
+        # 4. 存储
+        calibrated_ids = [int(k) for k in T_qr_ee_per_id.keys()]
         ok = self._scene.add_point(
             scene_id=scene_id,
-            qr_id=qr_id,
             name=point_name,
             arm=arm,
             marker_size=marker_size,
             stream_type=stream_type,
-            T_qr_workspace={"translation": translation, "rotation": rotation},
+            qr_ids=calibrated_ids,
+            T_qr_ee_per_id=T_qr_ee_per_id,
         )
         if not ok:
             return {"success": False, "message": f"Failed to save point to scene {scene_id}"}
 
         elapsed = (time.time() - t0) * 1000
-        logger.info("calibrate: done (%.1fms) T_qr_ee trans=%s rot=%s",
-                    elapsed, translation, rotation)
+        logger.info("calibrate: done (%.1fms) calibrated %d QRs: %s",
+                    elapsed, len(calibrated_ids), calibrated_ids)
+        # 返回首个 QR 的结果用于前端预览
+        first_qid = str(calibrated_ids[0])
+        first = T_qr_ee_per_id[first_qid]
         return {
             "success": True,
-            "message": "Calibration complete",
-            "translation": translation,
-            "rotation": rotation,
-            "T_qr_ee": T_qr_ee.tolist()
+            "message": f"Calibration complete ({len(calibrated_ids)} QRs)",
+            "translation": first["translation"],
+            "rotation": first["rotation"],
+            "qr_ids_calibrated": calibrated_ids,
+            "T_qr_ee_per_id": T_qr_ee_per_id,
         }

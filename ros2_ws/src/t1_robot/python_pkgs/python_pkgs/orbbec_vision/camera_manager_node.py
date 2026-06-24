@@ -196,8 +196,69 @@ class PoseStabilityTracker:
         self._rvecs.clear()
 
 
+def _corner_area(corners: np.ndarray) -> float:
+    """计算 QR 4 个角点构成的四边形像素面积 (作为检测置信度代理)."""
+    pts = corners.reshape(-1, 2)
+    if len(pts) < 4:
+        return 0.0
+    # Shoelace formula
+    x = pts[:, 0]
+    y = pts[:, 1]
+    return 0.5 * abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
+
+
+def _mad_filter(values: np.ndarray, threshold: float = 3.0):
+    """基于 MAD (中位数绝对偏差) 的离群剔除。
+
+    Args:
+        values: shape (N,) 或 (N, D)
+        threshold: |x - median| / MAD > threshold 视为离群
+    Returns:
+        mask: shape (N,) 布尔数组, True 表示保留
+    """
+    if len(values) <= 2:
+        return np.ones(len(values), dtype=bool)
+    arr = np.asarray(values)
+    if arr.ndim == 1:
+        median = np.median(arr)
+        mad = np.median(np.abs(arr - median)) + 1e-9
+        return np.abs(arr - median) / mad < threshold
+    # 多维: 用每点到中位数的欧氏距离做 MAD
+    median = np.median(arr, axis=0)
+    dists = np.linalg.norm(arr - median, axis=1)
+    mad = np.median(np.abs(dists - np.median(dists))) + 1e-9
+    return np.abs(dists - np.median(dists)) / mad < threshold
+
+
+def _quat_weighted_mean(quats: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    """加权四元数平均 (Markley 等论文方法: 对加权外积矩阵求最大特征向量)。
+
+    Args:
+        quats: shape (N, 4) 每行 [x, y, z, w]
+        weights: shape (N,)
+    Returns:
+        归一化后的四元数 [x, y, z, w]
+    """
+    if len(quats) == 1:
+        return quats[0] / np.linalg.norm(quats[0])
+    # 处理四元数符号歧义: 使所有四元数与第一个同号
+    qs = quats.copy()
+    for i in range(1, len(qs)):
+        if np.dot(qs[0], qs[i]) < 0:
+            qs[i] = -qs[i]
+    # 加权外积矩阵
+    M = np.zeros((4, 4))
+    for q, w in zip(qs, weights):
+        M += w * np.outer(q, q)
+    M /= np.sum(weights)
+    # 最大特征值对应的特征向量
+    eigvals, eigvecs = np.linalg.eigh(M)
+    q_mean = eigvecs[:, -1]
+    return q_mean / np.linalg.norm(q_mean)
+
+
 def _annotate_frame(manager, camera_id: str, frame: np.ndarray) -> np.ndarray:
-    """对帧进行 QR 检测 + 标注 + 稳定性叠印 (供 annotated / ir_annotated 复用)。"""
+    """对帧进行 QR 检测 + 标注 + 多 QR 稳定性叠印 (供 annotated / ir_annotated 复用)。"""
     detector = None
     if hasattr(manager, '_qr_detectors') and camera_id in manager._qr_detectors:
         detector = manager._qr_detectors[camera_id]
@@ -206,14 +267,44 @@ def _annotate_frame(manager, camera_id: str, frame: np.ndarray) -> np.ndarray:
         results = detector.detect(frame, 0.058)
         frame = detector.draw_results(frame, results)
 
-        if hasattr(manager, '_stability_trackers'):
-            tracker = manager._stability_trackers.get(camera_id)
-            if tracker is not None:
-                target = next((r for r in results if r.qr_id == 1), None)
-                if target:
-                    tracker.push(target.tvec, target.rvec)
-                frame = _draw_stability_overlay(frame, tracker)
+        # 多 QR 稳定性: 每个 QR 维护独立 tracker (按 qr_id key)
+        if hasattr(manager, '_stability_trackers_per_id'):
+            trackers = manager._stability_trackers_per_id.setdefault(camera_id, {})
+            seen_ids = []
+            for r in results:
+                tr = trackers.setdefault(r.qr_id, PoseStabilityTracker(60))
+                tr.push(r.tvec, r.rvec)
+                seen_ids.append(r.qr_id)
+            frame = _draw_multi_stability_overlay(frame, trackers, seen_ids)
     return frame
+
+
+def _draw_multi_stability_overlay(frame: np.ndarray, trackers: dict, visible_ids: list) -> np.ndarray:
+    """在画面左上角叠加多个 QR 的稳定性统计 (每个 QR 一组紧凑显示)。"""
+    out = frame.copy()
+    y_offset = 40
+    for qid in sorted(visible_ids):
+        tr = trackers.get(qid)
+        if tr is None or not tr.ready:
+            continue
+        s = tr.stats
+        header = f"ID={qid}  samples={s['samples']}"
+        cv2.putText(out, header, (10, y_offset),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 220, 255), 2)
+        y_offset += 32
+        # 每行单独拆开避免过长
+        lines = [
+            f" t_std:[{s['t_std'][0]:.2f},{s['t_std'][1]:.2f},{s['t_std'][2]:.2f}]mm",
+            f" t_ptp:[{s['t_ptp'][0]:.2f},{s['t_ptp'][1]:.2f},{s['t_ptp'][2]:.2f}]mm",
+            f" r_std:[{s['r_std'][0]:.2f},{s['r_std'][1]:.2f},{s['r_std'][2]:.2f}]deg",
+            f" r_ptp:[{s['r_ptp'][0]:.2f},{s['r_ptp'][1]:.2f},{s['r_ptp'][2]:.2f}]deg",
+        ]
+        for line in lines:
+            cv2.putText(out, line, (10, y_offset),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 200, 50), 2)
+            y_offset += 28
+        y_offset += 8
+    return out
 
 
 def _draw_stability_overlay(frame: np.ndarray, tracker: PoseStabilityTracker) -> np.ndarray:
@@ -921,6 +1012,7 @@ def main(args=None):
 
     manager._qr_detectors = _qr_detectors
     manager._stability_trackers = _stability_trackers
+    manager._stability_trackers_per_id = {}  # camera_id -> {qr_id: PoseStabilityTracker}
 
     # 启动 WS server 线程
     ws_thread = threading.Thread(target=_run_ws_in_thread, args=(manager,), daemon=True)
@@ -985,19 +1077,42 @@ def main(args=None):
                 time.sleep(0.1)
 
         try:
-            # 采集多帧做平均检测
+            # 采集多帧做平均检测 — 用时间戳确保每帧都是新帧
             calib_frames = []
+            # 丢弃启动残留, 等第一帧新数据
+            last_ts = manager.get_frame_timestamp(camera_id)
+            wait_t0 = time.time()
+            while manager.get_frame_timestamp(camera_id) == last_ts:
+                if time.time() - wait_t0 > 2.0: break
+                time.sleep(0.01)
+            last_ts = manager.get_frame_timestamp(camera_id)
+
             for _ in range(20):
+                wait_t0 = time.time()
+                while True:
+                    cur_ts = manager.get_frame_timestamp(camera_id)
+                    if cur_ts > last_ts:
+                        last_ts = cur_ts
+                        break
+                    if time.time() - wait_t0 > 1.0: break
+                    time.sleep(0.005)
                 cf = manager.get_latest_color(camera_id)
                 irf = manager.get_latest_ir(camera_id)
                 frame = cf if stream_type == "color" else irf
                 if frame is not None:
                     calib_frames.append(frame)
-                time.sleep(0.05)
+            # 兼容: 优先用 qr_ids 列表; 否则用单个 qr_id
+            qr_ids_param = params.get("qr_ids")
+            if qr_ids_param is None:
+                qid = params.get("qr_id")
+                qr_ids_param = [int(qid)] if qid is not None else []
+            else:
+                qr_ids_param = [int(x) for x in qr_ids_param]
+
             result = _qr_calibrator.calibrate(
                 camera_id=params.get("camera_id", ""),
                 arm=arm,
-                qr_id=params.get("qr_id", 0),
+                qr_ids=qr_ids_param,
                 marker_size=params.get("marker_size", 0.058),
                 point_name=params.get("point_name", ""),
                 scene_id=params.get("scene_id", ""),
@@ -1008,8 +1123,10 @@ def main(args=None):
             response.message = result["message"]
             if result["success"]:
                 response.result_json = json.dumps({
-                    "translation": result["translation"],
-                    "rotation": result["rotation"],
+                    "translation": result.get("translation", []),
+                    "rotation": result.get("rotation", []),
+                    "qr_ids_calibrated": result.get("qr_ids_calibrated", []),
+                    "T_qr_ee_per_id": result.get("T_qr_ee_per_id", {}),
                 })
         finally:
             if not was_streaming:
@@ -1053,12 +1170,14 @@ def main(args=None):
             elif action == "add_point":
                 ok = _scene_manager.add_point(
                     scene_id=scene_id,
-                    qr_id=extra.get("qr_id", 0),
                     name=extra.get("name", ""),
                     arm=extra.get("arm", "right"),
                     marker_size=extra.get("marker_size", 0.058),
                     stream_type=extra.get("stream_type", "color"),
-                    T_qr_workspace=extra.get("T_qr_workspace", {}),
+                    qr_ids=extra.get("qr_ids"),
+                    T_qr_ee_per_id=extra.get("T_qr_ee_per_id"),
+                    qr_id=extra.get("qr_id"),
+                    T_qr_workspace=extra.get("T_qr_workspace"),
                 )
                 response.success = ok
                 response.message = "Point added" if ok else "Failed"
@@ -1099,14 +1218,26 @@ def main(args=None):
                 response.success = False
                 response.message = f"Point not found: {scene_id}/{point_name}"
                 return response
-            logger.info("compute_pose: loaded point '%s' from scene '%s': arm=%s qr_id=%s marker_size=%s stream_type=%s",
-                        point_name, scene_id, point.get("arm"), point.get("qr_id"),
+            logger.info("compute_pose: loaded point '%s' from scene '%s': arm=%s qr_ids=%s marker_size=%s stream_type=%s",
+                        point_name, scene_id, point.get("arm"), point.get("qr_ids"),
                         point.get("marker_size"), point.get("stream_type", "color"))
 
-            T_qr_ws = point.get("T_qr_workspace", {})
-            t_ws = T_qr_ws.get("translation", [0, 0, 0])
-            r_ws = T_qr_ws.get("rotation", [0, 0, 0, 1])
-            logger.info("compute_pose: T_qr_workspace from scene: t=%s r=%s", t_ws, r_ws)
+            qr_ids_allowed = point.get("qr_ids", []) or []
+            T_qr_ee_per_id = point.get("T_qr_ee_per_id", {}) or {}
+            if not T_qr_ee_per_id:
+                response.success = False
+                response.message = "Point has no calibrated T_qr_ee_per_id"
+                return response
+
+            # 兼容性: 如果 qr_ids 与 T_qr_ee_per_id 的 keys 不一致 (旧数据 normalize 的产物),
+            # 以 T_qr_ee_per_id 的 keys 为准 — 因为只有标定过的 QR 才能用
+            calibrated_ids = {int(k) for k in T_qr_ee_per_id.keys()}
+            if qr_ids_allowed and set(qr_ids_allowed) != calibrated_ids:
+                logger.warning("compute_pose: qr_ids %s mismatch with calibrated keys %s, using calibrated",
+                               qr_ids_allowed, sorted(calibrated_ids))
+                qr_ids_allowed = list(calibrated_ids)
+            elif not qr_ids_allowed:
+                qr_ids_allowed = list(calibrated_ids)
 
             cfg = _cam_configs.get(camera_id, {})
             calib = cfg.get("calibration", {})
@@ -1117,10 +1248,9 @@ def main(args=None):
                 return response
 
             point_stream_type = point.get("stream_type", "color")
-            qr_id = point.get("qr_id", 0)
             marker_size = point.get("marker_size", 0.058)
 
-            # 自动按需启动推流（如果当前没有推流）
+            # 自动按需启动推流
             was_streaming = manager.is_streaming(camera_id)
             if not was_streaming:
                 stream_to_start = "ir" if point_stream_type == "ir" else "raw"
@@ -1129,7 +1259,6 @@ def main(args=None):
                     response.success = False
                     response.message = f"Failed to start stream: {result['message']}"
                     return response
-                # 等待帧积累
                 for _ in range(30):
                     frame = (manager.get_latest_ir(camera_id) if point_stream_type == "ir"
                              else manager.get_latest_color(camera_id))
@@ -1144,12 +1273,30 @@ def main(args=None):
                 D = np.array(intrinsics.get("distortion", [0,0,0,0,0]), dtype=np.float64)
                 detector = QRDetector(K, D)
 
-                avg_samples = 10
-                avg_tvecs: list[np.ndarray] = []
-                avg_rvecs: list[np.ndarray] = []
-                max_attempts = avg_samples * 3
+                target_frames = 10
+                # 每个 QR id 的多帧观测: id -> list of (tvec, rvec, corner_area)
+                per_id_obs: dict[int, list[tuple]] = {}
+                max_attempts = target_frames * 5
 
+                # 等待第一帧新数据
+                last_ts = manager.get_frame_timestamp(camera_id)
+                wait_t0 = time.time()
+                while manager.get_frame_timestamp(camera_id) == last_ts:
+                    if time.time() - wait_t0 > 2.0: break
+                    time.sleep(0.01)
+                last_ts = manager.get_frame_timestamp(camera_id)
+
+                frames_used = 0
                 for _attempt in range(max_attempts):
+                    wait_t0 = time.time()
+                    while True:
+                        cur_ts = manager.get_frame_timestamp(camera_id)
+                        if cur_ts > last_ts:
+                            last_ts = cur_ts
+                            break
+                        if time.time() - wait_t0 > 1.0: break
+                        time.sleep(0.005)
+
                     color_frame = manager.get_latest_color(camera_id)
                     ir_frame = manager.get_latest_ir(camera_id)
                     if point_stream_type == "ir":
@@ -1157,48 +1304,36 @@ def main(args=None):
                     else:
                         frame = color_frame if color_frame is not None else ir_frame
                     if frame is None:
-                        time.sleep(0.05)
                         continue
                     results = detector.detect(frame, marker_size)
-                    qr_result = next((r for r in results if r.qr_id == qr_id), None)
-                    if qr_result is not None:
-                        avg_tvecs.append(np.asarray(qr_result.tvec).ravel())
-                        avg_rvecs.append(np.asarray(qr_result.rvec).ravel())
-                        if len(avg_tvecs) >= avg_samples:
-                            break
-                    time.sleep(0.03)
+                    for r in results:
+                        # 允许列表为空 = 通配; 且 QR 必须有标定数据
+                        if qr_ids_allowed and r.qr_id not in qr_ids_allowed:
+                            continue
+                        if str(r.qr_id) not in T_qr_ee_per_id:
+                            continue
+                        area = _corner_area(r.corners)
+                        per_id_obs.setdefault(r.qr_id, []).append(
+                            (np.asarray(r.tvec).ravel(), np.asarray(r.rvec).ravel(), area)
+                        )
+                    frames_used += 1
+                    if frames_used >= target_frames:
+                        break
 
-                if len(avg_tvecs) < 3:
+                if not per_id_obs:
                     response.success = False
-                    response.message = f"QR id={qr_id} not found in enough frames ({len(avg_tvecs)}/{avg_samples})"
+                    response.message = f"No allowed QR detected (allowed={qr_ids_allowed or 'any'})"
                     return response
             finally:
                 if not was_streaming:
                     manager.stop_stream(camera_id)
 
-            avg_tvec = np.mean(avg_tvecs, axis=0)
-            avg_rvec = np.mean(avg_rvecs, axis=0)
-            logger.info("compute_pose: averaged %d samples", len(avg_tvecs))
-            logger.info("  avg_tvec (camera→qr, m): [%.4f, %.4f, %.4f]", avg_tvec[0], avg_tvec[1], avg_tvec[2])
-            logger.info("  avg_rvec (camera→qr, rodrigues): [%.4f, %.4f, %.4f]", avg_rvec[0], avg_rvec[1], avg_rvec[2])
+            logger.info("compute_pose: collected observations from %d QRs over %d frames",
+                        len(per_id_obs), frames_used)
 
             import cv2 as _cv2
-            R_cam_qr, _ = _cv2.Rodrigues(avg_rvec)
-            T_cam_qr = np.eye(4); T_cam_qr[:3,:3] = R_cam_qr; T_cam_qr[:3,3] = avg_tvec
-            logger.info("  T_camera_qr (4x4):\n%s", T_cam_qr)
 
-            # 存储的是 T_qr_ee (末端在 QR 坐标系下的固定位姿)
-            qx, qy, qz, qw = r_ws
-            logger.info("  stored T_qr_ee.rot (quat): [%.4f, %.4f, %.4f, %.4f]", qx, qy, qz, qw)
-            logger.info("  stored T_qr_ee.t (m): [%.4f, %.4f, %.4f]", t_ws[0], t_ws[1], t_ws[2])
-            R_qr_ee = np.array([
-                [1-2*qy*qy-2*qz*qz, 2*qx*qy-2*qz*qw, 2*qx*qz+2*qy*qw],
-                [2*qx*qy+2*qz*qw, 1-2*qx*qx-2*qz*qz, 2*qy*qz-2*qx*qw],
-                [2*qx*qz-2*qy*qw, 2*qy*qz+2*qx*qw, 1-2*qx*qx-2*qy*qy]])
-            T_qr_ee = np.eye(4); T_qr_ee[:3,:3] = R_qr_ee; T_qr_ee[:3,3] = t_ws
-            logger.info("  T_qr_ee (4x4, stored):\n%s", T_qr_ee)
-
-            # T_camera_ee from config
+            # T_camera_ee from config (公共)
             arm = point.get("arm", "right")
             arm_letter = arm[0].upper() if arm else "R"
             ee_link = f"ARM-{arm_letter}-J7_Link"
@@ -1207,15 +1342,12 @@ def main(args=None):
                 response.success = False
                 response.message = f"No camera_to_ee calibration for {ee_link}"
                 return response
-            logger.info("  cam_to_ee (from config, raw): rot=%s trans=%s",
-                        cam_to_ee.get("rotation"), cam_to_ee.get("translation"))
             R_cam_ee, _ = _cv2.Rodrigues(np.array(cam_to_ee["rotation"], dtype=np.float64))
             T_cam_ee = np.eye(4); T_cam_ee[:3,:3] = R_cam_ee
             t_raw = cam_to_ee["translation"]
             T_cam_ee[:3,3] = [float(t_raw[0])/1000.0 if abs(t_raw[0])>10 else float(t_raw[0]),
                               float(t_raw[1])/1000.0 if abs(t_raw[1])>10 else float(t_raw[1]),
                               float(t_raw[2])/1000.0 if abs(t_raw[2])>10 else float(t_raw[2])]
-            logger.info("  T_camera_ee (4x4, mm→m if needed):\n%s", T_cam_ee)
 
             # 从 TF 获取当前末端位姿
             T_base_ee_now = _get_T_base_ee(arm)
@@ -1223,33 +1355,148 @@ def main(args=None):
                 response.success = False
                 response.message = f"TF not available for arm={arm}"
                 return response
-            logger.info("  T_base_ee (TF, current):\n%s", T_base_ee_now)
 
-            # T_ee_qr (current) = inv(T_camera_ee) @ T_camera_qr
-            T_ee_qr_now = np.linalg.inv(T_cam_ee) @ T_cam_qr
-            logger.info("  T_ee_qr (current) = inv(T_camera_ee) @ T_camera_qr:\n%s", T_ee_qr_now)
+            # 对每个 QR 各自算 T_base_ee_target_i
+            # OpenCV 光学系(X右/Y下/Z前) → ROS link 约定(X前/Y左/Z上) 旋转
+            R_link_optical = np.array([
+                [ 0,  0,  1],
+                [-1,  0,  0],
+                [ 0, -1,  0],
+            ], dtype=np.float64)
+            T_link_optical = np.eye(4); T_link_optical[:3, :3] = R_link_optical
 
-            # T_base_qr (current) = T_base_ee @ T_ee_qr
-            T_base_qr_now = T_base_ee_now @ T_ee_qr_now
-            logger.info("  T_base_qr (current) = T_base_ee @ T_ee_qr:\n%s", T_base_qr_now)
+            candidates: list[dict] = []  # [{qr_id, t (3,), q (4,) xyzw, weight}]
+            for qid, obs in per_id_obs.items():
+                if len(obs) < 3:
+                    logger.info("  skip QR id=%d (only %d obs)", qid, len(obs))
+                    continue
+                # 多帧平均当前 QR 在相机系中的位姿
+                tvecs = np.array([o[0] for o in obs])
+                rvecs = np.array([o[1] for o in obs])
+                areas = np.array([o[2] for o in obs])
+                avg_tvec_qr = np.mean(tvecs, axis=0)
+                avg_rvec_qr = np.mean(rvecs, axis=0)
+                avg_area = float(np.mean(areas))
 
-            # 目标末端位姿: T_base_ee_target = T_base_qr_now @ T_qr_ee
-            T_base_ee_target = T_base_qr_now @ T_qr_ee
-            logger.info("  T_base_ee_target = T_base_qr_now @ T_qr_ee:\n%s", T_base_ee_target)
+                R_cam_qr, _ = _cv2.Rodrigues(avg_rvec_qr)
+                T_cam_qr_optical = np.eye(4); T_cam_qr_optical[:3,:3] = R_cam_qr; T_cam_qr_optical[:3,3] = avg_tvec_qr
 
-            x, y, z = float(T_base_ee_target[0,3]), float(T_base_ee_target[1,3]), float(T_base_ee_target[2,3])
-            R_target = T_base_ee_target[:3,:3]
-            sy = np.sqrt(R_target[0,0]**2 + R_target[1,0]**2)
+                # 光学系 → link 约定: T_camlink_qr = R_link_optical @ T_optical_qr
+                T_cam_qr_i = T_link_optical @ T_cam_qr_optical
+
+                T_qr_ee_data = T_qr_ee_per_id[str(qid)]
+                t_qe = T_qr_ee_data.get("translation", [0,0,0])
+                r_qe = T_qr_ee_data.get("rotation", [0,0,0,1])
+                qx, qy, qz, qw = r_qe
+                R_qr_ee = np.array([
+                    [1-2*qy*qy-2*qz*qz, 2*qx*qy-2*qz*qw, 2*qx*qz+2*qy*qw],
+                    [2*qx*qy+2*qz*qw, 1-2*qx*qx-2*qz*qz, 2*qy*qz-2*qx*qw],
+                    [2*qx*qz-2*qy*qw, 2*qy*qz+2*qx*qw, 1-2*qx*qx-2*qy*qy]])
+                T_qr_ee_mat = np.eye(4); T_qr_ee_mat[:3,:3] = R_qr_ee; T_qr_ee_mat[:3,3] = t_qe
+
+                T_ee_qr_i = np.linalg.inv(T_cam_ee) @ T_cam_qr_i
+                T_base_qr_i = T_base_ee_now @ T_ee_qr_i
+                T_target_i = T_base_qr_i @ T_qr_ee_mat
+
+                # 提取 translation + quaternion (xyzw)
+                t_i = T_target_i[:3, 3].copy()
+                Ri = T_target_i[:3, :3]
+                tr = np.trace(Ri)
+                if tr > 0:
+                    S = np.sqrt(tr + 1.0) * 2
+                    qw_i = 0.25 * S
+                    qx_i = (Ri[2,1] - Ri[1,2]) / S
+                    qy_i = (Ri[0,2] - Ri[2,0]) / S
+                    qz_i = (Ri[1,0] - Ri[0,1]) / S
+                elif Ri[0,0] > Ri[1,1] and Ri[0,0] > Ri[2,2]:
+                    S = np.sqrt(1.0 + Ri[0,0] - Ri[1,1] - Ri[2,2]) * 2
+                    qw_i = (Ri[2,1] - Ri[1,2]) / S
+                    qx_i = 0.25 * S
+                    qy_i = (Ri[0,1] + Ri[1,0]) / S
+                    qz_i = (Ri[0,2] + Ri[2,0]) / S
+                elif Ri[1,1] > Ri[2,2]:
+                    S = np.sqrt(1.0 + Ri[1,1] - Ri[0,0] - Ri[2,2]) * 2
+                    qw_i = (Ri[0,2] - Ri[2,0]) / S
+                    qx_i = (Ri[0,1] + Ri[1,0]) / S
+                    qy_i = 0.25 * S
+                    qz_i = (Ri[1,2] + Ri[2,1]) / S
+                else:
+                    S = np.sqrt(1.0 + Ri[2,2] - Ri[0,0] - Ri[1,1]) * 2
+                    qw_i = (Ri[1,0] - Ri[0,1]) / S
+                    qx_i = (Ri[0,2] + Ri[2,0]) / S
+                    qy_i = (Ri[1,2] + Ri[2,1]) / S
+                    qz_i = 0.25 * S
+                q_i = np.array([qx_i, qy_i, qz_i, qw_i])
+                q_i = q_i / np.linalg.norm(q_i)
+
+                candidates.append({
+                    "qr_id": qid, "t": t_i, "q": q_i,
+                    "weight": avg_area, "n_obs": len(obs),
+                })
+                logger.info("  QR id=%d (%d obs, area=%.0f): t=[%.4f,%.4f,%.4f]",
+                            qid, len(obs), avg_area, t_i[0], t_i[1], t_i[2])
+
+            if not candidates:
+                response.success = False
+                response.message = "No QR had enough observations"
+                return response
+
+            # MAD 离群剔除 (基于平移)
+            ts = np.array([c["t"] for c in candidates])
+            if len(candidates) >= 3:
+                keep_mask = _mad_filter(ts, threshold=3.0)
+                filtered = [c for c, k in zip(candidates, keep_mask) if k]
+                if filtered:
+                    rejected_ids = [c["qr_id"] for c, k in zip(candidates, keep_mask) if not k]
+                    if rejected_ids:
+                        logger.info("  MAD rejected QRs: %s", rejected_ids)
+                    candidates = filtered
+                else:
+                    logger.warning("  MAD rejected all candidates, fallback to original set")
+
+            # 加权融合
+            ts_arr = np.array([c["t"] for c in candidates])
+            qs_arr = np.array([c["q"] for c in candidates])
+            ws_arr = np.array([c["weight"] for c in candidates])
+            ws_arr = ws_arr / np.sum(ws_arr)
+
+            fused_t = np.sum(ts_arr * ws_arr[:, None], axis=0)
+            fused_q = _quat_weighted_mean(qs_arr, ws_arr)
+
+            # quat → matrix → rpy
+            qx_f, qy_f, qz_f, qw_f = fused_q
+            R_fused = np.array([
+                [1-2*qy_f*qy_f-2*qz_f*qz_f, 2*qx_f*qy_f-2*qz_f*qw_f, 2*qx_f*qz_f+2*qy_f*qw_f],
+                [2*qx_f*qy_f+2*qz_f*qw_f, 1-2*qx_f*qx_f-2*qz_f*qz_f, 2*qy_f*qz_f-2*qx_f*qw_f],
+                [2*qx_f*qz_f-2*qy_f*qw_f, 2*qy_f*qz_f+2*qx_f*qw_f, 1-2*qx_f*qx_f-2*qy_f*qy_f]])
+            sy = np.sqrt(R_fused[0,0]**2 + R_fused[1,0]**2)
             singular = sy < 1e-6
-            roll = float(np.arctan2(-R_target[1,2], R_target[1,1]) if singular else np.arctan2(R_target[2,1], R_target[2,2]))
-            pitch = float(np.arctan2(-R_target[2,0], sy))
-            yaw = float(0.0 if singular else np.arctan2(R_target[1,0], R_target[0,0]))
+            roll = float(np.arctan2(-R_fused[1,2], R_fused[1,1]) if singular else np.arctan2(R_fused[2,1], R_fused[2,2]))
+            pitch = float(np.arctan2(-R_fused[2,0], sy))
+            yaw = float(0.0 if singular else np.arctan2(R_fused[1,0], R_fused[0,0]))
+
+            x, y, z = float(fused_t[0]), float(fused_t[1]), float(fused_t[2])
+
+            # 转换为 mm + 度
+            x_mm = x * 1000.0
+            y_mm = y * 1000.0
+            z_mm = z * 1000.0
+            roll_deg = float(np.degrees(roll))
+            pitch_deg = float(np.degrees(pitch))
+            yaw_deg = float(np.degrees(yaw))
 
             response.success = True
             response.message = "Computed"
-            response.result_json = json.dumps({"x":x,"y":y,"z":z,"roll":roll,"pitch":pitch,"yaw":yaw})
-            logger.info("compute_pose: result T_base_ee_target → xyz=[%.4f, %.4f, %.4f] rpy=[%.4f, %.4f, %.4f]",
+            response.result_json = json.dumps({
+                "x": x_mm, "y": y_mm, "z": z_mm,
+                "roll": roll_deg, "pitch": pitch_deg, "yaw": yaw_deg,
+            })
+            logger.info("compute_pose: fused %d QRs (weights=%s)",
+                        len(candidates), [f"{w:.2f}" for w in ws_arr])
+            logger.info("compute_pose: result T_base_ee_target → xyz(m)=[%.4f,%.4f,%.4f] rpy(rad)=[%.4f,%.4f,%.4f]",
                         x, y, z, roll, pitch, yaw)
+            logger.info("compute_pose: output (mm+deg) → xyz=[%.2f,%.2f,%.2f] rpy=[%.2f,%.2f,%.2f]",
+                        x_mm, y_mm, z_mm, roll_deg, pitch_deg, yaw_deg)
         except Exception as e:
             logger.exception("compute_pose failed")
             response.success = False
@@ -1286,15 +1533,31 @@ def main(args=None):
             T = np.eye(4)
             T[:3, :3] = R
             T[:3, 3] = [t.x, t.y, t.z]
-            logger.info("TF lookup base_link→%s: trans=[%.4f, %.4f, %.4f]",
-                        ee_link, t.x, t.y, t.z)
+            # 旋转矩阵 → xyz 欧拉角 (deg)
+            sy = np.sqrt(R[0, 0] ** 2 + R[1, 0] ** 2)
+            singular = sy < 1e-6
+            if not singular:
+                roll = float(np.degrees(np.arctan2(R[2, 1], R[2, 2])))
+                pitch = float(np.degrees(np.arctan2(-R[2, 0], sy)))
+                yaw = float(np.degrees(np.arctan2(R[1, 0], R[0, 0])))
+            else:
+                roll = float(np.degrees(np.arctan2(-R[1, 2], R[1, 1])))
+                pitch = float(np.degrees(np.arctan2(-R[2, 0], sy)))
+                yaw = 0.0
+            logger.info("TF lookup base_link→%s: trans=[%.4f, %.4f, %.4f] rpy(deg)=[%.2f, %.2f, %.2f] quat(xyzw)=[%.4f, %.4f, %.4f, %.4f]",
+                        ee_link, t.x, t.y, t.z, roll, pitch, yaw, qx, qy, qz, qw)
             return T
         except Exception as e:
             logger.warning("TF lookup base_link→%s failed: %s", ee_link, e)
             return None
 
     def _publish_calibration_tfs():
-        """读取 config 中的 camera_to_<ee_link> 并发布静态 TF。"""
+        """读取 config 中的 camera_to_<ee_link> 并发布 TF。
+
+        config 存储的是 camera→ee 变换 (rodrigues + translation),
+        发布时需要发 ee→camera (倒置), 让相机挂在末端 link 下,
+        这样 TF 树是 base_link → ... → ee_link → camera_link.
+        """
         for cid, cfg in _cam_configs.items():
             try:
                 calib = cfg.get("calibration", {})
@@ -1304,50 +1567,62 @@ def main(args=None):
                     ee_link = key[len("camera_to_"):]
                     t = transform.get("translation", [0, 0, 0])
                     r = transform.get("rotation", [0, 0, 0])
-                    # rotation is stored as rodrigues vector
                     import cv2 as _cv2
-                    R_mat, _ = _cv2.Rodrigues(np.array(r, dtype=np.float64))
-                    # matrix → quaternion
+                    # config: camera→ee, 构建 4x4
+                    R_cam_ee, _ = _cv2.Rodrigues(np.array(r, dtype=np.float64))
+                    t_cam_ee = np.array([
+                        float(t[0]) / 1000.0 if abs(t[0]) > 10 else float(t[0]),
+                        float(t[1]) / 1000.0 if abs(t[1]) > 10 else float(t[1]),
+                        float(t[2]) / 1000.0 if abs(t[2]) > 10 else float(t[2]),
+                    ])
+                    T_cam_ee = np.eye(4)
+                    T_cam_ee[:3, :3] = R_cam_ee
+                    T_cam_ee[:3, 3] = t_cam_ee
+                    # 倒置: ee→camera
+                    T_ee_cam = np.linalg.inv(T_cam_ee)
+                    R_ee_cam = T_ee_cam[:3, :3]
+                    t_ee_cam = T_ee_cam[:3, 3]
+
                     from geometry_msgs.msg import TransformStamped
                     _tf_msg = TransformStamped()
                     _tf_msg.header.stamp = node.get_clock().now().to_msg()
-                    _tf_msg.header.frame_id = cid + "_link" if not cid.endswith("_link") else cid
-                    _tf_msg.child_frame_id = ee_link
-                    _tf_msg.transform.translation.x = float(t[0]) / 1000.0 if abs(t[0]) > 10 else float(t[0])
-                    _tf_msg.transform.translation.y = float(t[1]) / 1000.0 if abs(t[1]) > 10 else float(t[1])
-                    _tf_msg.transform.translation.z = float(t[2]) / 1000.0 if abs(t[2]) > 10 else float(t[2])
+                    _tf_msg.header.frame_id = ee_link  # 父: 末端 link
+                    _tf_msg.child_frame_id = f"{cid}_camera_link"  # 子: 相机 frame
+                    _tf_msg.transform.translation.x = float(t_ee_cam[0])
+                    _tf_msg.transform.translation.y = float(t_ee_cam[1])
+                    _tf_msg.transform.translation.z = float(t_ee_cam[2])
                     # rotation matrix → quaternion
-                    tr = np.trace(R_mat)
+                    tr = np.trace(R_ee_cam)
                     if tr > 0:
                         S = np.sqrt(tr + 1.0) * 2
                         qw = 0.25 * S
-                        qx = (R_mat[2, 1] - R_mat[1, 2]) / S
-                        qy = (R_mat[0, 2] - R_mat[2, 0]) / S
-                        qz = (R_mat[1, 0] - R_mat[0, 1]) / S
-                    elif R_mat[0, 0] > R_mat[1, 1] and R_mat[0, 0] > R_mat[2, 2]:
-                        S = np.sqrt(1.0 + R_mat[0, 0] - R_mat[1, 1] - R_mat[2, 2]) * 2
-                        qw = (R_mat[2, 1] - R_mat[1, 2]) / S
+                        qx = (R_ee_cam[2, 1] - R_ee_cam[1, 2]) / S
+                        qy = (R_ee_cam[0, 2] - R_ee_cam[2, 0]) / S
+                        qz = (R_ee_cam[1, 0] - R_ee_cam[0, 1]) / S
+                    elif R_ee_cam[0, 0] > R_ee_cam[1, 1] and R_ee_cam[0, 0] > R_ee_cam[2, 2]:
+                        S = np.sqrt(1.0 + R_ee_cam[0, 0] - R_ee_cam[1, 1] - R_ee_cam[2, 2]) * 2
+                        qw = (R_ee_cam[2, 1] - R_ee_cam[1, 2]) / S
                         qx = 0.25 * S
-                        qy = (R_mat[0, 1] + R_mat[1, 0]) / S
-                        qz = (R_mat[0, 2] + R_mat[2, 0]) / S
-                    elif R_mat[1, 1] > R_mat[2, 2]:
-                        S = np.sqrt(1.0 + R_mat[1, 1] - R_mat[0, 0] - R_mat[2, 2]) * 2
-                        qw = (R_mat[0, 2] - R_mat[2, 0]) / S
-                        qx = (R_mat[0, 1] + R_mat[1, 0]) / S
+                        qy = (R_ee_cam[0, 1] + R_ee_cam[1, 0]) / S
+                        qz = (R_ee_cam[0, 2] + R_ee_cam[2, 0]) / S
+                    elif R_ee_cam[1, 1] > R_ee_cam[2, 2]:
+                        S = np.sqrt(1.0 + R_ee_cam[1, 1] - R_ee_cam[0, 0] - R_ee_cam[2, 2]) * 2
+                        qw = (R_ee_cam[0, 2] - R_ee_cam[2, 0]) / S
+                        qx = (R_ee_cam[0, 1] + R_ee_cam[1, 0]) / S
                         qy = 0.25 * S
-                        qz = (R_mat[1, 2] + R_mat[2, 1]) / S
+                        qz = (R_ee_cam[1, 2] + R_ee_cam[2, 1]) / S
                     else:
-                        S = np.sqrt(1.0 + R_mat[2, 2] - R_mat[0, 0] - R_mat[1, 1]) * 2
-                        qw = (R_mat[1, 0] - R_mat[0, 1]) / S
-                        qx = (R_mat[0, 2] + R_mat[2, 0]) / S
-                        qy = (R_mat[1, 2] + R_mat[2, 1]) / S
+                        S = np.sqrt(1.0 + R_ee_cam[2, 2] - R_ee_cam[0, 0] - R_ee_cam[1, 1]) * 2
+                        qw = (R_ee_cam[1, 0] - R_ee_cam[0, 1]) / S
+                        qx = (R_ee_cam[0, 2] + R_ee_cam[2, 0]) / S
+                        qy = (R_ee_cam[1, 2] + R_ee_cam[2, 1]) / S
                         qz = 0.25 * S
                     _tf_msg.transform.rotation.x = float(qx)
                     _tf_msg.transform.rotation.y = float(qy)
                     _tf_msg.transform.rotation.z = float(qz)
                     _tf_msg.transform.rotation.w = float(qw)
                     _tf_broadcaster.sendTransform(_tf_msg)
-                    logger.debug("TF: %s → %s published", _tf_msg.header.frame_id, ee_link)
+                    logger.debug("TF: %s → %s published", ee_link, _tf_msg.child_frame_id)
             except Exception:
                 logger.exception("TF publish failed for camera '%s'", cid)
 

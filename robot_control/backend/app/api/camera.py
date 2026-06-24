@@ -50,13 +50,13 @@ async def calibrate_qr(robot_id: str, req: dict, request: Request):
     """现场标定: 计算 QR 到工作位置的变换并存入场景。
 
     Body: {
-        camera_id, arm, qr_id, marker_size, point_name, scene_id
+        camera_id, arm, qr_ids (list, []=通配), marker_size, point_name, scene_id
     }
     """
     result = await _get_client(request).calibrate_qr(
         camera_id=req.get("camera_id", "head"),
         arm=req.get("arm", "right"),
-        qr_id=req.get("qr_id", 0),
+        qr_ids=req.get("qr_ids"),
         marker_size=req.get("marker_size", 0.058),
         point_name=req.get("point_name", ""),
         scene_id=req.get("scene_id", ""),

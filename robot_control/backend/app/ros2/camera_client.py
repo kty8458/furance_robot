@@ -24,9 +24,10 @@ class CameraClientBase(ABC):
         ...
 
     @abstractmethod
-    async def calibrate_qr(self, camera_id: str, arm: str, qr_id: int,
+    async def calibrate_qr(self, camera_id: str, arm: str,
                            marker_size: float, point_name: str,
-                           scene_id: str, stream_type: str = "color") -> dict[str, Any]:
+                           scene_id: str, stream_type: str = "color",
+                           qr_ids: list = None) -> dict[str, Any]:
         ...
 
     @abstractmethod
@@ -64,9 +65,10 @@ class MockCameraClient(CameraClientBase):
     async def stop_stream(self, camera_id: str) -> dict[str, Any]:
         return {"success": True, "message": f"mock: stopped {camera_id}"}
 
-    async def calibrate_qr(self, camera_id: str, arm: str, qr_id: int,
+    async def calibrate_qr(self, camera_id: str, arm: str,
                            marker_size: float, point_name: str,
-                           scene_id: str, stream_type: str = "color") -> dict[str, Any]:
+                           scene_id: str, stream_type: str = "color",
+                           qr_ids: list = None) -> dict[str, Any]:
         return {"success": True, "message": f"mock: calibrated {point_name}",
                 "data": {"translation": [0.35, -0.12, 0.20],
                          "rotation": [0.0, 0.0, 0.0, 1.0]}}
@@ -146,14 +148,15 @@ class RealCameraClient(CameraClientBase):
                     }}}
         return result
 
-    async def calibrate_qr(self, camera_id: str, arm: str, qr_id: int,
+    async def calibrate_qr(self, camera_id: str, arm: str,
                            marker_size: float, point_name: str,
-                           scene_id: str, stream_type: str = "color") -> dict[str, Any]:
-        """现场标定: 计算 T_qr_workspace 并存入场景。"""
+                           scene_id: str, stream_type: str = "color",
+                           qr_ids: list = None) -> dict[str, Any]:
+        """现场标定: 多 QR 模式, qr_ids 为空列表/None 表示通配。"""
         return await self._call("/camera/calibrate", {
             "camera_id": camera_id,
             "arm": arm,
-            "qr_id": qr_id,
+            "qr_ids": qr_ids or [],
             "marker_size": marker_size,
             "point_name": point_name,
             "scene_id": scene_id,

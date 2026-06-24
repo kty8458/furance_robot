@@ -33,6 +33,22 @@ DEFAULT_SCENE_TEMPLATE = {
 }
 
 
+def normalize_point(p: Dict[str, Any]) -> Dict[str, Any]:
+    """将点位数据规范为新格式 (qr_ids + T_qr_ee_per_id)。
+
+    旧字段 qr_id + T_qr_workspace 会被转换为新字段。
+    """
+    out = dict(p)
+    if "qr_ids" not in out:
+        qid = out.get("qr_id")
+        out["qr_ids"] = [qid] if qid is not None else []
+    if "T_qr_ee_per_id" not in out:
+        T_old = out.get("T_qr_workspace")
+        qid = out.get("qr_id")
+        out["T_qr_ee_per_id"] = {str(qid): T_old} if (T_old and qid is not None) else {}
+    return out
+
+
 class SceneManager:
     """管理场景 yaml 文件，每个场景一个 <scene_id>.yaml 文件。"""
 
@@ -114,28 +130,45 @@ class SceneManager:
         logger.info("delete_scene: %s deleted", scene_id)
         return True
 
-    def add_point(self, scene_id: str, qr_id: int, name: str, arm: str,
-                  marker_size: float, T_qr_workspace: Dict[str, Any],
+    def add_point(self, scene_id: str, name: str, arm: str,
+                  marker_size: float,
+                  qr_ids: Optional[List[int]] = None,
+                  T_qr_ee_per_id: Optional[Dict[str, Any]] = None,
+                  T_qr_workspace: Optional[Dict[str, Any]] = None,
+                  qr_id: Optional[int] = None,
                   stream_type: str = "color") -> bool:
-        """添加标定点到场景。"""
+        """添加标定点到场景。
+
+        新格式: qr_ids (允许列表, 空=通配) + T_qr_ee_per_id (每个 QR 的 T_qr_ee).
+        旧格式: qr_id (单个) + T_qr_workspace 仍兼容, 内部转新格式存储.
+        """
         data = self._load(scene_id)
         if data is None:
             logger.warning("add_point: scene %s not found", scene_id)
             return False
+
+        # 兼容旧格式: 单 qr_id + T_qr_workspace → 转新格式
+        if qr_ids is None:
+            qr_ids = [qr_id] if qr_id is not None else []
+        if T_qr_ee_per_id is None and T_qr_workspace is not None and qr_id is not None:
+            T_qr_ee_per_id = {str(qr_id): T_qr_workspace}
+        if T_qr_ee_per_id is None:
+            T_qr_ee_per_id = {}
+
         # 删除同名点
         data.setdefault("qr_transforms", [])
         data["qr_transforms"] = [p for p in data["qr_transforms"] if p.get("name") != name]
         data["qr_transforms"].append({
-            "qr_id": qr_id,
             "name": name,
             "arm": arm,
             "marker_size": marker_size,
             "stream_type": stream_type,
-            "T_qr_workspace": T_qr_workspace,
+            "qr_ids": qr_ids,
+            "T_qr_ee_per_id": T_qr_ee_per_id,
         })
         self._save(scene_id, data)
-        logger.info("add_point: scene=%s point=%s qr_id=%d arm=%s T=%s",
-                    scene_id, name, qr_id, arm, T_qr_workspace)
+        logger.info("add_point: scene=%s point=%s qr_ids=%s arm=%s per_id_count=%d",
+                    scene_id, name, qr_ids, arm, len(T_qr_ee_per_id))
         return True
 
     def delete_point(self, scene_id: str, point_name: str) -> bool:
@@ -170,11 +203,11 @@ class SceneManager:
         return False
 
     def find_point(self, scene_id: str, point_name: str) -> Optional[dict]:
-        """查找标定点。"""
+        """查找标定点 (自动规范为新格式)。"""
         data = self._load(scene_id)
         if data is None:
             return None
         for p in data.get("qr_transforms", []):
             if p.get("name") == point_name:
-                return p
+                return normalize_point(p)
         return None

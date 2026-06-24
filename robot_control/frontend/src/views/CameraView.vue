@@ -160,8 +160,8 @@
 
             <el-row :gutter="8" style="margin-top: 8px">
               <el-col :span="12">
-                <div class="field-label" style="font-size: 10px">QR ID</div>
-                <el-input-number v-model="calibQrId" :min="0" size="small" controls-position="right" style="width: 100%" />
+                <div class="field-label" style="font-size: 10px">QR IDs (逗号分隔, 留空通配)</div>
+                <el-input v-model="calibQrIds" placeholder="例: 1,2,3" size="small" />
               </el-col>
               <el-col :span="12">
                 <div class="field-label" style="font-size: 10px">QR 尺寸 (m)</div>
@@ -217,8 +217,8 @@
             <el-radio-button value="ir">红外</el-radio-button>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="QR ID">
-          <el-input-number v-model="editForm.qr_id" :min="0" controls-position="right" style="width: 100%" />
+        <el-form-item label="QR IDs">
+          <el-input v-model="editForm.qr_ids" placeholder="例: 1,2,3 (留空通配)" />
         </el-form-item>
         <el-form-item label="QR 尺寸 (m)">
           <el-input-number v-model="editForm.marker_size" :min="0.01" :step="0.001" :precision="3" controls-position="right" style="width: 100%" />
@@ -288,7 +288,7 @@ const editForm = ref(initEditForm())
 function initEditForm() {
   return {
     name: '', arm: 'right', camera_id: '', stream_type: 'color',
-    qr_id: 0, marker_size: 0.058,
+    qr_ids: '', marker_size: 0.058,
     xyzrpy: { x: 0, y: 0, z: 0, roll: 0, pitch: 0, yaw: 0 },
   }
 }
@@ -299,7 +299,7 @@ const calibPointName = ref('')
 const calibCameraId = ref('')
 const calibArm = ref('right')
 const calibStreamType = ref('color')
-const calibQrId = ref(0)
+const calibQrIds = ref('')  // 逗号分隔字符串，空=通配
 const calibMarkerSize = ref(0.058)
 const calibrating = ref(false)
 const calibResult = ref(null)
@@ -417,8 +417,10 @@ async function loadSceneDetails(sceneId) {
     const data = res.data || {}
     scenePoints.value[sceneId] = (data.qr_transforms || []).map(p => ({
       name: p.name, arm: p.arm, camera_id: p.camera_id || '',
-      qr_id: p.qr_id, marker_size: p.marker_size,
+      qr_ids: p.qr_ids || (p.qr_id != null ? [p.qr_id] : []),
+      marker_size: p.marker_size,
       stream_type: p.stream_type || 'color',
+      T_qr_ee_per_id: p.T_qr_ee_per_id || {},
       T_qr_workspace: p.T_qr_workspace || { translation: [0,0,0], rotation: [0,0,0,1] },
     }))
   } catch { scenePoints.value[sceneId] = [] }
@@ -481,7 +483,7 @@ function openEditPointDialog(row) {
     arm: row.arm || 'right',
     camera_id: row.camera_id || cameras.value.find(c => c.connected)?.id || '',
     stream_type: row.stream_type || 'color',
-    qr_id: row.qr_id || 0,
+    qr_ids: (row.qr_ids || []).join(','),
     marker_size: row.marker_size || 0.058,
     xyzrpy: { x: t[0], y: t[1], z: t[2], roll: euler.roll, pitch: euler.pitch, yaw: euler.yaw },
   }
@@ -493,9 +495,10 @@ async function saveEditPoint() {
   const f = editForm.value
   const d = f.xyzrpy
   const quat = eulerToQuat(d.roll, d.pitch, d.yaw)
+  const qr_ids_arr = (f.qr_ids || '').toString().split(',').map(s => s.trim()).filter(s => s !== '').map(s => parseInt(s, 10)).filter(n => !isNaN(n))
   const pointData = {
     name: f.name, arm: f.arm, camera_id: f.camera_id,
-    stream_type: f.stream_type, qr_id: f.qr_id, marker_size: f.marker_size,
+    stream_type: f.stream_type, qr_ids: qr_ids_arr, marker_size: f.marker_size,
     T_qr_workspace: { translation: [d.x, d.y, d.z], rotation: quat },
   }
   try {
@@ -535,10 +538,14 @@ function onCalibPointChange(pointName) {
   if (p) {
     calibCameraId.value = p.camera_id || cameras.value.find(c => c.connected)?.id || ''
     calibArm.value = p.arm || 'right'
-    calibQrId.value = p.qr_id || 0
+    calibQrIds.value = (p.qr_ids || []).join(',')
     calibMarkerSize.value = p.marker_size || 0.058
     calibStreamType.value = p.stream_type || 'color'
   }
+}
+
+function _parseQrIds(s) {
+  return (s || '').toString().split(',').map(x => x.trim()).filter(x => x !== '').map(x => parseInt(x, 10)).filter(n => !isNaN(n))
 }
 
 async function runCalibration() {
@@ -546,10 +553,11 @@ async function runCalibration() {
   if (!calibPointName.value) { ElMessage.warning('请选择标定点'); return }
   calibrating.value = true; calibResult.value = null
   try {
+    const qr_ids_arr = _parseQrIds(calibQrIds.value)
     const res = await cameraApi.calibrate({
       camera_id: calibCameraId.value,
       arm: calibArm.value,
-      qr_id: calibQrId.value,
+      qr_ids: qr_ids_arr,
       marker_size: calibMarkerSize.value,
       point_name: calibPointName.value,
       scene_id: calibSceneId.value,
@@ -574,7 +582,7 @@ async function runCalibration() {
       arm: calibArm.value,
       camera_id: calibCameraId.value,
       stream_type: calibStreamType.value,
-      qr_id: calibQrId.value,
+      qr_ids: qr_ids_arr,
       marker_size: calibMarkerSize.value,
     })
     await reloadScenePoints()
