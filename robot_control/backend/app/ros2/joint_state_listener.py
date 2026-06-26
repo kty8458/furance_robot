@@ -66,6 +66,9 @@ class MockJointStateListener(JointStateListenerBase):
     async def stop(self):
         pass
 
+    def lookup_ee_pose(self, arm: str) -> dict:
+        return {"x": 0.0, "y": 0.0, "z": 0.0, "roll": 0.0, "pitch": 0.0, "yaw": 0.0}
+
 
 class RealJointStateListener(JointStateListenerBase):
     """Subscribes to /robot_status and publishes arm joint angles + EE pose.
@@ -132,6 +135,11 @@ class RealJointStateListener(JointStateListenerBase):
             "pitch": pitch,
             "yaw": yaw,
         }
+
+    def lookup_ee_pose(self, arm: str) -> dict:
+        """Public API: 返回末端在 base_link 下的位姿 (mm + deg)。arm: 'left'/'right'."""
+        frame = LEFT_EE_FRAME if arm == "left" else RIGHT_EE_FRAME
+        return self._lookup_ee_pose(frame)
 
     def _on_status_message(self, msg):
         if self._status_service is None:

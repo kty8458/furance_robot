@@ -38,6 +38,7 @@ class WorkflowService:
         workflow_dir: str = "data/workflows",
         arm_enable_client=None,
         status_service=None,
+        joint_state_listener=None,
     ):
         self._ros2 = ros2_client
         self._moveit = moveit_client
@@ -47,6 +48,7 @@ class WorkflowService:
         self._workflow_dir = Path(workflow_dir)
         self._arm_enable = arm_enable_client
         self._status_service = status_service
+        self._joint_state_listener = joint_state_listener
         self._active_executions: dict[str, asyncio.Event] = {}
         self._execution_state: dict[str, dict] = {}
 
@@ -568,10 +570,52 @@ class WorkflowService:
                         to_frame, preset.coordinate_frame, "ompl",
                     )
         else:  # pose mode
-            resolved = self._resolve_variables(config.position or {}, context)
+            pose_mode = getattr(config, "pose_mode", "manual") or "manual"
+            # 解析输入位姿 (mm + deg)
+            base_pose = None
+            if pose_mode == "current_ee":
+                if self._joint_state_listener is None:
+                    return StepResult(step_id=step.id, success=False,
+                                      message="JointStateListener not available; cannot read current EE pose")
+                base_pose = self._joint_state_listener.lookup_ee_pose(config.arm)
+                logger.info("upper_limb pose: arm=%s current_ee=%s", config.arm, base_pose)
+            elif pose_mode == "vision":
+                vlabel = getattr(config, "vision_step_label", None) or ""
+                # 在 context 中按 label 查找前序 vision 步骤的 target_pose
+                vision_pose = None
+                for sid, sdata in context.items():
+                    if not isinstance(sdata, dict):
+                        continue
+                    if sdata.get("_label") == vlabel and "target_pose" in sdata:
+                        vision_pose = sdata["target_pose"]
+                        break
+                if vision_pose is None:
+                    # 回退: 直接按 step_id 查
+                    for sid, sdata in context.items():
+                        if isinstance(sdata, dict) and "target_pose" in sdata:
+                            vision_pose = sdata["target_pose"]
+                            break
+                if vision_pose is None:
+                    return StepResult(step_id=step.id, success=False,
+                                      message=f"vision_step_label '{vlabel}' not found in context")
+                base_pose = vision_pose
+                logger.info("upper_limb pose: arm=%s vision=%s pose=%s", config.arm, vlabel, base_pose)
+            else:  # manual
+                base_pose = self._resolve_variables(config.position or {}, context)
+                base_pose = {k: float(v) if v not in (None, "") else 0.0
+                             for k, v in (base_pose.items() if isinstance(base_pose, dict) else {})}
+
+            # 应用偏移
+            offset = getattr(config, "offset", None) or {}
+            target_pose = self._apply_pose_offset(base_pose, offset,
+                                                   getattr(config, "enable_offset", False),
+                                                   getattr(config, "offset_ref_tool", False))
+            logger.info("upper_limb pose: arm=%s target=%s (offset_applied=%s)",
+                        config.arm, target_pose, getattr(config, "enable_offset", False))
+
             to_frame = f"ARM-{'L' if config.arm == 'left' else 'R'}-J7_Link"
             result = await self._moveit.move_p(
-                config.arm, resolved,
+                config.arm, target_pose,
                 to_frame, config.reference_frame or "base_link", "ompl",
             )
 
@@ -639,6 +683,76 @@ class WorkflowService:
         config = SleepStepConfig(**step.config)
         await asyncio.sleep(config.duration)
         return StepResult(step_id=step.id, success=True, message=f"Slept {config.duration}s")
+
+    @staticmethod
+    def _apply_pose_offset(base_pose: dict, offset: dict, enable: bool, in_tool: bool) -> dict:
+        """对 base_pose (mm + deg) 应用偏移。
+
+        Args:
+            base_pose: {x, y, z, roll, pitch, yaw} 单位 mm/deg
+            offset: 同上格式，单位 mm/deg
+            enable: 是否启用偏移
+            in_tool: True=在 tool_link (末端) 坐标系下做偏移；False=base_link 下做偏移
+        """
+        import math
+        import numpy as np
+
+        def _f(v):
+            try:
+                return float(v) if v not in (None, "") else 0.0
+            except (TypeError, ValueError):
+                return 0.0
+
+        bx, by, bz = _f(base_pose.get("x")), _f(base_pose.get("y")), _f(base_pose.get("z"))
+        br, bp, byaw = _f(base_pose.get("roll")), _f(base_pose.get("pitch")), _f(base_pose.get("yaw"))
+
+        if not enable:
+            return {"x": bx, "y": by, "z": bz, "roll": br, "pitch": bp, "yaw": byaw}
+
+        ox = _f(offset.get("x")); oy = _f(offset.get("y")); oz = _f(offset.get("z"))
+        orr = _f(offset.get("roll")); op = _f(offset.get("pitch")); oyaw = _f(offset.get("yaw"))
+
+        def rpy_to_R(r, p, y):
+            r, p, y = math.radians(r), math.radians(p), math.radians(y)
+            cr, sr = math.cos(r), math.sin(r)
+            cp_, sp_ = math.cos(p), math.sin(p)
+            cy_, sy_ = math.cos(y), math.sin(y)
+            Rx = np.array([[1,0,0],[0,cr,-sr],[0,sr,cr]])
+            Ry = np.array([[cp_,0,sp_],[0,1,0],[-sp_,0,cp_]])
+            Rz = np.array([[cy_,-sy_,0],[sy_,cy_,0],[0,0,1]])
+            return Rz @ Ry @ Rx  # XYZ intrinsic
+
+        def R_to_rpy(R):
+            sy_ = math.sqrt(R[0,0]**2 + R[1,0]**2)
+            if sy_ < 1e-6:
+                roll = math.atan2(-R[1,2], R[1,1])
+                pitch = math.atan2(-R[2,0], sy_)
+                yaw = 0.0
+            else:
+                roll = math.atan2(R[2,1], R[2,2])
+                pitch = math.atan2(-R[2,0], sy_)
+                yaw = math.atan2(R[1,0], R[0,0])
+            return math.degrees(roll), math.degrees(pitch), math.degrees(yaw)
+
+        if in_tool:
+            # T_target = T_base * T_offset
+            R_base = rpy_to_R(br, bp, byaw)
+            t_base = np.array([bx, by, bz])  # mm
+            R_off = rpy_to_R(orr, op, oyaw)
+            t_off = np.array([ox, oy, oz])
+            R_t = R_base @ R_off
+            t_t = R_base @ t_off + t_base
+            r2, p2, y2 = R_to_rpy(R_t)
+            return {"x": float(t_t[0]), "y": float(t_t[1]), "z": float(t_t[2]),
+                    "roll": r2, "pitch": p2, "yaw": y2}
+        else:
+            # base_link 下: 直接坐标加法 (xyz 加, rpy 矩阵复合)
+            R_base = rpy_to_R(br, bp, byaw)
+            R_off = rpy_to_R(orr, op, oyaw)
+            R_t = R_off @ R_base   # 偏移在 base 系下左乘
+            r2, p2, y2 = R_to_rpy(R_t)
+            return {"x": bx + ox, "y": by + oy, "z": bz + oz,
+                    "roll": r2, "pitch": p2, "yaw": y2}
 
     @staticmethod
     def _resolve_variables(value: Any, context: dict) -> Any:

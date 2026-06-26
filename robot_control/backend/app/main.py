@@ -102,6 +102,7 @@ async def lifespan(app: FastAPI):
         arm_enable_client=components.arm_enable_client,
         workflow_dir=settings.workflow_data_dir,
         status_service=status_service,
+        joint_state_listener=components.joint_state_listener,
     )
 
     logger.info("=" * 60)

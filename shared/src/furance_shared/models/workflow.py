@@ -39,6 +39,13 @@ class UpperLimbStepConfig(BaseModel):
     vision_source: Optional[str] = None
     left_vision_source: Optional[str] = None
     right_vision_source: Optional[str] = None
+    # pose 模式的来源 + 偏移
+    pose_mode: str = "manual"          # manual / current_ee / vision
+    vision_step_label: Optional[str] = None
+    enable_offset: bool = False
+    offset_ref_base: bool = True       # base_link 坐标系下做偏移
+    offset_ref_tool: bool = False      # tool_link 坐标系下做偏移
+    offset: Optional[dict] = None      # {x, y, z, roll, pitch, yaw}, 单位 mm/deg
 
 
 class UpperBodyStepConfig(BaseModel):
