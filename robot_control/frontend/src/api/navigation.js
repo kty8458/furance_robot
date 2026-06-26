@@ -11,4 +11,6 @@ export const navigationApi = {
   getTaskStatus: () => api.get('/navigation/task/status'),
   getQueueStatus: () => api.get('/navigation/task/queue-status'),
   recharge: (mapName, pointName) => api.post('/navigation/recharge', { map_name: mapName, point_name: pointName }),
+  moveWithParams: (params) => api.post('/navigation/move_with_params', params),
+  cancelMoveWithParams: () => api.post('/navigation/cancel_move_with_params'),
 }

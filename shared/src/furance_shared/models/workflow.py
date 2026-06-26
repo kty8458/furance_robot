@@ -5,11 +5,20 @@ StepType = Literal["move", "upper_limb", "upper_body", "gripper", "vision", "sle
 
 
 class MoveStepConfig(BaseModel):
+    # 运动模式: scheduler (调度系统) / manual (手动) / move_with_params (定距离/定角度)
+    move_source: str = "scheduler"
     mode: Literal["point", "path"] = "point"
     map_name: Optional[str] = None
     point_name: Optional[str] = None
     path_name: Optional[str] = None
     path_type: str = "NavigationPointTask"
+    # 定距离/定角度移动参数
+    mwp_mode: int = 1                  # 1=定距离, 2=定角度
+    linear_velocity: float = 0.2
+    slip_angle: float = 0.0
+    angular_velocity: float = 0.2
+    target_distance: float = 1.0
+    target_angle: float = 0.0
 
 
 class UpperLimbStepConfig(BaseModel):

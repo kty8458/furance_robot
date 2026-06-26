@@ -69,6 +69,65 @@
             </el-form-item>
           </el-form>
         </el-card>
+
+        <!-- 定距离/定角度移动控制 -->
+        <el-card class="tech-card" style="margin-top: 16px">
+          <template #header>
+            <div class="tech-card-header">
+              <el-icon><Position /></el-icon>
+              <span style="margin-left: 8px">定距离/定角度移动控制</span>
+            </div>
+          </template>
+
+          <el-form label-width="110px" label-position="left" size="small">
+            <el-form-item label="模式">
+              <el-radio-group v-model="mwpMode">
+                <el-radio-button :value="1">定距离</el-radio-button>
+                <el-radio-button :value="2">定角度</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+
+            <el-row v-if="mwpMode === 1" :gutter="16">
+              <el-col :span="8">
+                <el-form-item label="线速度 (m/s)">
+                  <el-input-number v-model="mwpLinearVelocity" :min="-0.5" :max="0.5" :step="0.05" :precision="2" controls-position="right" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="目标距离 (m)">
+                  <el-input-number v-model="mwpTargetDistance" :min="0" :step="0.1" :precision="2" controls-position="right" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="侧偏角 (rad)">
+                  <el-input-number v-model="mwpSlipAngle" :min="-2.14" :max="2.14" :step="0.1" :precision="2" controls-position="right" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+
+            <el-row v-else :gutter="16">
+              <el-col :span="12">
+                <el-form-item label="角速度 (rad/s)">
+                  <el-input-number v-model="mwpAngularVelocity" :min="-0.5" :max="0.5" :step="0.05" :precision="2" controls-position="right" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="目标角度 (rad)">
+                  <el-input-number v-model="mwpTargetAngle" :min="0" :max="3.14" :step="0.1" :precision="2" controls-position="right" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+
+            <el-form-item>
+              <el-button type="primary" @click="handleMoveWithParams" :loading="mwpExecuting">
+                执行移动
+              </el-button>
+              <el-button type="danger" @click="handleCancelMoveWithParams" style="margin-left: 8px">
+                取消移动
+              </el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
       </el-col>
     </el-row>
   </div>
@@ -78,7 +137,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { navigationApi } from '../api/navigation'
 import { ElMessage } from 'element-plus'
-import { MapLocation, Refresh, Key, Lightning } from '@element-plus/icons-vue'
+import { MapLocation, Refresh, Key, Lightning, Position } from '@element-plus/icons-vue'
 
 const maps = ref([])
 const mapName = ref(null)
@@ -88,6 +147,15 @@ const mapsLoading = ref(false)
 const tokenLoading = ref(false)
 const taskRunning = ref(false)
 const taskFinished = ref(false)
+
+// 定距离/定角度移动控制
+const mwpMode = ref(1)  // 1=定距离, 2=定角度
+const mwpLinearVelocity = ref(0.2)
+const mwpSlipAngle = ref(0.0)
+const mwpAngularVelocity = ref(0.2)
+const mwpTargetDistance = ref(1.0)
+const mwpTargetAngle = ref(0.0)
+const mwpExecuting = ref(false)
 let pollTimer = null
 
 const typeLabelMap = {
@@ -225,6 +293,35 @@ async function handleRecharge() {
     ElMessage.success('回充指令已发送')
   } catch (error) {
     ElMessage.error(error.message || '回充指令失败')
+  }
+}
+
+async function handleMoveWithParams() {
+  mwpExecuting.value = true
+  try {
+    const body = {
+      linear_velocity: mwpLinearVelocity.value,
+      slip_angle: mwpSlipAngle.value,
+      angular_velocity: mwpAngularVelocity.value,
+      target_distance: mwpTargetDistance.value,
+      target_angle: mwpTargetAngle.value,
+      mode: mwpMode.value,
+    }
+    const res = await navigationApi.moveWithParams(body)
+    ElMessage.success(res.data?.message || res.message || '移动指令已下发')
+  } catch (error) {
+    ElMessage.error(error.message || '移动指令失败')
+  } finally {
+    mwpExecuting.value = false
+  }
+}
+
+async function handleCancelMoveWithParams() {
+  try {
+    await navigationApi.cancelMoveWithParams()
+    ElMessage.success('取消指令已发送')
+  } catch (error) {
+    ElMessage.error(error.message || '取消失败')
   }
 }
 

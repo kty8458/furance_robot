@@ -174,6 +174,28 @@ class ChassisClient:
         await self._ensure_token()
         return await self._request("POST", "/cmd/recharge", json={"map_name": map_name, "point_name": point_name})
 
+    async def move_with_params(self, *, linear_velocity: float = 0.0, slip_angle: float = 0.0,
+                               angular_velocity: float = 0.0, target_distance: float = 0.0,
+                               target_angle: float = 0.0, mode: int = 1) -> dict[str, Any]:
+        """定距离/定角度移动。mode: 1=定距离移动, 2=定角度移动。"""
+        await self._ensure_token()
+        body = {
+            "linear_velocity": float(linear_velocity),
+            "slip_angle": float(slip_angle),
+            "angular_velocity": float(angular_velocity),
+            "target_distance": float(target_distance),
+            "target_angle": float(target_angle),
+            "mode": int(mode),
+        }
+        logger.info("EVENT chassis_move_with_params body=%s", body)
+        return await self._request("POST", "/cmd/move_with_params", json=body)
+
+    async def cancel_move_with_params(self) -> dict[str, Any]:
+        """取消正在执行的定距离/定角度移动。"""
+        await self._ensure_token()
+        logger.info("EVENT chassis_cancel_move_with_params")
+        return await self._request("POST", "/cmd/cancel_move_with_params", json={"cancel": True})
+
     async def get_hardware_status(self) -> dict[str, Any]:
         """Poll chassis hardware status (position, battery, charge, map)."""
         await self._ensure_token()

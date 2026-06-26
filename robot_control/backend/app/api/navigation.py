@@ -115,3 +115,39 @@ async def recharge(request: Request, body: RechargeRequest):
     if not result.get("success"):
         return ApiResponse(code=2006, message=result.get("message", "回充指令失败"))
     return ApiResponse(data=result.get("data"))
+
+
+class MoveWithParamsRequest(BaseModel):
+    linear_velocity: float = 0.0   # m/s [-0.5, 0.5]
+    slip_angle: float = 0.0        # rad [-2.14, 2.14] (四转四驱底盘横移用)
+    angular_velocity: float = 0.0  # rad/s [-0.5, 0.5]
+    target_distance: float = 0.0   # m
+    target_angle: float = 0.0      # rad [0, 3.14]
+    mode: int = 1                  # 1=定距离, 2=定角度
+
+
+@router.post("/move_with_params", response_model=ApiResponse)
+async def move_with_params(request: Request, body: MoveWithParamsRequest):
+    """定距离/定角度移动控制."""
+    chassis = _get_chassis(request)
+    result = await chassis.move_with_params(
+        linear_velocity=body.linear_velocity,
+        slip_angle=body.slip_angle,
+        angular_velocity=body.angular_velocity,
+        target_distance=body.target_distance,
+        target_angle=body.target_angle,
+        mode=body.mode,
+    )
+    if not result.get("success"):
+        return ApiResponse(code=2007, message=result.get("message", "定距离/定角度移动失败"))
+    return ApiResponse(data=result.get("data"))
+
+
+@router.post("/cancel_move_with_params", response_model=ApiResponse)
+async def cancel_move_with_params(request: Request):
+    """取消正在执行的定距离/定角度移动."""
+    chassis = _get_chassis(request)
+    result = await chassis.cancel_move_with_params()
+    if not result.get("success"):
+        return ApiResponse(code=2008, message=result.get("message", "取消移动失败"))
+    return ApiResponse(data=result.get("data"))

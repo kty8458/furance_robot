@@ -272,6 +272,11 @@ class WorkflowService:
                 await self._chassis.stop_task()
             except Exception:
                 logger.exception("Failed to stop chassis task during workflow cancellation")
+            # 同时取消定距离/定角度移动 (如果有正在执行的 move_with_params)
+            try:
+                await self._chassis.cancel_move_with_params()
+            except Exception:
+                logger.exception("Failed to cancel move_with_params during workflow cancellation")
 
         if self._arm_enable is not None:
             try:
@@ -367,6 +372,9 @@ class WorkflowService:
         for step in workflow.steps:
             if step.type == "move":
                 cfg = MoveStepConfig(**step.config)
+                # move_with_params 不依赖地图/点位, 跳过校验
+                if cfg.move_source == "move_with_params":
+                    continue
                 move_steps.append((step.id, cfg))
 
         if not move_steps:
@@ -416,6 +424,25 @@ class WorkflowService:
             return StepResult(step_id=step.id, success=False, message="Chassis client not available")
 
         config = MoveStepConfig(**step.config)
+
+        # 定距离/定角度移动 — 不走调度系统任务队列
+        if config.move_source == "move_with_params":
+            res = await self._chassis.move_with_params(
+                linear_velocity=config.linear_velocity,
+                slip_angle=config.slip_angle,
+                angular_velocity=config.angular_velocity,
+                target_distance=config.target_distance,
+                target_angle=config.target_angle,
+                mode=config.mwp_mode,
+            )
+            ok = res.get("successed", res.get("success", False))
+            msg = res.get("msg", res.get("message", "Move with params"))
+            if not ok:
+                return StepResult(step_id=step.id, success=False, message=msg or "move_with_params failed")
+            mode_label = "定距离" if config.mwp_mode == 1 else "定角度"
+            return StepResult(step_id=step.id, success=True,
+                              message=f"{mode_label}移动完成: {msg}")
+
         nav = nav_lookup.get(step.id)
 
         map_name = (nav.map_name if nav else None) or config.map_name

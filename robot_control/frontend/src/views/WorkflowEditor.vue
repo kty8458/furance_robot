@@ -108,10 +108,11 @@
                   <template v-if="step.type === 'move'">
                     <el-row :gutter="8" style="margin-bottom: 6px">
                       <el-col :span="12">
-                        <div style="font-size: 11px; color: #6b7b8d">点位来源</div>
+                        <div style="font-size: 11px; color: #6b7b8d">运动模式</div>
                         <el-select v-model="step.config.move_source" size="small" style="width: 100%">
-                          <el-option label="调度系统提供" value="scheduler" />
+                          <el-option label="调度系统" value="scheduler" />
                           <el-option label="手动选择" value="manual" />
+                          <el-option label="定距离/定角度移动" value="move_with_params" />
                         </el-select>
                       </el-col>
                     </el-row>
@@ -136,6 +137,41 @@
                       <el-select v-model="step.config.point_name" size="small" style="width: 100%" filterable clearable placeholder="选择点位">
                         <el-option v-for="p in (manualNavPoints[step.id] || [])" :key="p" :label="p" :value="p" />
                       </el-select>
+                    </template>
+                    <template v-else-if="step.config.move_source === 'move_with_params'">
+                      <el-row :gutter="8" style="margin-bottom: 6px">
+                        <el-col :span="24">
+                          <div style="font-size: 11px; color: #6b7b8d">模式</div>
+                          <el-radio-group v-model="step.config.mwp_mode" size="small">
+                            <el-radio-button :value="1">定距离</el-radio-button>
+                            <el-radio-button :value="2">定角度</el-radio-button>
+                          </el-radio-group>
+                        </el-col>
+                      </el-row>
+                      <el-row v-if="step.config.mwp_mode === 1" :gutter="8">
+                        <el-col :span="8">
+                          <div style="font-size: 10px; color: #6b7b8d">线速度 (m/s)</div>
+                          <el-input-number v-model="step.config.linear_velocity" :min="-0.5" :max="0.5" :step="0.05" :precision="2" size="small" controls-position="right" style="width: 100%" />
+                        </el-col>
+                        <el-col :span="8">
+                          <div style="font-size: 10px; color: #6b7b8d">距离 (m)</div>
+                          <el-input-number v-model="step.config.target_distance" :min="0" :step="0.1" :precision="2" size="small" controls-position="right" style="width: 100%" />
+                        </el-col>
+                        <el-col :span="8">
+                          <div style="font-size: 10px; color: #6b7b8d">侧偏角 (rad)</div>
+                          <el-input-number v-model="step.config.slip_angle" :min="-2.14" :max="2.14" :step="0.1" :precision="2" size="small" controls-position="right" style="width: 100%" />
+                        </el-col>
+                      </el-row>
+                      <el-row v-else :gutter="8">
+                        <el-col :span="12">
+                          <div style="font-size: 10px; color: #6b7b8d">角速度 (rad/s)</div>
+                          <el-input-number v-model="step.config.angular_velocity" :min="-0.5" :max="0.5" :step="0.05" :precision="2" size="small" controls-position="right" style="width: 100%" />
+                        </el-col>
+                        <el-col :span="12">
+                          <div style="font-size: 10px; color: #6b7b8d">角度 (rad)</div>
+                          <el-input-number v-model="step.config.target_angle" :min="0" :max="3.14" :step="0.1" :precision="2" size="small" controls-position="right" style="width: 100%" />
+                        </el-col>
+                      </el-row>
                     </template>
                     <template v-else>
                       <span style="font-size: 12px; color: #9ca3af">点位由调度系统在运行时提供</span>
@@ -585,7 +621,7 @@ function onOffsetRefChange(step, ref) {
 // Move steps that use scheduler mode (need manual input at execution time)
 const schedulerMoveSteps = computed(() => {
   if (!currentWorkflow.value?.steps) return []
-  return currentWorkflow.value.steps.filter(s => s.type === 'move' && s.config.move_source !== 'manual')
+  return currentWorkflow.value.steps.filter(s => s.type === 'move' && s.config.move_source === 'scheduler')
 })
 
 // Move steps that are pre-configured with manual nav points
@@ -760,6 +796,12 @@ async function selectWorkflow(row) {
       data.steps.forEach(s => {
         if (s.type === 'move' && !s.config.move_source) s.config.move_source = 'scheduler'
         if (s.type === 'move' && !s.config.path_type) s.config.path_type = 'NavigationPointTask'
+        if (s.type === 'move' && s.config.mwp_mode == null) s.config.mwp_mode = 1
+        if (s.type === 'move' && s.config.linear_velocity == null) s.config.linear_velocity = 0.2
+        if (s.type === 'move' && s.config.slip_angle == null) s.config.slip_angle = 0.0
+        if (s.type === 'move' && s.config.angular_velocity == null) s.config.angular_velocity = 0.2
+        if (s.type === 'move' && s.config.target_distance == null) s.config.target_distance = 1.0
+        if (s.type === 'move' && s.config.target_angle == null) s.config.target_angle = 0.0
         if (s.type === 'upper_body') {
           s.config._waist = s.config.waist_angle != null
           s.config._ascend = s.config.ascend_pos != null
@@ -865,7 +907,11 @@ function addStep(type) {
   }
   stepCounter++
   const defaults = {
-    move: { move_source: 'scheduler', map_name: '', point_name: '', path_type: 'NavigationPointTask' },
+    move: {
+      move_source: 'scheduler', map_name: '', point_name: '', path_type: 'NavigationPointTask',
+      mwp_mode: 1, linear_velocity: 0.2, slip_angle: 0.0, angular_velocity: 0.2,
+      target_distance: 1.0, target_angle: 0.0,
+    },
     upper_limb: { mode: 'preset', arm: 'left', method: 'moveJ', preset_name: '', left_preset_name: '', right_preset_name: '', use_combined: true, use_composed_preset: false, reference_frame: 'base_link', left_reference_frame: 'base_link', right_reference_frame: 'base_link', position: {}, vision_source: '', left_vision_source: '', right_vision_source: '', pose_mode: 'manual', vision_step_label: '', enable_offset: false, offset_ref_base: true, offset_ref_tool: false, offset: {} },
     upper_body: { _waist: false, _ascend: false, _head: false, waist_angle: 300, waist_speed: 20, ascend_pos: 100, ascend_speed: 20, head_angle: 15, head_speed: 10 },
     gripper: { arm: 'left', action: 'open', force: 0 },
@@ -948,8 +994,9 @@ async function executeWorkflow() {
     }))
 
     // Build nav_params from scheduler-provided steps + manual steps
+    // (move_with_params 模式不需要 nav_params, 参数已在 step.config 中)
     const navParams = currentWorkflow.value.steps
-      .filter(s => s.type === 'move')
+      .filter(s => s.type === 'move' && s.config.move_source !== 'move_with_params')
       .map(s => {
         if (s.config.move_source === 'manual') {
           return {

@@ -12,7 +12,16 @@
         "method": "moveJ",
         "preset_name": "initial_pose",
         "reference_frame": "base_link",
-        "position": {}
+        "position": {},
+        "use_combined": true,
+        "use_composed_preset": false,
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "pose_mode": "manual",
+        "enable_offset": false,
+        "offset_ref_base": true,
+        "offset_ref_tool": false,
+        "offset": {}
       }
     },
     {
@@ -33,7 +42,16 @@
         "method": "moveJ",
         "preset_name": "zero_pose",
         "reference_frame": "base_link",
-        "position": {}
+        "position": {},
+        "use_combined": true,
+        "use_composed_preset": false,
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "pose_mode": "manual",
+        "enable_offset": false,
+        "offset_ref_base": true,
+        "offset_ref_tool": false,
+        "offset": {}
       }
     },
     {
@@ -54,7 +72,16 @@
         "method": "moveJ",
         "preset_name": "zero_pose",
         "reference_frame": "base_link",
-        "position": {}
+        "position": {},
+        "use_combined": true,
+        "use_composed_preset": false,
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "pose_mode": "manual",
+        "enable_offset": false,
+        "offset_ref_base": true,
+        "offset_ref_tool": false,
+        "offset": {}
       }
     },
     {
@@ -75,7 +102,16 @@
         "method": "moveJ",
         "preset_name": "initial_pose",
         "reference_frame": "base_link",
-        "position": {}
+        "position": {},
+        "use_combined": true,
+        "use_composed_preset": false,
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "pose_mode": "manual",
+        "enable_offset": false,
+        "offset_ref_base": true,
+        "offset_ref_tool": false,
+        "offset": {}
       }
     }
   ],
