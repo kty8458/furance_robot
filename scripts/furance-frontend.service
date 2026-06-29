@@ -8,6 +8,8 @@ Type=simple
 User=__USER__
 Group=__USER__
 WorkingDirectory=__PROJECT_ROOT__/robot_control/frontend
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="HOME=__USER_HOME__"
 ExecStart=/usr/local/bin/furance-frontend.sh
 Restart=on-failure
 RestartSec=5s
