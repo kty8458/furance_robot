@@ -1,0 +1,20 @@
+[Unit]
+Description=Furance ROS2 Node Manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+WorkingDirectory=__PROJECT_ROOT__
+ExecStart=/usr/local/bin/furance-node-manager.sh
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGINT
+TimeoutStopSec=15s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=Furance Robot Control Frontend (vite preview)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+WorkingDirectory=__PROJECT_ROOT__/robot_control/frontend
+ExecStart=/usr/local/bin/furance-frontend.sh
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGINT
+TimeoutStopSec=15s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

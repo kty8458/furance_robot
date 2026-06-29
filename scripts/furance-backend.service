@@ -1,0 +1,21 @@
+[Unit]
+Description=Furance Robot Control Backend (FastAPI)
+After=network-online.target furance-node-manager.service
+Wants=network-online.target
+Requires=furance-node-manager.service
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+WorkingDirectory=__PROJECT_ROOT__/robot_control/backend
+ExecStart=/usr/local/bin/furance-backend.sh
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGINT
+TimeoutStopSec=15s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
