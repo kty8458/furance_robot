@@ -38,6 +38,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/QRCalibrate.srv"
   "srv/SceneOperation.srv"
   "srv/ComputePose.srv"
+  "srv/GripperControl.srv"
   "action/GripperAction.action"
   "action/MoveP.action"
   "action/MoveJ.action"

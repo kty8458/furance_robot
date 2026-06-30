@@ -1,0 +1,9 @@
+string arm          # left / right
+string method       # open / close / position
+float64 torque      # 0-100
+float64 position    # 0-100
+---
+bool success
+string gripper_status
+string gripper_message
+float64 current_position

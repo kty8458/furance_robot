@@ -10,11 +10,10 @@ from furance_interfaces.srv import GenericCommand
 
 # Node entries: type='node' uses `ros2 run`, type='launch' uses `ros2 launch`
 NODE_REGISTRY = {
-    'gripper_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'gripper_node'},
     'command_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'command_node'},
     't1_moveit': {'type': 'launch', 'package': 't1_moveit_config', 'launch_file': 't1_moveit_headless.launch.py', 'args': {'use_sim': 'false', 'rviz': 'false'}},
-    # 'vision_cameras': {'type': 'launch', 'package': 'python_pkgs', 'launch_file': 'three_cameras.launch.py', 'args': {'enable_camera_1': 'true', 'enable_camera_2': 'false', 'enable_camera_3': 'false', 'enable_rviz': 'false'}},
     'camera_manager': {'type': 'node', 'package': 'python_pkgs', 'executable': 'camera_manager_node'},
+    'modbus_gripper': {'type': 'node', 'package': 'python_pkgs', 'executable': 'modbus_gripper'},
 }
 
 SELF_MANAGED = True
