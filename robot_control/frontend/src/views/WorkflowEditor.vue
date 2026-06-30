@@ -90,11 +90,18 @@
           </template>
 
           <template v-else>
+            <div style="margin-bottom: 8px; text-align: right">
+              <el-button size="small" @click="toggleCollapseAll(true)">全部隐藏</el-button>
+              <el-button size="small" @click="toggleCollapseAll(false)">全部展开</el-button>
+            </div>
             <div class="step-list">
               <div v-for="(step, idx) in currentWorkflow.steps" :key="step.id" class="step-item">
                 <div class="step-header">
                   <el-tag :type="stepTagType(step.type)" size="small">{{ stepTypeLabel(step.type) }}</el-tag>
                   <el-input v-model="step.label" placeholder="步骤名称" size="small" style="width: 160px; margin: 0 8px" />
+                  <el-button size="small" circle @click="collapsedSteps[step.id] = !collapsedSteps[step.id]" :title="collapsedSteps[step.id] ? '展开' : '隐藏参数'">
+                    {{ collapsedSteps[step.id] ? '⊕' : '⊖' }}
+                  </el-button>
                   <el-button size="small" :icon="ArrowUp" circle @click="moveStepUp(idx)" :disabled="idx === 0" />
                   <el-button size="small" :icon="ArrowDown" circle @click="moveStepDown(idx)" :disabled="idx === currentWorkflow.steps.length - 1" style="margin-left: 4px" />
                   <el-popconfirm title="删除此步骤？" @confirm="removeStep(idx)">
@@ -103,7 +110,7 @@
                     </template>
                   </el-popconfirm>
                 </div>
-                <div class="step-config">
+                <div v-show="!collapsedSteps[step.id]" class="step-config">
                   <!-- move -->
                   <template v-if="step.type === 'move'">
                     <el-row :gutter="8" style="margin-bottom: 6px">
@@ -391,11 +398,18 @@
                         <el-select v-model="step.config.action" size="small" style="width: 100%">
                           <el-option label="打开" value="open" />
                           <el-option label="闭合" value="close" />
+                          <el-option label="位置" value="position" />
                         </el-select>
                       </el-col>
                       <el-col :span="8">
-                        <div style="font-size: 11px; color: #6b7b8d">力度</div>
-                        <el-input-number v-model="step.config.force" :min="0" :step="0.1" size="small" controls-position="right" style="width: 100%" />
+                        <div style="font-size: 11px; color: #6b7b8d">力矩(0-100)</div>
+                        <el-input-number v-model="step.config.force" :min="0" :max="100" :step="1" size="small" controls-position="right" style="width: 100%" />
+                      </el-col>
+                    </el-row>
+                    <el-row v-if="step.config.action === 'position'" :gutter="8" style="margin-top: 6px">
+                      <el-col :span="8">
+                        <div style="font-size: 11px; color: #6b7b8d">位置(0-100)</div>
+                        <el-input-number v-model="step.config.position" :min="0" :max="100" :step="1" size="small" controls-position="right" style="width: 100%" />
                       </el-col>
                     </el-row>
                   </template>
@@ -495,6 +509,11 @@
         <div v-if="!hasMoveSteps" style="color: #6b7b8d; padding: 12px 0">
           此工作流无导航步骤，可直接执行
         </div>
+        <el-divider />
+        <div style="display: flex; align-items: center; gap: 8px">
+          <el-switch v-model="manualMode" />
+          <span style="font-size: 13px; color: #e5e7eb">手动执行模式（每步等待确认）</span>
+        </div>
       </template>
       <template #footer>
         <el-button @click="showExecDialog = false">取消</el-button>
@@ -517,7 +536,7 @@
           <el-table-column prop="step_id" label="步骤ID" width="100" />
           <el-table-column prop="type" label="类型" width="90" />
           <el-table-column prop="label" label="名称" min-width="120" />
-          <el-table-column label="状态" width="80">
+          <el-table-column label="状态" width="90">
             <template #default="{ row }">
               <el-tag :type="statusTag(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
             </template>
@@ -526,6 +545,9 @@
         </el-table>
       </div>
       <template #footer>
+        <el-button v-if="execResult?.manual_mode && execResult?.active && execResult?.waiting_for_next" type="success" @click="triggerNextStep">
+          下一步
+        </el-button>
         <el-button @click="showResultDialog = false">关闭</el-button>
       </template>
     </el-dialog>
@@ -558,6 +580,7 @@ const showExecDialog = ref(false)
 const showResultDialog = ref(false)
 const executing = ref(false)
 const execResult = ref(null)
+const manualMode = ref(false)   // 手动执行模式开关
 const execStepRows = ref([])
 const statusTagMap = { pending: 'info', running: 'warning', completed: 'success', failed: 'danger' }
 const statusLabelMap = { pending: '待执行', running: '执行中', completed: '完成', failed: '失败' }
@@ -730,9 +753,30 @@ async function handleCancel() {
   }
 }
 
+// 手动模式: 触发下一步
+async function triggerNextStep() {
+  if (!execResult.value?.execution_id) return
+  try {
+    await workflowApi.triggerNext(execResult.value.execution_id)
+    ElMessage.success('已触发下一步')
+  } catch (e) {
+    ElMessage.error(e.message || '触发失败')
+  }
+}
+
 function stepTagType(type) {
   const map = { move: '', upper_limb: 'success', upper_body: 'warning', gripper: 'danger', vision: 'info', sleep: '' }
   return map[type] || ''
+}
+
+// 折叠步骤详情 (隐藏参数, 仅保留类型+名称)
+const collapsedSteps = ref({})  // {step_id: true}
+
+function toggleCollapseAll(collapse) {
+  if (!currentWorkflow.value?.steps) return
+  for (const s of currentWorkflow.value.steps) {
+    collapsedSteps.value[s.id] = collapse
+  }
 }
 
 function stepTypeLabel(type) {
@@ -824,6 +868,7 @@ async function selectWorkflow(row) {
         if (s.type === 'gripper' && !s.config.arm) s.config.arm = 'left'
         if (s.type === 'gripper' && !s.config.action) s.config.action = 'open'
         if (s.type === 'gripper' && s.config.force == null) s.config.force = 0
+        if (s.type === 'gripper' && s.config.position == null) s.config.position = 0
         if (s.type === 'vision' && !s.config.function) s.config.function = 'qr_detect'
         if (s.type === 'vision' && !s.config.scene) s.config.scene = ''
         if (s.type === 'vision' && !s.config.point_name) s.config.point_name = ''
@@ -914,7 +959,7 @@ function addStep(type) {
     },
     upper_limb: { mode: 'preset', arm: 'left', method: 'moveJ', preset_name: '', left_preset_name: '', right_preset_name: '', use_combined: true, use_composed_preset: false, reference_frame: 'base_link', left_reference_frame: 'base_link', right_reference_frame: 'base_link', position: {}, vision_source: '', left_vision_source: '', right_vision_source: '', pose_mode: 'manual', vision_step_label: '', enable_offset: false, offset_ref_base: true, offset_ref_tool: false, offset: {} },
     upper_body: { _waist: false, _ascend: false, _head: false, waist_angle: 300, waist_speed: 20, ascend_pos: 100, ascend_speed: 20, head_angle: 15, head_speed: 10 },
-    gripper: { arm: 'left', action: 'open', force: 0 },
+    gripper: { arm: 'left', action: 'open', force: 0, position: 0 },
     vision: { camera_id: cameraList.value.find(c => c.connected)?.id || 'head', function: 'qr_detect', scene: '', point_name: '' },
     sleep: { duration: 1 },
   }
@@ -1014,7 +1059,7 @@ async function executeWorkflow() {
           path_type: np.path_type || 'NavigationPointTask',
         }
       })
-    const startRes = await workflowApi.execute(currentWorkflow.value.name, navParams)
+    const startRes = await workflowApi.execute(currentWorkflow.value.name, navParams, manualMode.value)
     const executionId = (startRes.data?.data || startRes.data)?.execution_id
     if (!executionId) {
       throw new Error('未获取到执行ID')

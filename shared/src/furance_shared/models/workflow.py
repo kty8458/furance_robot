@@ -60,7 +60,8 @@ class UpperBodyStepConfig(BaseModel):
 class GripperStepConfig(BaseModel):
     arm: str = "left"
     action: str = "open"
-    force: float = 0.0
+    force: float = 0.0       # 0-100 torque %
+    position: float = 0.0    # 0-100 position %
 
 
 class VisionStepConfig(BaseModel):
@@ -98,6 +99,7 @@ class NavPointParam(BaseModel):
 
 class WorkflowExecuteRequest(BaseModel):
     nav_params: list[NavPointParam] = []
+    manual_mode: bool = False   # 手动模式: 每步等待 trigger_next_step
 
 
 class StepResult(BaseModel):

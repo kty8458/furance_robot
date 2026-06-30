@@ -112,6 +112,52 @@
             </div>
           </div>
         </el-card>
+
+        <!-- 夹爪控制 -->
+        <el-card class="tech-card" style="margin-top: 16px">
+          <template #header>
+            <div class="tech-card-header">
+              <el-icon><Connection /></el-icon>
+              <span style="margin-left: 8px">夹爪控制</span>
+            </div>
+          </template>
+
+          <el-tabs v-model="gripperTab">
+            <el-tab-pane label="左夹爪" name="left">
+              <el-form label-width="70px" size="small">
+                <el-form-item label="力矩">
+                  <el-slider v-model="gripperLeft.torque" :min="0" :max="100" show-input />
+                </el-form-item>
+                <el-form-item label="位置">
+                  <el-slider v-model="gripperLeft.position" :min="0" :max="100" show-input />
+                </el-form-item>
+                <el-form-item>
+                  <el-button type="primary" @click="execGripper('left', 'position', gripperLeft)" :loading="gripperLeft.loading">位置控制</el-button>
+                  <el-button @click="execGripper('left', 'open', gripperLeft)" :loading="gripperLeft.loading">全开</el-button>
+                  <el-button @click="execGripper('left', 'close', gripperLeft)" :loading="gripperLeft.loading">全闭</el-button>
+                </el-form-item>
+              </el-form>
+            </el-tab-pane>
+            <el-tab-pane label="右夹爪" name="right">
+              <el-form label-width="70px" size="small">
+                <el-form-item label="力矩">
+                  <el-slider v-model="gripperRight.torque" :min="0" :max="100" show-input />
+                </el-form-item>
+                <el-form-item label="位置">
+                  <el-slider v-model="gripperRight.position" :min="0" :max="100" show-input />
+                </el-form-item>
+                <el-form-item>
+                  <el-button type="primary" @click="execGripper('right', 'position', gripperRight)" :loading="gripperRight.loading">位置控制</el-button>
+                  <el-button @click="execGripper('right', 'open', gripperRight)" :loading="gripperRight.loading">全开</el-button>
+                  <el-button @click="execGripper('right', 'close', gripperRight)" :loading="gripperRight.loading">全闭</el-button>
+                </el-form-item>
+              </el-form>
+            </el-tab-pane>
+          </el-tabs>
+          <div v-if="gripperResult" style="margin-top: 8px; font-size: 12px; color: #00d4ff">
+            {{ gripperResult }}
+          </div>
+        </el-card>
       </el-col>
 
       <!-- Right column: jog control -->
@@ -417,11 +463,33 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { armApi } from '../api/arm'
 import { upperBodyApi } from '../api/upperBody'
+import { robotApi } from '../api/robot'
 import { useStatus } from '../composables/useStatus'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { SetUp, Operation, Position } from '@element-plus/icons-vue'
+import { SetUp, Operation, Position, Connection } from '@element-plus/icons-vue'
 
 const { status } = useStatus()
+
+// ---- 夹爪控制 ----
+const gripperTab = ref('left')
+const gripperLeft = ref({ torque: 50, position: 50, loading: false })
+const gripperRight = ref({ torque: 50, position: 50, loading: false })
+const gripperResult = ref('')
+
+async function execGripper(arm, action, g) {
+  g.loading = true
+  gripperResult.value = ''
+  try {
+    const res = await robotApi.gripper(arm, action, g.torque, g.position)
+    gripperResult.value = res.data?.message || res.message || `${arm} ${action} 完成`
+    ElMessage.success(`${arm} 夹爪 ${action} 完成`)
+  } catch (e) {
+    gripperResult.value = e.message || '夹爪控制失败'
+    ElMessage.error(e.message || '夹爪控制失败')
+  } finally {
+    g.loading = false
+  }
+}
 
 const poseLabels = ['X', 'Y', 'Z', 'Roll', 'Pitch', 'Yaw']
 

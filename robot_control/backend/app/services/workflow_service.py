@@ -118,6 +118,11 @@ class WorkflowService:
         workflow = self.get_workflow(robot_id, name)
         execution_id = str(uuid.uuid4())
         cancel_event = asyncio.Event()
+        manual_mode = bool(getattr(execute_req, "manual_mode", False))
+        # 手动模式: 每步执行前等待 next_event 触发
+        next_event = asyncio.Event() if manual_mode else None
+        # 手动模式: 允许在执行中覆盖未执行步骤的 config
+        step_overrides: dict[str, dict] = {}
         self._active_executions[execution_id] = cancel_event
         self._execution_state[execution_id] = {
             "execution_id": execution_id,
@@ -127,9 +132,34 @@ class WorkflowService:
             "message": "",
             "step_results": [],
             "error_step_id": None,
+            "manual_mode": manual_mode,
+            "_next_event": next_event,
+            "_step_overrides": step_overrides,
+            "current_step_index": 0,
+            "waiting_for_next": False,
         }
         asyncio.create_task(self._run_workflow(execution_id, robot_id, workflow, execute_req, cancel_event))
         return execution_id
+
+    def trigger_next_step(self, execution_id: str) -> bool:
+        """手动模式: 触发下一步执行."""
+        st = self._execution_state.get(execution_id)
+        if not st or not st.get("manual_mode"):
+            return False
+        ev = st.get("_next_event")
+        if ev is not None:
+            ev.set()
+            return True
+        return False
+
+    def update_pending_step(self, execution_id: str, step_id: str, config: dict) -> bool:
+        """手动模式: 修改尚未执行的步骤配置."""
+        st = self._execution_state.get(execution_id)
+        if not st or not st.get("manual_mode"):
+            return False
+        # 只允许修改当前正在等待 / 之后的步骤
+        st["_step_overrides"][step_id] = dict(config or {})
+        return True
 
     async def _run_workflow(
         self,
@@ -174,6 +204,44 @@ class WorkflowService:
                     state["success"] = False
                     state["message"] = f"Cancelled at step {i + 1}"
                     break
+
+                # 应用手动覆盖 (在执行前)
+                ov = state["_step_overrides"].pop(step.id, None)
+                if ov:
+                    merged = dict(step.config)
+                    merged.update(ov)
+                    step = step.model_copy(update={"config": merged})
+
+                # 手动模式: 等待用户触发下一步
+                if state["manual_mode"] and state["_next_event"] is not None:
+                    state["current_step_index"] = i + 1
+                    state["waiting_for_next"] = True
+                    await self._push_step(robot_id, {
+                        "execution_id": execution_id,
+                        "workflow_name": workflow.name,
+                        "step_id": step.id,
+                        "step_index": i + 1,
+                        "total_steps": len(workflow.steps),
+                        "status": "pending_manual",
+                        "message": f"等待确认: {step.label}",
+                    })
+                    logger.info("EVENT workflow_step_pending name=%s execution_id=%s step=%d/%d step_id=%s",
+                                workflow.name, execution_id, i + 1, len(workflow.steps), step.id)
+                    await state["_next_event"].wait()
+                    state["_next_event"].clear()
+                    state["waiting_for_next"] = False
+                    if cancel_event.is_set():
+                        logger.info("Workflow '%s' execution '%s' cancelled (manual) at step %d/%d",
+                                    workflow.name, execution_id, i + 1, len(workflow.steps))
+                        state["success"] = False
+                        state["message"] = f"Cancelled at step {i + 1}"
+                        break
+                    # 重新应用覆盖 (用户可能在等待期间又改了)
+                    ov = state["_step_overrides"].pop(step.id, None)
+                    if ov:
+                        merged = dict(step.config)
+                        merged.update(ov)
+                        step = step.model_copy(update={"config": merged})
 
                 logger.info(
                     "EVENT workflow_step_start name=%s execution_id=%s step=%d/%d "
@@ -250,6 +318,10 @@ class WorkflowService:
                 state["message"] = "All steps completed"
         finally:
             state["active"] = False
+            state["waiting_for_next"] = False
+            # 清理非序列化字段 (避免 API 返回时报错)
+            state.pop("_next_event", None)
+            state.pop("_step_overrides", None)
             if state.get("success") is None:
                 state["success"] = False
             logger.info("EVENT workflow_end name=%s execution_id=%s success=%s message=%s",
@@ -300,7 +372,8 @@ class WorkflowService:
         state = self._execution_state.get(execution_id)
         if state is None:
             return {"execution_id": execution_id, "active": False, "success": False, "message": "Execution not found", "step_results": []}
-        return dict(state)
+        # 剔除非序列化的内部字段
+        return {k: v for k, v in state.items() if not k.startswith("_")}
 
     async def _push_step(self, robot_id: str, payload: dict) -> None:
         """Push a workflow step status update via status_service if available."""
@@ -643,15 +716,21 @@ class WorkflowService:
         return StepResult(step_id=step.id, success=True, message="Upper body control completed")
 
     async def _execute_gripper(self, step, nav_lookup, context, robot_id) -> StepResult:
+        config = GripperStepConfig(**step.config)
+        # 通过 robot_service.gripper 走 /gripper_control (modbus_gripper)
+        from app.services.robot_service import RobotService
         if self._ros2 is None:
             return StepResult(step_id=step.id, success=False, message="ROS2 client not available")
-
-        config = GripperStepConfig(**step.config)
-        cmd = GripperCommand(arm=config.arm, action=config.action, force=config.force)
-        result = await self._ros2.call_service("/GripperCommand", cmd.model_dump())
-        if result.get("success") is False:
-            return StepResult(step_id=step.id, success=False, message=result.get("message", "Gripper command failed"))
-        return StepResult(step_id=step.id, success=True, message=f"Gripper {config.action} completed")
+        svc = RobotService(self._ros2)
+        cmd = GripperCommand(arm=config.arm, action=config.action,
+                             force=config.force, position=config.position)
+        api_resp = await svc.gripper(robot_id, cmd)
+        ok = (api_resp.code == 0) if hasattr(api_resp, "code") else api_resp.get("code") == 0
+        msg = getattr(api_resp, "message", None) or "Gripper command"
+        if not ok:
+            return StepResult(step_id=step.id, success=False, message=msg)
+        return StepResult(step_id=step.id, success=True,
+                          message=f"Gripper {config.arm} {config.action} (torque={config.force} pos={config.position})")
 
     async def _execute_vision(self, step, nav_lookup, context, robot_id) -> StepResult:
         if self._ros2 is None:

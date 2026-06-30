@@ -88,7 +88,7 @@ class WorkflowStepPayload(BaseModel):
     step_id: str
     step_index: int
     total_steps: int
-    status: Literal["running", "completed", "failed", "cancelled"]
+    status: Literal["running", "completed", "failed", "cancelled", "pending_manual"]
     message: str = ""
     data: dict = {}
 

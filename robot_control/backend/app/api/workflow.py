@@ -112,6 +112,28 @@ async def cancel_workflow(robot_id: str, name: str, request: Request):
     return ApiResponse(data={"cancelled": cancelled})
 
 
+@router.post("/executions/{execution_id}/next", response_model=ApiResponse)
+async def trigger_next_step(robot_id: str, execution_id: str, request: Request):
+    """手动模式: 触发下一步执行."""
+    service = _get_workflow_service(request)
+    ok = service.trigger_next_step(execution_id)
+    if not ok:
+        return ApiResponse(code=2002, message="Execution not in manual mode or not found")
+    return ApiResponse(data={"triggered": True})
+
+
+@router.post("/executions/{execution_id}/update-step", response_model=ApiResponse)
+async def update_pending_step(robot_id: str, execution_id: str, req: dict, request: Request):
+    """手动模式: 修改未执行步骤的参数. body: {step_id, config}."""
+    service = _get_workflow_service(request)
+    step_id = req.get("step_id", "")
+    config = req.get("config", {})
+    ok = service.update_pending_step(execution_id, step_id, config)
+    if not ok:
+        return ApiResponse(code=2003, message="Execution not in manual mode or not found")
+    return ApiResponse(data={"updated": True, "step_id": step_id})
+
+
 @router.get("/executions/{execution_id}", response_model=ApiResponse)
 async def get_execution_status(robot_id: str, execution_id: str, request: Request):
     service = _get_workflow_service(request)

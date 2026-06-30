@@ -23,7 +23,8 @@ class PlaceCommand(BaseModel):
 class GripperCommand(BaseModel):
     arm: ArmSide
     action: GripperAction
-    force: float = Field(default=0.0, ge=0)
+    force: float = Field(default=0.0, ge=0, le=100)       # 0-100 torque %
+    position: float = Field(default=0.0, ge=0, le=100)    # 0-100 position %
 
 
 class LiftCommand(BaseModel):

@@ -13,6 +13,7 @@ class ArmSide(StrEnum):
 class GripperAction(StrEnum):
     OPEN = "open"
     CLOSE = "close"
+    POSITION = "position"
 
 
 class GripperState(StrEnum):
