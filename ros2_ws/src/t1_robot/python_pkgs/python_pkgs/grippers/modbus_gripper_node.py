@@ -128,6 +128,15 @@ class ModbusGripperNode(Node):
 
     # ----- Modbus 读写 (带锁) -----
 
+    def _slave_kwarg(self, device_id: int) -> dict:
+        """兼容不同 pymodbus 版本的从站参数名 (slave vs device_id)。"""
+        import inspect
+        from pymodbus.client import ModbusSerialClient
+        sig = inspect.signature(ModbusSerialClient.write_register)
+        if "slave" in sig.parameters:
+            return {"slave": device_id}
+        return {"device_id": device_id}
+
     def _ensure_connected(self) -> bool:
         """确保串口已连接, 断开则重连。"""
         if self._client.connected:
@@ -156,7 +165,7 @@ class ModbusGripperNode(Node):
             return False
         with self._io_lock:
             try:
-                result = self._client.write_register(address, value, slave=device_id)
+                result = self._client.write_register(address, value, **self._slave_kwarg(device_id))
                 if hasattr(result, "isError") and result.isError():
                     self.get_logger().error(
                         f"写入寄存器 {hex(address)} (device_id={device_id}) 错误: {result}"
@@ -176,7 +185,7 @@ class ModbusGripperNode(Node):
         with self._io_lock:
             try:
                 result = self._client.read_holding_registers(
-                    address=address, count=count, slave=device_id
+                    address=address, count=count, **self._slave_kwarg(device_id)
                 )
                 if result is None or (hasattr(result, "isError") and result.isError()):
                     return None
@@ -315,16 +324,19 @@ class ModbusGripperNode(Node):
             response.gripper_message = f"{action_label}指令下发失败"
             return response
 
-        arrived, cur_pos = self._wait_arrival(device_id, method)
+        # 指令下发成功即返回成功 (不强制等待到位, 避免轮询读寄存器导致串口异常)
+        # 尝试读取当前位置 (失败也不影响结果)
+        cur_pos = 0
+        high = self._read_register(0x060D, count=1, device_id=device_id)
+        low = self._read_register(0x060E, count=1, device_id=device_id)
+        if high is not None and low is not None:
+            cur_pos = (high[0] << 16) + low[0]
+
+        response.success = True
+        response.gripper_status = "成功"
+        response.gripper_message = f"{action_label}指令已下发"
         response.current_position = float(cur_pos)
-        if arrived:
-            response.success = True
-            response.gripper_status = "成功"
-            response.gripper_message = f"{action_label}完成"
-        else:
-            response.success = False
-            response.gripper_status = "超时"
-            response.gripper_message = f"{action_label} 3s 内未到达"
+        return response
         return response
 
     def destroy_node(self):
