@@ -149,15 +149,17 @@ class ModbusGripperNode(Node):
             try:
                 if self._client.connected:
                     self._client.close()
-            except Exception:
-                pass
+            except Exception as e:
+                self.get_logger().warning(f"关闭旧连接时异常: {e}")
             try:
                 ok = self._client.connect()
                 if ok:
-                    self.get_logger().info("串口重连成功")
+                    self.get_logger().info(f"串口重连成功 ({SERIAL_PORT})")
+                else:
+                    self.get_logger().warning(f"串口重连返回 False ({SERIAL_PORT})")
                 return bool(ok)
             except Exception as e:
-                self.get_logger().error(f"串口重连失败: {e}")
+                self.get_logger().error(f"串口重连失败 ({SERIAL_PORT}): {e}")
                 return False
 
     def _write_register(self, address: int, value: int, device_id: int) -> bool:
@@ -291,6 +293,8 @@ class ModbusGripperNode(Node):
             return response
 
         # 每次请求前确保串口连接 (pymodbus 超时后会断开)
+        if not self._client.connected:
+            self.get_logger().warning(f"请求前串口已断开, arm={arm} method={method}, 尝试重连...")
         if not self._ensure_connected():
             response.success = False
             response.gripper_status = "失败"
