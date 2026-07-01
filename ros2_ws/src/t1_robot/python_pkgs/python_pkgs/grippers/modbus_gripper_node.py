@@ -255,6 +255,23 @@ class ModbusGripperNode(Node):
             response.gripper_message = f"未知 arm: {arm}"
             return response
 
+        # 每次请求前确保串口连接 (pymodbus 超时后会断开)
+        if not self._client.connected:
+            self.get_logger().info("请求前串口断开, 尝试重连...")
+            try:
+                self._client.connect()
+            except Exception as e:
+                self.get_logger().error(f"请求前串口重连失败: {e}")
+                response.success = False
+                response.gripper_status = "失败"
+                response.gripper_message = f"串口重连失败: {e}"
+                return response
+            if not self._client.connected:
+                response.success = False
+                response.gripper_status = "失败"
+                response.gripper_message = "串口未连接"
+                return response
+
         if not present:
             response.success = False
             response.gripper_status = "未连接"
