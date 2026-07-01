@@ -328,19 +328,17 @@ class ModbusGripperNode(Node):
             response.gripper_message = f"{action_label}指令下发失败"
             return response
 
-        # 指令下发成功即返回成功 (不强制等待到位, 避免轮询读寄存器导致串口异常)
-        # 尝试读取当前位置 (失败也不影响结果)
-        cur_pos = 0
-        high = self._read_register(0x060D, count=1, device_id=device_id)
-        low = self._read_register(0x060E, count=1, device_id=device_id)
-        if high is not None and low is not None:
-            cur_pos = (high[0] << 16) + low[0]
-
-        response.success = True
-        response.gripper_status = "成功"
-        response.gripper_message = f"{action_label}指令已下发"
+        # 等待夹爪运动到位
+        arrived, cur_pos = self._wait_arrival(device_id, method)
         response.current_position = float(cur_pos)
-        return response
+        if arrived:
+            response.success = True
+            response.gripper_status = "成功"
+            response.gripper_message = f"{action_label}完成"
+        else:
+            response.success = False
+            response.gripper_status = "超时"
+            response.gripper_message = f"{action_label} 3s 内未到达"
         return response
 
     def destroy_node(self):
