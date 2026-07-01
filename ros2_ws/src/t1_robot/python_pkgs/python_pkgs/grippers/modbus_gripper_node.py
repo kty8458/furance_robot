@@ -128,8 +128,31 @@ class ModbusGripperNode(Node):
 
     # ----- Modbus 读写 (带锁) -----
 
+    def _ensure_connected(self) -> bool:
+        """确保串口已连接, 断开则重连。"""
+        if self._client.connected:
+            return True
+        return self._try_reconnect()
+
+    def _try_reconnect(self) -> bool:
+        """尝试重新连接串口。先关闭旧连接再重连。"""
+        with self._io_lock:
+            try:
+                if self._client.connected:
+                    self._client.close()
+            except Exception:
+                pass
+            try:
+                ok = self._client.connect()
+                if ok:
+                    self.get_logger().info("串口重连成功")
+                return bool(ok)
+            except Exception as e:
+                self.get_logger().error(f"串口重连失败: {e}")
+                return False
+
     def _write_register(self, address: int, value: int, device_id: int) -> bool:
-        if not self._client.connected:
+        if not self._ensure_connected():
             return False
         with self._io_lock:
             try:
@@ -144,10 +167,11 @@ class ModbusGripperNode(Node):
                 self.get_logger().error(
                     f"写入寄存器 {hex(address)} (device_id={device_id}) 异常: {e}"
                 )
+                self._try_reconnect()
                 return False
 
     def _read_register(self, address: int, count: int = 1, device_id: int = 1):
-        if not self._client.connected:
+        if not self._ensure_connected():
             return None
         with self._io_lock:
             try:
@@ -161,6 +185,8 @@ class ModbusGripperNode(Node):
                 self.get_logger().error(
                     f"读取寄存器 {hex(address)} (device_id={device_id}) 异常: {e}"
                 )
+                # 异常后尝试重连, 供下次使用
+                self._try_reconnect()
                 return None
 
     # ----- 动作 -----
@@ -256,21 +282,11 @@ class ModbusGripperNode(Node):
             return response
 
         # 每次请求前确保串口连接 (pymodbus 超时后会断开)
-        if not self._client.connected:
-            self.get_logger().info("请求前串口断开, 尝试重连...")
-            try:
-                self._client.connect()
-            except Exception as e:
-                self.get_logger().error(f"请求前串口重连失败: {e}")
-                response.success = False
-                response.gripper_status = "失败"
-                response.gripper_message = f"串口重连失败: {e}"
-                return response
-            if not self._client.connected:
-                response.success = False
-                response.gripper_status = "失败"
-                response.gripper_message = "串口未连接"
-                return response
+        if not self._ensure_connected():
+            response.success = False
+            response.gripper_status = "失败"
+            response.gripper_message = "串口未连接"
+            return response
 
         if not present:
             response.success = False
