@@ -45,24 +45,27 @@ class RobotService:
         return _check_result(result)
 
     async def gripper(self, robot_id: str, cmd: GripperCommand) -> ApiResponse:
+        import logging as _log
+        _l = _log.getLogger("app.services.robot_service")
         # 调用 modbus_gripper 的 /gripper_control service (GripperControl srv 类型)
         try:
             from control_interfaces.srv import GripperControl
             from rclpy.node import Node
-        except ImportError:
-            # Fallback: 旧的 GripperCommand service (Mock 或 非 modbus 节点)
+        except ImportError as ie:
+            _l.warning("GripperControl 导入失败, fallback 到 /GripperCommand: %s", ie)
             result = await self._ros2.call_service("/GripperCommand", cmd.model_dump())
             return _check_result(result)
 
-        # 通过 ros2 runtime 直接调用 GripperControl
         runtime = getattr(self._ros2, "_runtime", None)
         if runtime is None:
+            _l.warning("ROS2 runtime 不可用, fallback 到 /GripperCommand")
             result = await self._ros2.call_service("/GripperCommand", cmd.model_dump())
             return _check_result(result)
 
         node: Node = runtime.node
         client = node.create_client(GripperControl, "/gripper_control")
         if not client.wait_for_service(timeout_sec=2.0):
+            _l.warning("/gripper_control service not available")
             return _check_result({"success": False, "message": "/gripper_control service not available"})
 
         req = GripperControl.Request()
@@ -70,6 +73,8 @@ class RobotService:
         req.method = cmd.action.value if hasattr(cmd.action, "value") else str(cmd.action)
         req.torque = float(cmd.force)
         req.position = float(cmd.position)
+        _l.info("调用 /gripper_control: arm=%s method=%s torque=%.1f position=%.1f",
+                req.arm, req.method, req.torque, req.position)
 
         import asyncio
         loop = asyncio.get_event_loop()
@@ -80,6 +85,7 @@ class RobotService:
             if aio_future.done(): return
             try:
                 resp = fut.result()
+                _l.info("/gripper_control 响应: success=%s message=%s", resp.success, resp.gripper_message)
                 loop.call_soon_threadsafe(aio_future.set_result, {
                     "success": bool(resp.success),
                     "message": resp.gripper_message,
@@ -89,11 +95,14 @@ class RobotService:
                     },
                 })
             except Exception as e:
+                _l.error("/gripper_control 回调异常: %s", e)
                 loop.call_soon_threadsafe(aio_future.set_exception, e)
         ros_future.add_done_callback(_done)
         try:
             result = await asyncio.wait_for(aio_future, timeout=10.0)
+            _l.info("/gripper_control 结果: %s", result)
         except asyncio.TimeoutError:
+            _l.warning("/gripper_control 超时")
             result = {"success": False, "message": "Gripper service timed out"}
         return _check_result(result)
 
