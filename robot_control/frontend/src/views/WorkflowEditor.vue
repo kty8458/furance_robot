@@ -1,46 +1,31 @@
 <template>
   <div class="tech-page">
-    <el-row :gutter="16">
-      <!-- Left column: workflow list + step palette -->
-      <el-col :xs="24" :sm="10" :md="8">
-        <!-- Workflow list -->
-        <el-card class="tech-card" style="margin-bottom: 16px">
-          <template #header>
-            <div class="tech-card-header">
-              <el-icon><List /></el-icon>
-              <span style="margin-left: 8px">工作流列表</span>
-            </div>
-          </template>
-          <el-form :inline="true" size="small" style="margin-bottom: 10px">
-            <el-form-item>
-              <el-input v-model="newWorkflowName" placeholder="工序名称" style="width: 140px" @keyup.enter="createWorkflow" />
-            </el-form-item>
-            <el-form-item>
-              <el-button type="success" size="small" @click="createWorkflow" :disabled="!newWorkflowName">新建</el-button>
-            </el-form-item>
-            <el-form-item>
-              <el-button size="small" @click="refreshList">刷新</el-button>
-            </el-form-item>
-          </el-form>
-          <el-table :data="workflows" border size="small" style="width: 100%" max-height="300" @row-click="selectWorkflow" highlight-current-row>
-            <el-table-column prop="name" label="名称" min-width="80" />
-            <el-table-column label="步骤" width="55">
-              <template #default="{ row }">{{ row.step_count }}</template>
-            </el-table-column>
-            <el-table-column label="操作" width="55">
-              <template #default="{ row }">
-                <el-popconfirm title="确定删除？" @confirm="deleteWorkflow(row.name)">
-                  <template #reference>
-                    <el-button type="danger" size="small" circle><el-icon><Delete /></el-icon></el-button>
-                  </template>
-                </el-popconfirm>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
+    <!-- ====== 上部: 工作流操作栏 (一行) ====== -->
+    <el-card class="tech-card" style="margin-bottom: 12px">
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+        <el-icon><List /></el-icon>
+        <span style="font-size: 14px; color: #e5e7eb">
+          {{ currentWorkflow ? currentWorkflow.name : '未选择工作流' }}
+        </span>
+        <div style="flex: 1" />
+        <el-button size="small" @click="showWorkflowListDialog = true">选择工作流</el-button>
+        <el-button size="small" type="success" @click="createWorkflowPrompt">新建</el-button>
+        <el-button size="small" @click="refreshList">刷新</el-button>
+        <el-button v-if="currentWorkflow" size="small" type="primary" @click="showExecDialog = true" :disabled="!currentWorkflow.steps?.length || execResult?.active">
+          执行
+        </el-button>
+        <el-button v-if="currentWorkflow" size="small" type="success" @click="saveWorkflow">保存</el-button>
+        <el-button v-if="currentWorkflow" size="small" @click="duplicateWorkflow">复制工作流</el-button>
+        <el-button v-if="execResult?.active" size="small" type="warning" @click="showResultDialog = true">查看进度</el-button>
+        <el-button v-if="execResult?.active" size="small" type="danger" @click="handleCancel">停止</el-button>
+      </div>
+    </el-card>
 
-        <!-- Step type palette -->
-        <el-card class="tech-card">
+    <!-- ====== 下部: 左侧添加步骤 + 右侧工作流编辑 ====== -->
+    <el-row :gutter="16">
+      <!-- 左侧: 添加步骤 (固定) -->
+      <el-col :xs="24" :sm="6" :md="5">
+        <el-card class="tech-card step-palette-card">
           <template #header>
             <div class="tech-card-header">
               <el-icon><Plus /></el-icon>
@@ -53,36 +38,17 @@
               <span class="palette-label">{{ st.label }}</span>
             </div>
           </div>
+          <div style="margin-top: 10px; font-size: 11px; color: #6b7b8d">
+            {{ selectedStepId ? '新步骤将插入到选中步骤下方' : '新步骤将添加到末尾' }}
+          </div>
         </el-card>
       </el-col>
 
-      <!-- Right column: step editor -->
-      <el-col :xs="24" :sm="14" :md="16">
+      <!-- 右侧: 工作流步骤列表 -->
+      <el-col :xs="24" :sm="18" :md="19">
         <el-card class="tech-card">
-          <template #header>
-            <div class="tech-card-header">
-              <el-icon><Edit /></el-icon>
-              <span style="margin-left: 8px">
-                {{ currentWorkflow ? currentWorkflow.name : '选择一个工作流' }}
-              </span>
-              <div style="flex: 1" />
-              <el-button v-if="execResult?.active" size="small" type="warning" @click="showResultDialog = true" style="margin-right: 6px">
-                查看进度
-              </el-button>
-              <el-button v-if="execResult?.active" size="small" type="danger" @click="handleCancel" style="margin-right: 6px">
-                停止执行
-              </el-button>
-              <el-button v-if="currentWorkflow" size="small" type="primary" @click="showExecDialog = true" :disabled="!currentWorkflow.steps?.length || execResult?.active">
-                执行
-              </el-button>
-              <el-button v-if="currentWorkflow" size="small" type="success" @click="saveWorkflow" style="margin-left: 6px">
-                保存
-              </el-button>
-            </div>
-          </template>
-
           <template v-if="!currentWorkflow">
-            <div style="color: #6b7b8d; text-align: center; padding: 40px 0">选择左侧工作流或新建一个</div>
+            <div style="color: #6b7b8d; text-align: center; padding: 40px 0">点击上方「选择工作流」或「新建」</div>
           </template>
 
           <template v-else-if="!currentWorkflow.steps?.length">
@@ -95,18 +61,23 @@
               <el-button size="small" @click="toggleCollapseAll(false)">全部展开</el-button>
             </div>
             <div class="step-list">
-              <div v-for="(step, idx) in currentWorkflow.steps" :key="step.id" class="step-item">
+              <div v-for="(step, idx) in currentWorkflow.steps" :key="step.id"
+                class="step-item" :class="{ 'step-selected': selectedStepId === step.id }"
+                @click="selectedStepId = step.id">
                 <div class="step-header">
                   <el-tag :type="stepTagType(step.type)" size="small">{{ stepTypeLabel(step.type) }}</el-tag>
-                  <el-input v-model="step.label" placeholder="步骤名称" size="small" style="width: 160px; margin: 0 8px" />
-                  <el-button size="small" circle @click="collapsedSteps[step.id] = !collapsedSteps[step.id]" :title="collapsedSteps[step.id] ? '展开' : '隐藏参数'">
+                  <el-input v-model="step.label" placeholder="步骤名称" size="small" style="width: 160px; margin: 0 8px" @click.stop />
+                  <el-button size="small" circle @click.stop="collapsedSteps[step.id] = !collapsedSteps[step.id]" :title="collapsedSteps[step.id] ? '展开' : '隐藏参数'">
                     {{ collapsedSteps[step.id] ? '⊕' : '⊖' }}
                   </el-button>
-                  <el-button size="small" :icon="ArrowUp" circle @click="moveStepUp(idx)" :disabled="idx === 0" />
-                  <el-button size="small" :icon="ArrowDown" circle @click="moveStepDown(idx)" :disabled="idx === currentWorkflow.steps.length - 1" style="margin-left: 4px" />
+                  <el-button size="small" circle @click.stop="duplicateStep(idx)" title="复制此步骤">
+                    <el-icon><CopyDocument /></el-icon>
+                  </el-button>
+                  <el-button size="small" :icon="ArrowUp" circle @click.stop="moveStepUp(idx)" :disabled="idx === 0" />
+                  <el-button size="small" :icon="ArrowDown" circle @click.stop="moveStepDown(idx)" :disabled="idx === currentWorkflow.steps.length - 1" style="margin-left: 4px" />
                   <el-popconfirm title="删除此步骤？" @confirm="removeStep(idx)">
                     <template #reference>
-                      <el-button size="small" type="danger" :icon="Delete" circle style="margin-left: 4px" />
+                      <el-button size="small" type="danger" :icon="Delete" circle style="margin-left: 4px" @click.stop />
                     </template>
                   </el-popconfirm>
                 </div>
@@ -474,6 +445,33 @@
       </el-col>
     </el-row>
 
+    <!-- 工作流列表弹窗 -->
+    <el-dialog v-model="showWorkflowListDialog" title="工作流列表" width="500px">
+      <el-form :inline="true" size="small" style="margin-bottom: 10px">
+        <el-form-item>
+          <el-input v-model="newWorkflowName" placeholder="工作流名称" style="width: 180px" @keyup.enter="createWorkflow" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="success" size="small" @click="createWorkflow" :disabled="!newWorkflowName">新建</el-button>
+        </el-form-item>
+      </el-form>
+      <el-table :data="workflows" border size="small" style="width: 100%" max-height="400" @row-click="row => { selectWorkflow(row); showWorkflowListDialog = false }" highlight-current-row>
+        <el-table-column prop="name" label="名称" min-width="100" />
+        <el-table-column label="步骤" width="60">
+          <template #default="{ row }">{{ row.step_count }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="60">
+          <template #default="{ row }">
+            <el-popconfirm title="确定删除？" @confirm="deleteWorkflow(row.name)">
+              <template #reference>
+                <el-button type="danger" size="small" circle @click.stop><el-icon><Delete /></el-icon></el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
+
     <!-- Execution dialog -->
     <el-dialog v-model="showExecDialog" title="执行工作流" width="600px">
       <div v-if="!currentWorkflow">无选中工作流</div>
@@ -557,8 +555,8 @@
 <script setup>
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { workflowApi } from '../api/workflow'
-import { ElMessage } from 'element-plus'
-import { List, Plus, Edit, Delete, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { List, Plus, Edit, Delete, ArrowUp, ArrowDown, CopyDocument } from '@element-plus/icons-vue'
 import { navigationApi } from '../api/navigation'
 import { armApi } from '../api/arm'
 
@@ -581,6 +579,8 @@ const showResultDialog = ref(false)
 const executing = ref(false)
 const execResult = ref(null)
 const manualMode = ref(false)   // 手动执行模式开关
+const selectedStepId = ref(null)  // 当前选中的步骤 ID (用于插入位置)
+const showWorkflowListDialog = ref(false)  // 工作流列表弹窗
 const execStepRows = ref([])
 const statusTagMap = { pending: 'info', running: 'warning', completed: 'success', failed: 'danger' }
 const statusLabelMap = { pending: '待执行', running: '执行中', completed: '完成', failed: '失败' }
@@ -963,12 +963,67 @@ function addStep(type) {
     vision: { camera_id: cameraList.value.find(c => c.connected)?.id || 'head', function: 'qr_detect', scene: '', point_name: '' },
     sleep: { duration: 1 },
   }
-  currentWorkflow.value.steps.push({
+  const newStep = {
     id: `step_${stepCounter}`,
     type,
     label: '',
     config: { ...defaults[type] },
-  })
+  }
+  // 插入到选中步骤下方, 否则添加到末尾
+  if (selectedStepId.value) {
+    const idx = currentWorkflow.value.steps.findIndex(s => s.id === selectedStepId.value)
+    if (idx >= 0) {
+      currentWorkflow.value.steps.splice(idx + 1, 0, newStep)
+    } else {
+      currentWorkflow.value.steps.push(newStep)
+    }
+  } else {
+    currentWorkflow.value.steps.push(newStep)
+  }
+  selectedStepId.value = newStep.id
+}
+
+function duplicateStep(idx) {
+  if (!currentWorkflow.value) return
+  const src = currentWorkflow.value.steps[idx]
+  if (!src) return
+  stepCounter++
+  const copy = JSON.parse(JSON.stringify(src))
+  copy.id = `step_${stepCounter}`
+  copy.label = src.label + '_副本'
+  currentWorkflow.value.steps.push(copy)
+  ElMessage.success('已复制到末尾')
+}
+
+function createWorkflowPrompt() {
+  ElMessageBox.prompt('请输入工作流名称', '新建工作流', {
+    confirmButtonText: '新建',
+    cancelButtonText: '取消',
+  }).then(({ value }) => {
+    if (!value) return
+    newWorkflowName.value = value
+    createWorkflow()
+  }).catch(() => {})
+}
+
+async function duplicateWorkflow() {
+  if (!currentWorkflow.value) return
+  try {
+    const { value } = await ElMessageBox.prompt('请输入新工作流名称', '复制工作流', {
+      confirmButtonText: '复制',
+      cancelButtonText: '取消',
+      inputValue: currentWorkflow.value.name + '_副本',
+    })
+    if (!value) return
+    const copy = JSON.parse(JSON.stringify(currentWorkflow.value))
+    copy.name = value
+    delete copy.id
+    await workflowApi.save(value, copy)
+    ElMessage.success(`已复制为 ${value}`)
+    await refreshList()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e.message || '复制失败')
+  }
 }
 
 function removeStep(idx) {
@@ -1151,11 +1206,24 @@ watch(showExecDialog, async (val) => {
   flex-direction: column;
   gap: 10px;
 }
+.step-palette-card {
+  position: sticky;
+  top: 12px;
+}
 .step-item {
   border: 1px solid #2a3a4a;
   border-radius: 8px;
   padding: 10px;
   background: #0d1a26;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.step-item:hover {
+  border-color: #3a5a7a;
+}
+.step-selected {
+  border-color: #00d4ff !important;
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.2);
 }
 .step-header {
   display: flex;
