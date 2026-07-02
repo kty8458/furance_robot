@@ -22,9 +22,11 @@ from furance_shared.utils.errors import BusinessError, ErrorCode
 
 logger = logging.getLogger(__name__)
 
-# Maximum time to wait for navigation task completion (5 minutes = 300 polls at 1s)
-NAV_POLL_TIMEOUT = 300
+# Maximum time to wait for navigation task completion
+NAV_POLL_TIMEOUT = 600       # 10 分钟 (点对点导航)
 NAV_POLL_INTERVAL = 1.0
+MWP_POLL_TIMEOUT = 120      # 定距离/定角度移动超时 (2 分钟)
+MWP_POLL_INTERVAL = 0.5
 
 
 class WorkflowService:
@@ -500,7 +502,7 @@ class WorkflowService:
 
         config = MoveStepConfig(**step.config)
 
-        # 定距离/定角度移动 — 不走调度系统任务队列
+        # 定距离/定角度移动 — 不走调度系统任务队列, 底盘执行完才返回
         if config.move_source == "move_with_params":
             res = await self._chassis.move_with_params(
                 linear_velocity=config.linear_velocity,
