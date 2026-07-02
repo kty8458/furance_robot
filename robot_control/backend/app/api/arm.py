@@ -1,4 +1,5 @@
 from typing import Optional
+import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from furance_shared.models.command import ArmMoveCommand, TeachSaveCommand, TeachExecCommand
@@ -7,6 +8,8 @@ from furance_shared.utils.errors import FuranceError
 from app.services.arm_service import ArmService
 from app.models.teach import TeachPreset
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/robot/{robot_id}/arm", tags=["arm"])
 
@@ -49,6 +52,11 @@ async def teach_save(robot_id: str, cmd: TeachSaveCommand, request: Request):
         return ApiResponse(data={"name": cmd.name})
     except FuranceError as e:
         raise HTTPException(status_code=400, detail=e.to_dict())
+    except ValueError as e:
+        return ApiResponse(code=1001, message=str(e))
+    except Exception as e:
+        logger.exception("teach_save failed")
+        return ApiResponse(code=500, message=str(e))
 
 
 @router.put("/teach/{name}", response_model=ApiResponse)
