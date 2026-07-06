@@ -18,6 +18,10 @@ NODE_REGISTRY = {
 
 SELF_MANAGED = True
 
+# 启动时自动运行注册的全部节点
+AUTOSTART_ON_BOOT = True
+AUTOSTART_DELAY = 2.0  # 启动间隔 (秒), 避免同时拉起太多进程
+
 LOG_BASE_DIR = os.path.join(os.path.expanduser('~'), '.ros', 'node_manager_logs')
 
 
@@ -44,6 +48,10 @@ class NodeManager(Node):
         self._stop_srv = self.create_service(GenericCommand, '/NodeStop', self._handle_stop)
         self._status_srv = self.create_service(GenericCommand, '/NodeStatus', self._handle_status)
         self._logs_srv = self.create_service(GenericCommand, '/GetNodeLogDir', self._handle_log_dir)
+
+        # 启动时自动拉起全部注册节点
+        if AUTOSTART_ON_BOOT:
+            self._autostart_timer = self.create_timer(1.0, self._autostart_all)
 
     def _build_cmd(self, name: str, info: dict, launch_args: dict | None = None) -> list[str]:
         if info['type'] == 'launch':
@@ -94,37 +102,32 @@ class NodeManager(Node):
         response.result_json = json.dumps(nodes)
         return response
 
-    def _handle_start(self, request, response):
-        params = json.loads(request.params_json) if request.params_json else {}
-        name = params.get('name', '')
+    def _autostart_all(self):
+        """启动时自动拉起全部注册节点 (只执行一次)。"""
+        # 取消定时器 (只执行一次)
+        self.destroy_timer(self._autostart_timer) if hasattr(self, '_autostart_timer') else None
 
-        if name == 'node_manager':
-            response.success = False
-            response.message = 'node_manager cannot be restarted'
-            response.result_json = '{}'
-            return response
+        self.get_logger().info('Autostart: launching all registered nodes...')
+        import time as _time
+        for name, info in NODE_REGISTRY.items():
+            if name in self._processes and self._processes[name].poll() is None:
+                self.get_logger().info(f'Autostart: {name} already running, skip')
+                continue
+            self.get_logger().info(f'Autostart: starting {name}...')
+            ok = self._start_node_internal(name, info, launch_args={})
+            if ok:
+                self.get_logger().info(f'Autostart: {name} started')
+            else:
+                self.get_logger().warning(f'Autostart: {name} failed to start')
+            _time.sleep(AUTOSTART_DELAY)
+        self.get_logger().info('Autostart: done')
 
-        if name not in NODE_REGISTRY:
-            self.get_logger().warning(f'NodeStart: unknown node {name}')
-            response.success = False
-            response.message = f'Unknown node: {name}'
-            response.result_json = '{}'
-            return response
-
-        if name in self._processes and self._processes[name].poll() is None:
-            self.get_logger().warning(f'NodeStart: node {name} already running')
-            response.success = False
-            response.message = f'Node {name} already running'
-            response.result_json = '{}'
-            return response
-
-        info = NODE_REGISTRY[name]
-        launch_args = params.get('args', {}) if isinstance(params.get('args', {}), dict) else {}
+    def _start_node_internal(self, name: str, info: dict, launch_args: dict) -> bool:
+        """内部启动逻辑, 供 _handle_start 和 _autostart_all 复用。返回 success。"""
         cmd = self._build_cmd(name, info, launch_args)
         self.get_logger().info(f'NodeStart: starting {name} with {" ".join(cmd)}')
 
         try:
-            is_launch = info['type'] == 'launch'
             env = os.environ.copy()
             env['PYTHONUNBUFFERED'] = '1'
             env['RCUTILS_LOGGING_BUFFERED_STREAM'] = '1'
@@ -152,13 +155,46 @@ class NodeManager(Node):
             t.start()
 
             self.get_logger().info(f'NodeStart: node {name} started (pid={proc.pid})')
+            return True
+        except Exception as e:
+            self.get_logger().error(f'NodeStart: failed to start {name}: {e}')
+            return False
+
+    def _handle_start(self, request, response):
+        params = json.loads(request.params_json) if request.params_json else {}
+        name = params.get('name', '')
+
+        if name == 'node_manager':
+            response.success = False
+            response.message = 'node_manager cannot be restarted'
+            response.result_json = '{}'
+            return response
+
+        if name not in NODE_REGISTRY:
+            self.get_logger().warning(f'NodeStart: unknown node {name}')
+            response.success = False
+            response.message = f'Unknown node: {name}'
+            response.result_json = '{}'
+            return response
+
+        if name in self._processes and self._processes[name].poll() is None:
+            self.get_logger().warning(f'NodeStart: node {name} already running')
+            response.success = False
+            response.message = f'Node {name} already running'
+            response.result_json = '{}'
+            return response
+
+        info = NODE_REGISTRY[name]
+        launch_args = params.get('args', {}) if isinstance(params.get('args', {}), dict) else {}
+        ok = self._start_node_internal(name, info, launch_args)
+        if ok:
+            proc = self._processes[name]
             response.success = True
             response.message = f'Node {name} started'
             response.result_json = json.dumps({'name': name, 'pid': proc.pid})
-        except Exception as e:
-            self.get_logger().error(f'NodeStart: failed to start {name}: {e}')
+        else:
             response.success = False
-            response.message = f'Failed to start {name}: {e}'
+            response.message = f'Failed to start {name}'
             response.result_json = '{}'
 
         return response
