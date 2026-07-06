@@ -42,12 +42,51 @@ DEVICE_ID_LEFT = 1
 DEVICE_ID_RIGHT = 2
 
 
+def _find_gripper_serial_port() -> str | None:
+    """自动搜索 /dev/ttyUSB0-9 中可用的串口。
+
+    依次尝试连接并探测从站 1 是否响应, 找到第一个可通信的串口返回。
+    """
+    from pymodbus.client import ModbusSerialClient
+    import glob
+
+    # 搜索 /dev/ttyUSB* 和 /dev/ttyACM*
+    candidates = sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*"))
+    if not candidates:
+        return None
+
+    for port in candidates:
+        try:
+            client = ModbusSerialClient(
+                port=port, baudrate=BAUDRATE, timeout=0.5,
+                parity="N", stopbits=1, bytesize=8,
+            )
+            if not client.connect():
+                continue
+            # 探测从站 1 是否响应
+            try:
+                result = client.read_holding_registers(
+                    address=0x0406, count=1,
+                    **({"slave": 1} if "slave" in __import__("inspect").signature(
+                        client.read_holding_registers).parameters else {"device_id": 1})
+                )
+                if result is not None and not (hasattr(result, "isError") and result.isError()):
+                    client.close()
+                    return port
+            except Exception:
+                pass
+            client.close()
+        except Exception:
+            continue
+    return None
+
+
 class ModbusGripperNode(Node):
     def __init__(self):
         super().__init__("modbus_gripper")
         self.get_logger().info("ModbusGripperNode starting...")
 
-        # ---- 串口连接 ----
+        # ---- 串口连接 (自动搜索可用串口) ----
         try:
             from pymodbus.client import ModbusSerialClient
         except ImportError:
@@ -56,6 +95,16 @@ class ModbusGripperNode(Node):
             )
             raise
 
+        SERIAL_PORT = _find_gripper_serial_port()
+        if SERIAL_PORT is None:
+            self.get_logger().warning(
+                "未找到可用的夹爪串口 (/dev/ttyUSB*, /dev/ttyACM*), 节点继续启动但所有请求将失败"
+            )
+            SERIAL_PORT = "/dev/ttyUSB0"  # 兜底, 避免后续 None 报错
+        else:
+            self.get_logger().info(f"自动发现夹爪串口: {SERIAL_PORT}")
+
+        self._serial_port = SERIAL_PORT
         self._client = ModbusSerialClient(
             port=SERIAL_PORT, baudrate=BAUDRATE, timeout=1,
             parity="N", stopbits=1, bytesize=8,
@@ -154,12 +203,12 @@ class ModbusGripperNode(Node):
             try:
                 ok = self._client.connect()
                 if ok:
-                    self.get_logger().info(f"串口重连成功 ({SERIAL_PORT})")
+                    self.get_logger().info(f"串口重连成功 ({self._serial_port})")
                 else:
-                    self.get_logger().warning(f"串口重连返回 False ({SERIAL_PORT})")
+                    self.get_logger().warning(f"串口重连返回 False ({self._serial_port})")
                 return bool(ok)
             except Exception as e:
-                self.get_logger().error(f"串口重连失败 ({SERIAL_PORT}): {e}")
+                self.get_logger().error(f"串口重连失败 ({self._serial_port}): {e}")
                 return False
 
     def _write_register(self, address: int, value: int, device_id: int) -> bool:
