@@ -596,7 +596,7 @@ const poseFields = ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
 
 const workflows = ref([])
 const currentWorkflow = ref(null)
-const { state: sharedWfState, setWorkflow: setSharedWorkflow } = useSharedWorkflowState()
+const { state: sharedWfState, setWorkflow: setSharedWorkflow, setExecState: setSharedExecState } = useSharedWorkflowState()
 const newWorkflowName = ref('')
 const showExecDialog = ref(false)
 const showResultDialog = ref(false)
@@ -1195,6 +1195,7 @@ async function executeWorkflow() {
     showExecDialog.value = false
     showResultDialog.value = true
     execResult.value = { active: true, step_results: [], message: '执行中...' }
+    setSharedExecState(true, execLoop.value)
     execStepRows.value[0].status = 'running'
 
     // Poll until active=false, updating steps as results arrive
@@ -1228,6 +1229,7 @@ async function executeWorkflow() {
     ElMessage.error(error.message || '执行失败')
   } finally {
     executing.value = false
+    setSharedExecState(false)
   }
 }
 

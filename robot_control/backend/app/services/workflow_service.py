@@ -321,10 +321,20 @@ class WorkflowService:
                             "message": str(exc),
                         })
                         break
-            else:
-                # Loop completed without break — all steps succeeded
-                state["success"] = True
-                state["message"] = "All steps completed"
+                else:
+                    # All steps succeeded
+                    state["success"] = True
+                    state["message"] = "All steps completed"
+                    if loop and not cancel_event.is_set():
+                        state["loop_count"] = state.get("loop_count", 0) + 1
+                        logger.info("Workflow '%s' loop %d completed, waiting %.1fs...",
+                                    workflow.name, state["loop_count"], loop_interval)
+                        if loop_interval > 0:
+                            await asyncio.sleep(loop_interval)
+                        continue
+                    break
+                # for loop broke (cancel/fail) -> exit while
+                break
         finally:
             state["active"] = False
             state["waiting_for_next"] = False

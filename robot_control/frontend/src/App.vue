@@ -36,7 +36,10 @@
             <!-- 当前工作流指示器 (固定在侧边栏底部) -->
             <div class="sidebar-wf-badge">
                 <el-icon><Document /></el-icon>
-                <span>{{ sharedWfState.currentWorkflowName || '未选择工作流' }}</span>
+                <span class="wf-name">{{ sharedWfState.currentWorkflowName || '未选择工作流' }}</span>
+                <el-tag v-if="sharedWfState.execActive && sharedWfState.execLoop" type="warning" size="small" effect="dark" style="margin-left: auto">循环中</el-tag>
+                <el-tag v-else-if="sharedWfState.execActive" type="success" size="small" effect="dark" style="margin-left: auto">执行中</el-tag>
+                <el-tag v-else-if="sharedWfState.currentWorkflowName" type="info" size="small" style="margin-left: auto">未执行</el-tag>
             </div>
         </el-aside>
         <el-main class="tech-main"><router-view v-slot="{ Component }">
@@ -78,6 +81,8 @@ const { state: sharedWfState } = useSharedWorkflowState()
     gap: 6px;
     font-size: 12px;
     color: #00d4ff;
+}
+.sidebar-wf-badge .wf-name {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
