@@ -33,6 +33,11 @@
                     ><span>系统管理</span></el-menu-item
                 >
             </el-menu>
+            <!-- 当前工作流指示器 (固定在侧边栏底部) -->
+            <div class="sidebar-wf-badge">
+                <el-icon><Document /></el-icon>
+                <span>{{ sharedWfState.currentWorkflowName || '未选择工作流' }}</span>
+            </div>
         </el-aside>
         <el-main class="tech-main"><router-view v-slot="{ Component }">
           <keep-alive :include="['WorkflowEditor', 'ArmControl']">
@@ -50,7 +55,31 @@ import {
     MapLocation,
     Cpu,
     List,
-    View
+    View,
+    Document
 } from '@element-plus/icons-vue'
 import ArmEnableFab from './components/ArmEnableFab.vue'
+import { useSharedWorkflowState } from './composables/useSharedWorkflow'
+
+const { state: sharedWfState } = useSharedWorkflowState()
 </script>
+
+<style>
+.sidebar-wf-badge {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 10px 14px;
+    background: #0a1219;
+    border-top: 1px solid #1e2d3d;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #00d4ff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+</style>

@@ -9,6 +9,6 @@ export const armApi = {
   teachList: (workflow) => api.get(`/robot/${ROBOT_ID}/arm/teach/list`, { params: workflow ? { workflow } : {} }),
   teachExec: (arm, name, method, workflow) => api.post(`/robot/${ROBOT_ID}/arm/teach/exec`, method ? { arm, name, method } : { arm, name }, { params: workflow ? { workflow } : {} }),
   teachDelete: (name, workflow) => api.delete(`/robot/${ROBOT_ID}/arm/teach/${name}`, { params: workflow ? { workflow } : {} }),
-  teachCompose: (left_name, right_name, composed_name, overwrite = false) =>
-    api.post(`/robot/${ROBOT_ID}/arm/teach/compose`, { left_name, right_name, composed_name, overwrite }),
+  teachCompose: (left_name, right_name, composed_name, overwrite = false, workflow) =>
+    api.post(`/robot/${ROBOT_ID}/arm/teach/compose`, { left_name, right_name, composed_name, overwrite }, { params: workflow ? { workflow } : {} }),
 }

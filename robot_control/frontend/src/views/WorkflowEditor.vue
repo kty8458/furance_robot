@@ -11,7 +11,7 @@
         <el-button size="small" @click="showWorkflowListDialog = true">选择工作流</el-button>
         <el-button size="small" type="success" @click="createWorkflowPrompt">新建</el-button>
         <el-button size="small" @click="refreshList">刷新</el-button>
-        <el-button v-if="currentWorkflow" size="small" type="primary" @click="showExecDialog = true" :disabled="!currentWorkflow.steps?.length || execResult?.active">
+        <el-button v-if="currentWorkflow" size="small" type="primary" @click="openExecDialog" :disabled="!currentWorkflow.steps?.length || execResult?.active">
           执行
         </el-button>
         <el-button v-if="currentWorkflow" size="small" type="success" @click="saveWorkflow">保存</el-button>
@@ -509,15 +509,19 @@
         </div>
         <el-divider />
         <el-row :gutter="12" style="margin-bottom: 12px">
-          <el-col :span="8">
-            <div style="font-size: 11px; color: #6b7b8d; margin-bottom: 4px">从第几步开始 (0=从头)</div>
-            <el-input-number v-model="execStartStep" :min="0" :max="Math.max(0, (currentWorkflow?.steps?.length || 1) - 1)" size="small" style="width: 100%" />
+          <el-col :span="12">
+            <div style="font-size: 11px; color: #6b7b8d; margin-bottom: 4px">起始步骤</div>
+            <div style="font-size: 13px; color: #e5e7eb; padding-top: 4px">
+              {{ execStartStep > 0 ? `从第 ${execStartStep + 1} 步开始 (${currentWorkflow?.steps?.[execStartStep]?.label || currentWorkflow?.steps?.[execStartStep]?.id || ''})` : '从头开始' }}
+              <el-button v-if="selectedStepId" size="small" link type="primary" @click="execStartStep = currentWorkflow.steps.findIndex(s => s.id === selectedStepId)" style="margin-left: 8px">从选中步骤开始</el-button>
+              <el-button v-if="execStartStep > 0" size="small" link @click="execStartStep = 0" style="margin-left: 4px">重置</el-button>
+            </div>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="6">
             <div style="font-size: 11px; color: #6b7b8d; margin-bottom: 4px">循环执行</div>
             <el-switch v-model="execLoop" />
           </el-col>
-          <el-col :span="8" v-if="execLoop">
+          <el-col :span="6" v-if="execLoop">
             <div style="font-size: 11px; color: #6b7b8d; margin-bottom: 4px">循环间隔 (秒)</div>
             <el-input-number v-model="execLoopInterval" :min="0" :step="0.5" :precision="1" size="small" style="width: 100%" />
           </el-col>
@@ -572,6 +576,7 @@
 <script setup>
 defineOptions({ name: 'WorkflowEditor' })
 import { ref, reactive, onMounted, computed, watch, onActivated } from 'vue'
+import { useSharedWorkflowState } from '../composables/useSharedWorkflow'
 import { workflowApi } from '../api/workflow'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { List, Plus, Edit, Delete, ArrowUp, ArrowDown, CopyDocument } from '@element-plus/icons-vue'
@@ -591,6 +596,7 @@ const poseFields = ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
 
 const workflows = ref([])
 const currentWorkflow = ref(null)
+const { state: sharedWfState, setWorkflow: setSharedWorkflow } = useSharedWorkflowState()
 const newWorkflowName = ref('')
 const showExecDialog = ref(false)
 const showResultDialog = ref(false)
@@ -909,6 +915,9 @@ async function selectWorkflow(row) {
       })
     }
     currentWorkflow.value = data
+    setSharedWorkflow(data.name)
+    // 重新编号所有步骤 (基于位置)
+    renumberSteps()
     // Load nav maps for manual move step dropdowns
     await loadNavMaps()
     // Pre-populate nav points for existing manual move steps
@@ -969,7 +978,10 @@ async function deleteWorkflow(name) {
   try {
     await workflowApi.delete(name)
     ElMessage.success('已删除')
-    if (currentWorkflow.value?.name === name) currentWorkflow.value = null
+    if (currentWorkflow.value?.name === name) {
+      currentWorkflow.value = null
+      setSharedWorkflow('')
+    }
     await refreshList()
   } catch (error) {
     ElMessage.error(error.message || '删除失败')
@@ -1011,18 +1023,22 @@ function addStep(type) {
   } else {
     currentWorkflow.value.steps.push(newStep)
   }
-  selectedStepId.value = newStep.id
+  renumberSteps()
+  // 选中新添加的步骤 (它在数组中的位置)
+  const newIdx = currentWorkflow.value.steps.findIndex(s =>
+    s.type === type && s.label === '' && JSON.stringify(s.config) === JSON.stringify(newStep.config)
+  )
+  selectedStepId.value = newIdx >= 0 ? `step_${newIdx + 1}` : null
 }
 
 function duplicateStep(idx) {
   if (!currentWorkflow.value) return
   const src = currentWorkflow.value.steps[idx]
   if (!src) return
-  stepCounter++
   const copy = JSON.parse(JSON.stringify(src))
-  copy.id = `step_${stepCounter}`
-  copy.label = src.label + '_副本'
+  copy.label = (src.label || '') + '_副本'
   currentWorkflow.value.steps.push(copy)
+  renumberSteps()
   ElMessage.success('已复制到末尾')
 }
 
@@ -1057,20 +1073,30 @@ async function duplicateWorkflow() {
   }
 }
 
+function renumberSteps() {
+  if (!currentWorkflow.value?.steps) return
+  currentWorkflow.value.steps.forEach((s, i) => {
+    s.id = `step_${i + 1}`
+  })
+}
+
 function removeStep(idx) {
   currentWorkflow.value.steps.splice(idx, 1)
+  renumberSteps()
 }
 
 function moveStepUp(idx) {
   if (idx === 0) return
   const steps = currentWorkflow.value.steps
   ;[steps[idx - 1], steps[idx]] = [steps[idx], steps[idx - 1]]
+  renumberSteps()
 }
 
 function moveStepDown(idx) {
   const steps = currentWorkflow.value.steps
   if (idx >= steps.length - 1) return
   ;[steps[idx], steps[idx + 1]] = [steps[idx + 1], steps[idx]]
+  renumberSteps()
 }
 
 async function loadMaps() {
@@ -1102,6 +1128,17 @@ async function loadNavPoints(stepId, mapName) {
   } catch {
     execNavPoints[stepId] = []
   }
+}
+
+function openExecDialog() {
+  // 如果选中了步骤, 自动填充起始步骤
+  if (selectedStepId.value && currentWorkflow.value?.steps) {
+    const idx = currentWorkflow.value.steps.findIndex(s => s.id === selectedStepId.value)
+    execStartStep.value = idx >= 0 ? idx : 0
+  } else {
+    execStartStep.value = 0
+  }
+  showExecDialog.value = true
 }
 
 async function executeWorkflow() {
@@ -1245,6 +1282,20 @@ watch(showExecDialog, async (val) => {
 .step-palette-card {
   position: sticky;
   top: 12px;
+}
+.current-wf-badge {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #0d1a26;
+  border: 1px solid #1e2d3d;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #00d4ff;
+  position: sticky;
+  bottom: 0;
 }
 .step-item {
   border: 1px solid #2a3a4a;
