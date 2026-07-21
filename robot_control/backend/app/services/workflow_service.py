@@ -135,6 +135,9 @@ class WorkflowService:
             "step_results": [],
             "error_step_id": None,
             "manual_mode": manual_mode,
+            "loop": bool(getattr(execute_req, "loop", False)),
+            "loop_interval": float(getattr(execute_req, "loop_interval", 0.0)),
+            "loop_count": 0,
             "_next_event": next_event,
             "_step_overrides": step_overrides,
             "current_step_index": 0,
@@ -172,108 +175,88 @@ class WorkflowService:
         cancel_event: asyncio.Event,
     ) -> None:
         state = self._execution_state[execution_id]
-        logger.info("EVENT workflow_start name=%s robot_id=%s steps=%d",
-                    workflow.name, robot_id, len(workflow.steps))
+        start_step = max(0, getattr(execute_req, "start_step_index", 0))
+        loop = bool(getattr(execute_req, "loop", False))
+        loop_interval = float(getattr(execute_req, "loop_interval", 0.0))
+        logger.info("EVENT workflow_start name=%s robot_id=%s steps=%d start_step=%d loop=%s",
+                    workflow.name, robot_id, len(workflow.steps), start_step, loop)
         try:
-            nav_lookup = {np.step_id: np for np in execute_req.nav_params}
-            context: dict[str, dict] = {}
-            step_results: list[StepResult] = []
+            while True:
+                nav_lookup = {np.step_id: np for np in execute_req.nav_params}
+                context: dict[str, dict] = {}
+                step_results: list[StepResult] = []
 
-            # Pre-validate navigation targets against chassis
-            nav_targets = await self._fetch_nav_targets(robot_id, workflow, nav_lookup)
-            invalid = [t for t in nav_targets if not t["valid"]]
-            if invalid:
-                names = ", ".join(f"{t['step_id']}→{t['name']}" for t in invalid)
-                logger.error("Workflow '%s' invalid nav targets: %s", workflow.name, names)
-                state["success"] = False
-                state["message"] = f"Invalid navigation targets: {names}"
-                state["error_step_id"] = "pre_check"
-                await self._push_step(robot_id, {
-                    "execution_id": execution_id,
-                    "workflow_name": workflow.name,
-                    "step_id": "pre_check",
-                    "step_index": 0,
-                    "total_steps": len(workflow.steps),
-                    "status": "failed",
-                    "message": f"Invalid navigation targets: {names}",
-                })
-                return
-
-            for i, step in enumerate(workflow.steps):
-                if cancel_event.is_set():
-                    logger.info("Workflow '%s' execution '%s' cancelled at step %d/%d",
-                                workflow.name, execution_id, i + 1, len(workflow.steps))
+                # Pre-validate navigation targets against chassis
+                nav_targets = await self._fetch_nav_targets(robot_id, workflow, nav_lookup)
+                invalid = [t for t in nav_targets if not t["valid"]]
+                if invalid:
+                    names = ", ".join(f"{t['step_id']}->{t['name']}" for t in invalid)
+                    logger.error("Workflow '%s' invalid nav targets: %s", workflow.name, names)
                     state["success"] = False
-                    state["message"] = f"Cancelled at step {i + 1}"
-                    break
-
-                # 应用手动覆盖 (在执行前)
-                ov = state["_step_overrides"].pop(step.id, None)
-                if ov:
-                    merged = dict(step.config)
-                    merged.update(ov)
-                    step = step.model_copy(update={"config": merged})
-
-                # 手动模式: 等待用户触发下一步
-                if state["manual_mode"] and state["_next_event"] is not None:
-                    state["current_step_index"] = i + 1
-                    state["waiting_for_next"] = True
+                    state["message"] = f"Invalid navigation targets: {names}"
+                    state["error_step_id"] = "pre_check"
                     await self._push_step(robot_id, {
                         "execution_id": execution_id,
                         "workflow_name": workflow.name,
-                        "step_id": step.id,
-                        "step_index": i + 1,
+                        "step_id": "pre_check",
+                        "step_index": 0,
                         "total_steps": len(workflow.steps),
-                        "status": "pending_manual",
-                        "message": f"等待确认: {step.label}",
+                        "status": "failed",
+                        "message": f"Invalid navigation targets: {names}",
                     })
-                    logger.info("EVENT workflow_step_pending name=%s execution_id=%s step=%d/%d step_id=%s",
-                                workflow.name, execution_id, i + 1, len(workflow.steps), step.id)
-                    await state["_next_event"].wait()
-                    state["_next_event"].clear()
-                    state["waiting_for_next"] = False
+                    return
+
+                for i, step in enumerate(workflow.steps[start_step:], start=start_step):
                     if cancel_event.is_set():
-                        logger.info("Workflow '%s' execution '%s' cancelled (manual) at step %d/%d",
+                        logger.info("Workflow '%s' execution '%s' cancelled at step %d/%d",
                                     workflow.name, execution_id, i + 1, len(workflow.steps))
                         state["success"] = False
                         state["message"] = f"Cancelled at step {i + 1}"
                         break
-                    # 重新应用覆盖 (用户可能在等待期间又改了)
+
+                    # 应用手动覆盖 (在执行前)
                     ov = state["_step_overrides"].pop(step.id, None)
                     if ov:
                         merged = dict(step.config)
                         merged.update(ov)
                         step = step.model_copy(update={"config": merged})
 
-                logger.info(
-                    "EVENT workflow_step_start name=%s execution_id=%s step=%d/%d "
-                    "step_id=%s type=%s label=%s config=%s",
-                    workflow.name, execution_id, i + 1, len(workflow.steps),
-                    step.id, step.type, step.label, step.config,
-                )
-
-                await self._push_step(robot_id, {
-                    "execution_id": execution_id,
-                    "workflow_name": workflow.name,
-                    "step_id": step.id,
-                    "step_index": i + 1,
-                    "total_steps": len(workflow.steps),
-                    "status": "running",
-                    "message": f"Executing: {step.label}",
-                })
-
-                step_start_ts = asyncio.get_event_loop().time()
-                try:
-                    result = await self._dispatch_step(step, nav_lookup, context, robot_id)
-                    duration = asyncio.get_event_loop().time() - step_start_ts
-                    step_results.append(result)
-                    state["step_results"] = [r.model_dump() for r in step_results]
+                    # 手动模式: 等待用户触发下一步
+                    if state["manual_mode"] and state["_next_event"] is not None:
+                        state["current_step_index"] = i + 1
+                        state["waiting_for_next"] = True
+                        await self._push_step(robot_id, {
+                            "execution_id": execution_id,
+                            "workflow_name": workflow.name,
+                            "step_id": step.id,
+                            "step_index": i + 1,
+                            "total_steps": len(workflow.steps),
+                            "status": "pending_manual",
+                            "message": f"等待确认: {step.label}",
+                        })
+                        logger.info("EVENT workflow_step_pending name=%s execution_id=%s step=%d/%d step_id=%s",
+                                    workflow.name, execution_id, i + 1, len(workflow.steps), step.id)
+                        await state["_next_event"].wait()
+                        state["_next_event"].clear()
+                        state["waiting_for_next"] = False
+                        if cancel_event.is_set():
+                            logger.info("Workflow '%s' execution '%s' cancelled (manual) at step %d/%d",
+                                        workflow.name, execution_id, i + 1, len(workflow.steps))
+                            state["success"] = False
+                            state["message"] = f"Cancelled at step {i + 1}"
+                            break
+                        # 重新应用覆盖 (用户可能在等待期间又改了)
+                        ov = state["_step_overrides"].pop(step.id, None)
+                        if ov:
+                            merged = dict(step.config)
+                            merged.update(ov)
+                            step = step.model_copy(update={"config": merged})
 
                     logger.info(
-                        "EVENT workflow_step_end name=%s execution_id=%s step=%d/%d "
-                        "step_id=%s success=%s duration=%.2fs message=%s",
+                        "EVENT workflow_step_start name=%s execution_id=%s step=%d/%d "
+                        "step_id=%s type=%s label=%s config=%s",
                         workflow.name, execution_id, i + 1, len(workflow.steps),
-                        step.id, result.success, duration, result.message,
+                        step.id, step.type, step.label, step.config,
                     )
 
                     await self._push_step(robot_id, {
@@ -282,38 +265,62 @@ class WorkflowService:
                         "step_id": step.id,
                         "step_index": i + 1,
                         "total_steps": len(workflow.steps),
-                        "status": "completed" if result.success else "failed",
-                        "message": result.message,
+                        "status": "running",
+                        "message": f"Executing: {step.label}",
                     })
 
-                    if not result.success:
+                    step_start_ts = asyncio.get_event_loop().time()
+                    try:
+                        result = await self._dispatch_step(step, nav_lookup, context, robot_id)
+                        duration = asyncio.get_event_loop().time() - step_start_ts
+                        step_results.append(result)
+                        state["step_results"] = [r.model_dump() for r in step_results]
+
+                        logger.info(
+                            "EVENT workflow_step_end name=%s execution_id=%s step=%d/%d "
+                            "step_id=%s success=%s duration=%.2fs message=%s",
+                            workflow.name, execution_id, i + 1, len(workflow.steps),
+                            step.id, result.success, duration, result.message,
+                        )
+
+                        await self._push_step(robot_id, {
+                            "execution_id": execution_id,
+                            "workflow_name": workflow.name,
+                            "step_id": step.id,
+                            "step_index": i + 1,
+                            "total_steps": len(workflow.steps),
+                            "status": "completed" if result.success else "failed",
+                            "message": result.message,
+                        })
+
+                        if not result.success:
+                            state["success"] = False
+                            state["message"] = result.message
+                            state["error_step_id"] = step.id
+                            break
+                    except Exception as exc:
+                        logger.exception(
+                            "EVENT workflow_step_exception name=%s execution_id=%s step=%d/%d "
+                            "step_id=%s label=%s",
+                            workflow.name, execution_id, i + 1, len(workflow.steps),
+                            step.id, step.label,
+                        )
+                        failed_result = StepResult(step_id=step.id, success=False, message=str(exc))
+                        step_results.append(failed_result)
+                        state["step_results"] = [r.model_dump() for r in step_results]
                         state["success"] = False
-                        state["message"] = result.message
+                        state["message"] = str(exc)
                         state["error_step_id"] = step.id
+                        await self._push_step(robot_id, {
+                            "execution_id": execution_id,
+                            "workflow_name": workflow.name,
+                            "step_id": step.id,
+                            "step_index": i + 1,
+                            "total_steps": len(workflow.steps),
+                            "status": "failed",
+                            "message": str(exc),
+                        })
                         break
-                except Exception as exc:
-                    logger.exception(
-                        "EVENT workflow_step_exception name=%s execution_id=%s step=%d/%d "
-                        "step_id=%s label=%s",
-                        workflow.name, execution_id, i + 1, len(workflow.steps),
-                        step.id, step.label,
-                    )
-                    failed_result = StepResult(step_id=step.id, success=False, message=str(exc))
-                    step_results.append(failed_result)
-                    state["step_results"] = [r.model_dump() for r in step_results]
-                    state["success"] = False
-                    state["message"] = str(exc)
-                    state["error_step_id"] = step.id
-                    await self._push_step(robot_id, {
-                        "execution_id": execution_id,
-                        "workflow_name": workflow.name,
-                        "step_id": step.id,
-                        "step_index": i + 1,
-                        "total_steps": len(workflow.steps),
-                        "status": "failed",
-                        "message": str(exc),
-                    })
-                    break
             else:
                 # Loop completed without break — all steps succeeded
                 state["success"] = True

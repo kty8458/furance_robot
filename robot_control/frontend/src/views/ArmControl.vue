@@ -460,6 +460,7 @@
 </template>
 
 <script setup>
+defineOptions({ name: 'ArmControl' })
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { armApi } from '../api/arm'
 import { upperBodyApi } from '../api/upperBody'

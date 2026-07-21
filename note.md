@@ -41,6 +41,53 @@
 2. 手臂碰撞检测供应商预计3周开发完毕
 3. 充电桩接触头暂未发货
 
+2026/6/12
+机器人控制系统：
+1.  机器人双臂协同角度控制、末端坐标控制开发（100%）
+2. 控制系统添加相机管理功能，视线相机视频流推送
+硬件集成：
+1. nvidia orin控制板到货，控制系统移植部署过程中发现usb口协议不对，断电后掉系统等问题，已返厂维修，预计下周到货
+协调跟踪事项：
+1. 底盘外壳+防尘设计供应商已收到任务，需要跟踪进度，本周进度无反馈
+2. 手臂碰撞检测供应商预计3周开发完毕，这周为第一周
+3. 充电桩接触头暂未发货
+
+2026/6/17
+机器人控制系统：
+1.  相机完成右机械臂手眼标定全流程，并封装为独立脚本，供后续头部和左手使用
+2. 二维码定位识别功能基本开发完毕，当前存在识别跳变，暗光处识别不清晰等问题，计划采取红外画面+红外打光，效果待验证
+3. 相机功能并入控制系统（50%）
+4. 夹爪模块功能验证（50%）
+硬件集成：
+1. nvidia orin控制板厂家确认是usb2.0口，正在协调能否更换为3.0，同时新提交采购
+2. 夹爪到货，由于前期沟通存在误解导致型号错误，已沟通厂家更换夹爪，预计4周。当前在现有夹爪设备上进行通讯验证和模块开发，验证完毕后寄回错误型号夹爪，不影响开发进度。
+3. 上周底盘保险丝烧毁原因已经找到，机器人上身控制板短路烧坏，已协调厂家寄送新的控制板
+协调跟踪事项：
+1. 底盘外壳+防尘设计已有工程师沟通跟进
+2. 手臂碰撞检测供应商预计3周开发完毕，这周为第二周
+3. 充电桩接触头暂未发货
+
+2026/6/26
+机器人控制系统：
+1. 相机功能并入控制系统,工作流视觉功能开发完成，实现视觉功能模块获取位姿传递到下一个movep运动（100%）
+2. 实现工作流编排中点位的偏移功能，支持世界坐标和工具坐标下的点位偏移
+3. 控制系统中添加底盘的定距离定角度控制，并且并入工作流编排
+硬件集成：
+1. nvidia orin控制板厂家确认无法更换为3.0通讯接口板，已经协调采购退款，并且计划提交新的orin采购
+2. 因供应商缺货，本周机器人上身控制板无修复进度，已经将旧的寄回去给厂家测试调试
+3. 底盘外壳到货，但因缺少上身控制版无法升高机器人，测试装配外壳
+协调跟踪事项：
+1. 手臂碰撞检测供应商预计3周开发完毕，这周为第三周，多次询问开发进度没有得到回复
+2. 充电桩接触头未发货
+WAIC进度跟踪：
+1. 由于缺少orin做主控和电动夹爪，已经将转炉R2机器人搬运出厂，拿其中的主控板和电夹爪替代
+2. 控制系统部署orin（50%）
+3. 展示用抓取动作编排，空手模拟运动已经实现，后续虚适配夹爪和道具后统一联调（30%）
+4. 夹指法兰设计（30%）
+5. 现场展示用道具设计（10%）
+
+
+
 ## 控制系统
 ### 启动指令
 ```bash
@@ -121,6 +168,10 @@ turin
 3. 夹爪装配与控制
 4. 双臂moveJ规划
 
+1. 相机USB开机没有自动识别
+2. 一键清楚除node manager以外的残留节点
+
+
 ### Orin到货TODO
 1. 环境安装（ros2,cycloneDDS,奥比中光SDK,EtherCat驱动，其他依赖）
 2. ToDesk安装
@@ -138,157 +189,13 @@ turin
 5. 升降机构无防尘，需要明确后续维修计划
 6. 错误清除可能要多次
 
+### Today TODO
+1. 二维码识别功放入test_ir中测试，优化后集成进视觉模块
+2. 检查添加了视觉后的工作流
+3. 视觉相机添加开关，没任务时不进行推流
+4. 运动到了机械臂实际限位，moveit没有报错
 
-## 视觉模块（旧代码分析）
-
-旧视觉代码位于 `ros2_robot/src/python_pkgs/python_pkgs/vision/`，基于 ASCamera 驱动（hp60c 型号），使用非标压缩图像话题。以下是各文件功能描述：
-
-### camera_handler.py — 单相机帧管理器
-- 管理单个相机的 RGB（CompressedImage）+ Depth（Image）话题订阅
-- 保存最近一帧 RGB 和深度图，供检测调用
-- 后台检测线程：检测到有订阅者时触发 YOLO 推理，发布标注图像到 `/yolo_detections/{name}` 和 JSON 检测结果到 `/yolo_detections/{name}/result`
-- 问题：缺少 `String` 和 `json` 的 import
-
-### yolo_dete.py — YOLOv8 ROS2 节点
-- `YoloDetector`：封装 YOLO 检测/分割模型（ONNX），支持 detect/segment 模式
-- `YoloRos2Node`：ROS2 节点，参数化相机内参（fx/fy/cx/cy），支持三相机（当前仅启用 1 个），提供 `/yolo_inference` 服务
-  - 服务输入：camera_id、target_class、mode
-  - 服务输出：目标 3D 坐标（camera 坐标系，从深度图中值计算）、标注图像
-- `YoloClient`：服务客户端 + 话题订阅客户端，支持单帧调用和持续订阅两种模式
-- 相机话题：`/camera/camera/color/image_raw/compressed`（ASCamera 非标压缩话题）
-
-### QR_dete.py — ArUco 二维码检测服务
-- `ArucoDetectorNode`：提供 `/QR_detection` 服务
-  - 输入：ROS Image + qr_id + qr_size
-  - 输出：二维码在 torso 坐标系下的 3D 位置 + 投影角度
-- 使用 DICT_4X4_100 字典，硬编码 camera→torso 变换矩阵（R_camera_to_torso, t_translation）
-- 相机内参硬编码（fx=614, fy=614, cx=320, cy=240）
-- 问题：硬编码了旧工程的 venv 路径 `/home/wheel_arm_ws/src/python_pkgs/venvs/yolo`
-
-### QR_publisher.py — 连续 ArUco 检测与位姿发布
-- `QR_Publisher_Node`：订阅 `/camera/color/image_raw` 持续检测 ArUco 标记
-- 发布标注图像到 `/image_qr`，合并位姿 JSON 到 `/qr_pose`（ids/points/angles）
-- 支持多种标记尺寸（0.15m, 0.058m, 0.058m），通过标记 ID 索引
-- `QR_Subscriber_Node`：订阅 `/qr_pose` 的客户端节点
-- 问题：硬编码了 Docker 内路径 `/workspaces/isaac_ros-dev/src/python_pkgs/venvs/yolo`
-
-### pose_trans.py — 静态变换链与运动客户端
-- `PoseTransformer` 节点：订阅 `/aruco_single/pose`，计算物体在 base_link 和 waist_Link 下的位姿
-- 静态变换链：camera→base（固定 TF）→ QR tag（检测）→ object（固定偏移）
-- 工具函数：PoseStamped 线性插值 + Slerp 姿态插值、沿末端 X/Z 轴平移
-- 运动客户端类：MovePClient、MoveLClient、MoveJointPositionsClient、MoveWaistClient
-- 主流程：等待二维码 → 计算 waist 系下抓取位姿 → MoveP → MoveL 抓取 → 回收
-
-### pose_trans_tf.py — TF2 动态位姿变换
-- `PoseTransformTool`：使用 tf2_ros 动态查询坐标系变换
-- `get_averaged_tf`：多次采样 + 异常值剔除（2σ）+ 四元数对齐的均值滤波
-- 变换链：camera_marker→base_link→waist_Link
-- `LiftClient`：升降机控制客户端
-- 主流程：标定物体在 marker 下位姿 → 计算 waist 系下抓取位姿 → 含容错检查的抓取流程
-
-### cal_tag_to_hand.py — 手眼标定工具
-- `CalibrationTool`：计算末端执行器到 Marker 的固定变换
-- 流程：示教移动末端接触 Marker → 记录末端在 base 下位姿 → 记录 Marker 在 base 下位姿 → 计算 T_eed_marker
-- 使用 tf2_ros + 均值滤波
-
-### add_obstacle.py — 导航障碍物自动添加
-- 基于二维码检测结果，在检测到的标记周围自动添加 3D 碰撞障碍物（BOX/CYLINDER）
-- 使用 `ManageObstacle` 服务管理障碍物生命周期
-- 坐标变换：局部坐标系 → 全局坐标系（绕 Z 轴旋转 + 平移）
-
-### 辅助工具
-- `reverse.py`：计算 4x4 齐次变换矩阵的逆变换
-- `pt2onnx.py`：Ultralytics YOLO 模型导出为 ONNX 格式
-- `best2.onnx`：YOLO 检测模型权重（10MB）
-
-### 关键问题汇总
-| 问题 | 影响 |
-|------|------|
-| 使用 ASCamera 非标压缩话题 | 无法直接适配 Orbbec 相机 |
-| 相机内参硬编码 (614, 614, 320, 240) | 不同相机/分辨率需重新标定 |
-| camera→torso 变换矩阵硬编码 | 相机安装位置变化需重新标定 |
-| venv 路径硬编码 | 部署到新机器需修改 |
-| camera_handler.py 缺少 import | 无法正常运行 |
-| 仅启用 1 个相机 | 三相机方案未激活 |
-
-## 视觉模块（新 — Orbbec 相机集成）
-
-### 架构
-- 3 个 Orbbec 相机节点，通过 namespace 隔离：`/camera_1`、`/camera_2`、`/camera_3`
-- 每个相机发布标准话题：`/color/image_raw`、`/depth/image_raw`
-- `vision_detect_node` 提供 `/vision_detect` ROS2 服务，对接控制系统 HTTP API
-- 三相机 RViz 可视化通过 launch 文件一键启动
-
-### 环境准备
-
-首次部署需安装奥比中光 udev 规则（否则普通用户无 USB 权限打开相机）：
-
-```bash
-sudo cp /opt/ros/humble/share/orbbec_camera/udev/99-obsensor-libusb.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-```
-
-### 内核 UVC 驱动冲突
-
-如果内核 `uvcvideo` 驱动先占用了相机（创建 `/dev/video*`），Orbbec SDK 的 libusb 后端无法打开设备，日志报 `usbEnumerator openUsbDevice failed!`。
-
-**解决方法：** 解绑 uvcvideo 驱动
-
-```bash
-# 查看相机在哪个 USB 端口（如 3-2）
-lsusb | grep Orbbec
-
-# 解绑 uvcvideo 驱动
-for iface in /sys/bus/usb/drivers/uvcvideo/3-2:1.*; do
-  sudo sh -c "echo -n '$(basename $iface)' > /sys/bus/usb/drivers/uvcvideo/unbind"
-done
-```
-
-如需永久解决，可在 udev 规则中添加 `RUN+="/bin/sh -c 'echo $kernel > /sys/bus/usb/drivers/uvcvideo/unbind'"`，或将 `uvcvideo` 加入黑名单（会影响其他 UVC 摄像头）。
-
-### 调试命令
-
-```bash
-# 构建
-cd /home/kty/Desktop/furance_robot/ros2_ws
-colcon build --packages-select control_interfaces python_pkgs
-source install/setup.bash
-
-# 查看 VisionDetect 服务定义
-ros2 interface show control_interfaces/srv/VisionDetect
-
-# 查看三相机话题
-ros2 topic list | grep camera
-
-# 查看单个相机图像
-ros2 run rqt_image_view rqt_image_view /camera_1/color/image_raw
-
-# 查看深度图
-ros2 run rqt_image_view rqt_image_view /camera_1/depth/image_raw
-
-# 调用视觉检测服务
-ros2 service call /vision_detect control_interfaces/srv/VisionDetect "{camera_id: 'camera_1', scene: 'grasp_top'}"
-
-# 查看 TF 树
-ros2 run rqt_tf_tree rqt_tf_tree
-
-# 启动视觉相机 + vision_detect 节点（默认只启动 camera_1，避免三相机同时冲爆带宽）
-ros2 launch python_pkgs three_cameras.launch.py enable_rviz:=false
-
-# 只启动 camera_2
-ros2 launch python_pkgs three_cameras.launch.py enable_camera_1:=false enable_camera_2:=true enable_camera_3:=false enable_rviz:=false
-
-# 只启动 camera_3
-ros2 launch python_pkgs three_cameras.launch.py enable_camera_1:=false enable_camera_2:=false enable_camera_3:=true enable_rviz:=false
-
-# 启动当前选中相机 + vision_detect + RViz 可视化
-ros2 launch python_pkgs three_cameras.launch.py enable_rviz:=true
-
-# 单独启动 vision_detect 节点
-ros2 run python_pkgs vision_detect
-
-# 控制系统通过 node_manager 启动视觉（前端相机页面会自动调用）
-# POST /api/v1/robot/robot_001/camera/publish/start {"camera_id":"camera_1"}
-# POST /api/v1/robot/robot_001/camera/publish/stop
-```
+### P0
+1. 夹爪接线
+2. 夹爪模块开发，并入工作流
+3. orin开机自启动脚本

@@ -100,6 +100,9 @@ class NavPointParam(BaseModel):
 class WorkflowExecuteRequest(BaseModel):
     nav_params: list[NavPointParam] = []
     manual_mode: bool = False   # 手动模式: 每步等待 trigger_next_step
+    start_step_index: int = 0   # 从第几步开始执行 (0-based), 用于跳过前面的步骤
+    loop: bool = False           # 是否循环执行
+    loop_interval: float = 0.0   # 循环间隔 (秒)
 
 
 class StepResult(BaseModel):

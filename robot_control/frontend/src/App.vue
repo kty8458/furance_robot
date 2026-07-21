@@ -34,7 +34,11 @@
                 >
             </el-menu>
         </el-aside>
-        <el-main class="tech-main"><router-view /></el-main>
+        <el-main class="tech-main"><router-view v-slot="{ Component }">
+          <keep-alive :include="['WorkflowEditor', 'ArmControl']">
+            <component :is="Component" />
+          </keep-alive>
+        </router-view></el-main>
         <ArmEnableFab />
     </el-container>
 </template>

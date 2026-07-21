@@ -77,10 +77,20 @@ class ArmService:
             return ApiResponse(code=1001, message=result.get("message", "ROS2 服务调用失败"))
         return ApiResponse(data=result)
 
-    def save_teach(self, robot_id: str, preset: TeachPreset, overwrite: bool = False) -> None:
-        robot_dir = self._teach_dir / robot_id
-        robot_dir.mkdir(parents=True, exist_ok=True)
-        file_path = robot_dir / "presets.json"
+    def _teach_file_path(self, robot_id: str, workflow_name: str = None) -> Path:
+        """返回示教点文件路径。workflow_name=None 为全局, 否则为工作流级。"""
+        if workflow_name:
+            wf_dir = self._teach_dir / robot_id / "workflows" / workflow_name
+            wf_dir.mkdir(parents=True, exist_ok=True)
+            return wf_dir / "teach_presets.json"
+        else:
+            robot_dir = self._teach_dir / robot_id
+            robot_dir.mkdir(parents=True, exist_ok=True)
+            return robot_dir / "presets.json"
+
+    def save_teach(self, robot_id: str, preset: TeachPreset, overwrite: bool = False,
+                   workflow_name: str = None) -> None:
+        file_path = self._teach_file_path(robot_id, workflow_name)
         presets = self._load_presets(file_path)
         key = f"{preset.arm.value}_{preset.name}"
         if key in presets and not overwrite:
@@ -91,23 +101,34 @@ class ArmService:
         presets[key] = preset.model_dump()
         file_path.write_text(json.dumps(presets, indent=2))
 
-    def list_teach(self, robot_id: str) -> list[TeachPreset]:
-        robot_dir = self._teach_dir / robot_id
-        file_path = robot_dir / "presets.json"
-        if not file_path.exists():
-            return []
-        presets = self._load_presets(file_path)
+    def list_teach(self, robot_id: str, workflow_name: str = None) -> list[TeachPreset]:
+        """列出示教点。workflow_name=None 只返回全局; 否则返回全局+工作流级合并。"""
         result = []
-        for v in presets.values():
-            try:
-                result.append(TeachPreset(**v))
-            except Exception:
-                continue
+        # 全局
+        global_path = self._teach_file_path(robot_id, None)
+        if global_path.exists():
+            presets = self._load_presets(global_path)
+            for v in presets.values():
+                try:
+                    p = TeachPreset(**v)
+                    result.append(p)
+                except Exception:
+                    continue
+        # 工作流级 (合并到全局之上)
+        if workflow_name:
+            wf_path = self._teach_file_path(robot_id, workflow_name)
+            if wf_path.exists():
+                wf_presets = self._load_presets(wf_path)
+                for v in wf_presets.values():
+                    try:
+                        p = TeachPreset(**v)
+                        result.append(p)
+                    except Exception:
+                        continue
         return result
 
-    def delete_teach(self, robot_id: str, name: str) -> None:
-        robot_dir = self._teach_dir / robot_id
-        file_path = robot_dir / "presets.json"
+    def delete_teach(self, robot_id: str, name: str, workflow_name: str = None) -> None:
+        file_path = self._teach_file_path(robot_id, workflow_name)
         if not file_path.exists():
             return
         presets = self._load_presets(file_path)
@@ -116,11 +137,19 @@ class ArmService:
             del presets[k]
         file_path.write_text(json.dumps(presets, indent=2))
 
-    async def exec_teach(self, robot_id: str, cmd: TeachExecCommand) -> ApiResponse:
-        robot_dir = self._teach_dir / robot_id
-        file_path = robot_dir / "presets.json"
-        presets = self._load_presets(file_path)
+    async def exec_teach(self, robot_id: str, cmd: TeachExecCommand, workflow_name: str = None) -> ApiResponse:
+        # 先从工作流级找, 没有再从全局找
+        presets = {}
+        if workflow_name:
+            wf_path = self._teach_file_path(robot_id, workflow_name)
+            if wf_path.exists():
+                presets = self._load_presets(wf_path)
         key = f"{cmd.arm.value}_{cmd.name}"
+        if key not in presets:
+            # fallback 到全局
+            global_path = self._teach_file_path(robot_id, None)
+            if global_path.exists():
+                presets = self._load_presets(global_path)
         if key not in presets:
             raise BusinessError(
                 message=f"Teach preset '{cmd.name}' not found for {cmd.arm}",
@@ -149,11 +178,17 @@ class ArmService:
         return await self.arm_move(robot_id, move_cmd)
 
     def compose_teach(self, robot_id: str, left_name: str, right_name: str, composed_name: str,
-                      overwrite: bool = False) -> TeachPreset:
+                      overwrite: bool = False, workflow_name: str = None) -> TeachPreset:
         """Combine two single-arm moveJ presets into one dual-arm preset."""
-        robot_dir = self._teach_dir / robot_id
-        file_path = robot_dir / "presets.json"
-        presets = self._load_presets(file_path)
+        # 合并全局+工作流级示教点
+        presets = {}
+        global_path = self._teach_file_path(robot_id, None)
+        if global_path.exists():
+            presets = self._load_presets(global_path)
+        if workflow_name:
+            wf_path = self._teach_file_path(robot_id, workflow_name)
+            if wf_path.exists():
+                presets.update(self._load_presets(wf_path))
 
         left_key = f"left_{left_name}"
         right_key = f"right_{right_name}"
@@ -194,7 +229,14 @@ class ArmService:
             coordinate_frame=left_data.get("coordinate_frame", "base_link"),
         )
         presets[composed_key] = preset.model_dump()
-        file_path.write_text(json.dumps(presets, indent=2))
+        save_path = self._teach_file_path(robot_id, workflow_name)
+        # 如果是工作流级, 先读已有的工作流级 presets 再追加
+        if workflow_name and save_path.exists():
+            existing = self._load_presets(save_path)
+            existing[composed_key] = preset.model_dump()
+            save_path.write_text(json.dumps(existing, indent=2))
+        else:
+            save_path.write_text(json.dumps(presets, indent=2))
         return preset
 
     def _load_presets(self, file_path: Path) -> dict:

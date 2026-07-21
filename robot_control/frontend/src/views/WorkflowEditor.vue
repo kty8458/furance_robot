@@ -508,9 +508,26 @@
           此工作流无导航步骤，可直接执行
         </div>
         <el-divider />
+        <el-row :gutter="12" style="margin-bottom: 12px">
+          <el-col :span="8">
+            <div style="font-size: 11px; color: #6b7b8d; margin-bottom: 4px">从第几步开始 (0=从头)</div>
+            <el-input-number v-model="execStartStep" :min="0" :max="Math.max(0, (currentWorkflow?.steps?.length || 1) - 1)" size="small" style="width: 100%" />
+          </el-col>
+          <el-col :span="8">
+            <div style="font-size: 11px; color: #6b7b8d; margin-bottom: 4px">循环执行</div>
+            <el-switch v-model="execLoop" />
+          </el-col>
+          <el-col :span="8" v-if="execLoop">
+            <div style="font-size: 11px; color: #6b7b8d; margin-bottom: 4px">循环间隔 (秒)</div>
+            <el-input-number v-model="execLoopInterval" :min="0" :step="0.5" :precision="1" size="small" style="width: 100%" />
+          </el-col>
+        </el-row>
         <div style="display: flex; align-items: center; gap: 8px">
           <el-switch v-model="manualMode" />
           <span style="font-size: 13px; color: #e5e7eb">手动执行模式（每步等待确认）</span>
+        </div>
+        <div v-if="execStartStep > 0" style="margin-top: 8px; font-size: 11px; color: #ffa500">
+          ⚠ 从中间步骤执行, 跳过的视觉步骤的输出将不可用
         </div>
       </template>
       <template #footer>
@@ -553,7 +570,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed, watch } from 'vue'
+defineOptions({ name: 'WorkflowEditor' })
+import { ref, reactive, onMounted, computed, watch, onActivated } from 'vue'
 import { workflowApi } from '../api/workflow'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { List, Plus, Edit, Delete, ArrowUp, ArrowDown, CopyDocument } from '@element-plus/icons-vue'
@@ -579,6 +597,9 @@ const showResultDialog = ref(false)
 const executing = ref(false)
 const execResult = ref(null)
 const manualMode = ref(false)   // 手动执行模式开关
+const execStartStep = ref(0)     // 从第几步开始
+const execLoop = ref(false)       // 循环执行
+const execLoopInterval = ref(0) // 循环间隔秒
 const selectedStepId = ref(null)  // 当前选中的步骤 ID (用于插入位置)
 const showWorkflowListDialog = ref(false)  // 工作流列表弹窗
 const execStepRows = ref([])
@@ -664,9 +685,19 @@ onMounted(() => {
   loadSceneList()
 })
 
+// keep-alive 激活时轻量刷新 (不重新加载完整工作流数据, 只刷新列表标题)
+onActivated(() => {
+  refreshList()
+  // 如果当前有选中的工作流, 刷新示教点 (可能其他页面修改了)
+  if (currentWorkflow.value) {
+    loadTeachPresets()
+  }
+})
+
 async function loadTeachPresets() {
   try {
-    const r = await armApi.teachList()
+    const wfName = currentWorkflow.value?.name
+    const r = await armApi.teachList(wfName)
     const payload = r.data
     teachPresets.value = payload?.data || payload || []
   } catch {
@@ -1114,7 +1145,12 @@ async function executeWorkflow() {
           path_type: np.path_type || 'NavigationPointTask',
         }
       })
-    const startRes = await workflowApi.execute(currentWorkflow.value.name, navParams, manualMode.value)
+    const startRes = await workflowApi.execute(currentWorkflow.value.name, navParams, {
+      manual_mode: manualMode.value,
+      start_step_index: execStartStep.value,
+      loop: execLoop.value,
+      loop_interval: execLoopInterval.value,
+    })
     const executionId = (startRes.data?.data || startRes.data)?.execution_id
     if (!executionId) {
       throw new Error('未获取到执行ID')
