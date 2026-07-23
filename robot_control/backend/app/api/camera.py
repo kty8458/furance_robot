@@ -1,7 +1,11 @@
+import logging
+
 from fastapi import APIRouter, Request
 from furance_shared.protocol.http_schema import ApiResponse
 
 router = APIRouter(prefix="/api/v1/robot/{robot_id}/camera", tags=["camera"])
+
+logger = logging.getLogger(__name__)
 
 
 def _get_client(request: Request):
@@ -80,6 +84,16 @@ async def scene_operation(robot_id: str, req: dict, request: Request):
     )
     if not result.get("success"):
         return ApiResponse(code=3001, message=result.get("message", "Scene operation failed"))
+
+    # 删除场景时级联清理该场景下的训练照片
+    if req.get("action") == "delete":
+        photo_service = getattr(request.app.state, "photo_service", None)
+        if photo_service is not None:
+            try:
+                photo_service.delete_scene_photos(req.get("scene_id", ""))
+            except Exception:
+                logger.exception("Cascade delete photos failed for scene: %s", req.get("scene_id"))
+
     return ApiResponse(data=result.get("data", result))
 
 

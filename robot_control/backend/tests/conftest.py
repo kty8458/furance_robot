@@ -30,8 +30,9 @@ def mock_ros2_client():
 @pytest.fixture
 def app(tmp_path):
     """Create app with mock ROS2 components, properly triggering lifespan."""
-    # Override teach_data_dir to a temp dir for testing
+    # Override data dirs to temp dirs for testing
     os.environ["TEACH_DATA_DIR"] = str(tmp_path / "teach")
+    os.environ["PHOTO_DATA_DIR"] = str(tmp_path / "photos")
     application = create_app()
     # Manually set app.state as lifespan would do
     # (httpx ASGITransport doesn't trigger lifespan events)
@@ -49,6 +50,9 @@ def app(tmp_path):
     )
     application.state.status_service = StatusService()
     application.state.log_service = LogService()
+    # Photo service (real, against temp dir - exercises actual disk logic)
+    from app.services.photo_service import PhotoService
+    application.state.photo_service = PhotoService(str(tmp_path / "photos"))
     from app.services.chassis_client import MockChassisClient
     application.state.chassis_client = MockChassisClient()
     from app.services.workflow_service import WorkflowService
@@ -70,6 +74,7 @@ def app(tmp_path):
     yield application
     # Cleanup env
     os.environ.pop("TEACH_DATA_DIR", None)
+    os.environ.pop("PHOTO_DATA_DIR", None)
 
 
 @pytest.fixture

@@ -15,6 +15,7 @@ from app.api.ros2_nodes import router as ros2_router
 from app.api.upper_body import router as upper_body_router
 from app.api.workflow import router as workflow_router
 from app.api.camera import router as camera_router
+from app.api.photo import router as photo_router
 from app.api.log_viewer import router as log_viewer_router
 from app.ws.status import router as status_ws_router
 from app.ws.logs import router as logs_ws_router
@@ -105,6 +106,10 @@ async def lifespan(app: FastAPI):
         joint_state_listener=components.joint_state_listener,
     )
 
+    # Photo service (singleton - manages training-data photos on local disk)
+    from app.services.photo_service import PhotoService
+    app.state.photo_service = PhotoService(settings.photo_data_dir)
+
     logger.info("=" * 60)
     logger.info("Robot Control Backend started")
     logger.info("  ROS2_MODE: %s", os.environ.get("ROS2_MODE", "mock"))
@@ -113,6 +118,7 @@ async def lifespan(app: FastAPI):
     logger.info("  chassis_base_url: %s", settings.chassis_base_url)
     logger.info("  teach_data_dir: %s", settings.teach_data_dir)
     logger.info("  workflow_data_dir: %s", settings.workflow_data_dir)
+    logger.info("  photo_data_dir: %s", settings.photo_data_dir)
     logger.info("=" * 60)
     yield
 
@@ -218,6 +224,7 @@ def create_app(static_dir: str | None = None) -> FastAPI:
     app.include_router(upper_body_router)
     app.include_router(workflow_router)
     app.include_router(camera_router)
+    app.include_router(photo_router)
     app.include_router(log_viewer_router)
     app.include_router(status_ws_router)
     app.include_router(logs_ws_router)

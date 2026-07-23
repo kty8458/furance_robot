@@ -58,9 +58,92 @@
               <div style="margin-top: 12px; color: #6b7b8d">点击「连接」开始查看视频</div>
             </div>
           </div>
+          <!-- 拍照按钮: 仅彩色类流可用 -->
+          <div style="margin-top: 10px; display: flex; gap: 8px; align-items: center">
+            <el-button type="primary" @click="capturePhoto" :loading="capturing"
+              :disabled="!canCapture" icon="Camera">拍照存入照片集</el-button>
+            <el-input v-model="captureNote" placeholder="备注(可选)" size="small" style="flex: 1" :disabled="!canCapture" />
+            <span v-if="!canCapture" style="font-size: 11px; color: #6b7b8d">
+              {{ captureHint }}
+            </span>
+          </div>
         </el-card>
       </el-col>
     </el-row>
+
+    <!-- ====== 照片集管理 ====== -->
+    <el-card class="tech-card" style="margin-top: 16px">
+      <template #header>
+        <div class="tech-card-header">
+          <el-icon><Picture /></el-icon>
+          <span style="margin-left: 8px">照片集 (训练数据采集)</span>
+        </div>
+      </template>
+
+      <el-row :gutter="16">
+        <el-col :xs="24" :md="8">
+          <div class="field-label">场景 (拍照归属)</div>
+          <el-select v-model="capSceneId" style="width: 100%" filterable clearable placeholder="选择场景"
+            @change="onCapSceneChange">
+            <el-option v-for="s in sceneList" :key="s.scene_id"
+              :label="`${s.scene_id} (${s.description})`" :value="s.scene_id" />
+          </el-select>
+
+          <div style="margin-top: 10px; display: flex; align-items: center; gap: 6px">
+            <div class="field-label" style="margin-bottom: 0; flex: 1">照片集</div>
+            <el-button size="small" type="primary" @click="showNewAlbum = !showNewAlbum" :disabled="!capSceneId">
+              {{ showNewAlbum ? '取消' : '新建' }}
+            </el-button>
+            <el-button size="small" type="danger" @click="deleteCurrentAlbum" :disabled="!capAlbumId">删除</el-button>
+          </div>
+          <el-select v-model="capAlbumId" style="width: 100%; margin-top: 4px" filterable clearable placeholder="选择照片集"
+            :disabled="!capSceneId" @change="onCapAlbumChange">
+            <el-option v-for="a in albumList" :key="a.id"
+              :label="`${a.name} (${a.photo_count}张)`" :value="a.id" />
+          </el-select>
+          <div v-if="showNewAlbum" style="margin-top: 6px; display: flex; gap: 6px">
+            <el-input v-model="newAlbumName" placeholder="照片集名称" size="small" style="flex: 1" />
+            <el-button size="small" type="primary" @click="createAlbum">创建</el-button>
+          </div>
+
+          <div style="margin-top: 12px; display: flex; gap: 8px">
+            <el-button size="small" @click="downloadAlbumZip" :disabled="!capAlbumId || !photoList.length" icon="Download">
+              打包下载
+            </el-button>
+          </div>
+          <div v-if="capSceneId && !capAlbumId" style="margin-top: 8px; font-size: 11px; color: #6b7b8d">
+            拍照前请先选择或新建照片集
+          </div>
+        </el-col>
+
+        <el-col :xs="24" :md="16">
+          <div class="field-label">照片列表 ({{ photoList.length }}张)</div>
+          <div v-if="capAlbumId && photoList.length" class="photo-grid">
+            <div v-for="p in photoList" :key="p.id" class="photo-thumb">
+              <el-image :src="photoFileUrl(p.id)" fit="cover" style="width: 100%; height: 110px"
+                :preview-src-list="[photoFileUrl(p.id)]" :preview-teleported="true" lazy>
+                <template #error>
+                  <div class="photo-thumb-err">加载失败</div>
+                </template>
+              </el-image>
+              <div class="photo-meta">
+                <span :title="p.note || p.created_at">{{ p.note || p.created_at.slice(5, 19) }}</span>
+                <span class="photo-actions">
+                  <el-button size="small" link type="primary" @click="downloadPhoto(p.id)">下载</el-button>
+                  <el-button size="small" link type="danger" @click="deletePhoto(p.id)">删除</el-button>
+                </span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="video-placeholder" style="padding: 30px">
+            <el-icon style="font-size: 36px; color: #2a3a4a"><Picture /></el-icon>
+            <div style="margin-top: 10px; color: #6b7b8d; font-size: 12px">
+              {{ capAlbumId ? '暂无照片, 连接彩色流后拍照' : '选择照片集后查看照片' }}
+            </div>
+          </div>
+        </el-col>
+      </el-row>
+    </el-card>
 
     <!-- ====== 下部分: 现场标定 ====== -->
     <el-card class="tech-card">
@@ -81,7 +164,7 @@
             <div class="field-label">场景</div>
             <div style="display: flex; gap: 6px">
               <el-select v-model="mgmtSceneId" style="flex: 1" filterable clearable placeholder="选择场景" @change="onMgmtSceneChange">
-                <el-option v-for="s in sceneList" :key="s.scene_id" :label="`${s.scene_id} (${s.description})`" :value="s.scene_id" />
+                <el-option v-for="s in sceneList" :key="s.scene_id" :label="sceneLabel(s)" :value="s.scene_id" />
               </el-select>
               <el-button size="small" @click="showNewScene = !showNewScene">{{ showNewScene ? '取消' : '新建' }}</el-button>
               <el-button size="small" type="danger" @click="deleteCurrentScene" :disabled="!mgmtSceneId">删除</el-button>
@@ -118,7 +201,7 @@
           <div style="margin-bottom: 10px">
             <div class="field-label">场景</div>
             <el-select v-model="calibSceneId" style="width: 100%" filterable clearable placeholder="选择场景" @change="onCalibSceneChange">
-              <el-option v-for="s in sceneList" :key="s.scene_id" :label="`${s.scene_id} (${s.description})`" :value="s.scene_id" />
+              <el-option v-for="s in sceneList" :key="s.scene_id" :label="sceneLabel(s)" :value="s.scene_id" />
             </el-select>
           </div>
 
@@ -253,8 +336,12 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { cameraApi } from '../api/camera'
+import { photoApi } from '../api/photo'
+import { useVisionCaptureState } from '../composables/useVisionCaptureState'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { View, VideoCamera, Connection } from '@element-plus/icons-vue'
+import { View, VideoCamera, Connection, Picture } from '@element-plus/icons-vue'
+
+const { state: capState, set: setCapState, setStreamingColor } = useVisionCaptureState()
 
 const poseFields = ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
 
@@ -266,11 +353,17 @@ const streaming = ref(false)
 const connecting = ref(false)
 let ws = null
 const frameData = ref('')
+const latestFrameB64 = ref('')  // 最新一帧彩色原始 base64 (供拍照使用, 响应式驱动 canCapture)
 
 const streamTypeLabel = computed(() => {
   const labels = { raw: '原始画面', depth: '深度图', ir: '红外图', annotated: '带框标注', ir_annotated: '红外标注' }
   return labels[streamType.value] || streamType.value
 })
+
+// 场景下拉显示文本: 无描述时不带空括号
+function sceneLabel(s) {
+  return s.description ? `${s.scene_id} (${s.description})` : `${s.scene_id}`
+}
 
 // ---- 场景 & 点位管理 ----
 const sceneList = ref([])
@@ -303,6 +396,32 @@ const calibQrIds = ref('')  // 逗号分隔字符串，空=通配
 const calibMarkerSize = ref(0.058)
 const calibrating = ref(false)
 const calibResult = ref(null)
+
+// ---- 拍照 & 照片集 ----
+// 场景/照片集选择 (从全局缓存恢复)
+const capSceneId = ref('')
+const capAlbumId = ref('')
+const albumList = ref([])
+const photoList = ref([])
+const showNewAlbum = ref(false)
+const newAlbumName = ref('')
+const capturing = ref(false)
+const captureNote = ref('')
+
+// 拍照可用条件: 已连彩色类流 + 有新帧 + 选了场景和照片集
+const COLOR_STREAMS = ['raw', 'annotated']
+const canCapture = computed(() =>
+  streaming.value && COLOR_STREAMS.includes(streamType.value) && !!latestFrameB64.value
+  && !!capSceneId.value && !!capAlbumId.value
+)
+const captureHint = computed(() => {
+  if (!streaming.value) return '请先连接视频流'
+  if (!COLOR_STREAMS.includes(streamType.value)) return '拍照需彩色流(原始/带框)'
+  if (!latestFrameB64.value) return '等待彩色帧…'
+  if (!capSceneId.value) return '请选择场景'
+  if (!capAlbumId.value) return '请选择照片集'
+  return ''
+})
 
 // ========== 工具函数 ==========
 
@@ -356,7 +475,11 @@ async function loadCameras() {
 
 onUnmounted(() => disconnectStream())
 watch(() => cameraId.value, () => {
+  setCapState(cameraId.value, streamType.value, undefined, undefined)
   if (streaming.value) { disconnectStream(); setTimeout(connectStream, 300) }
+})
+watch(() => streamType.value, () => {
+  setCapState(undefined, streamType.value, undefined, undefined)
 })
 
 function getWsUrl() {
@@ -377,12 +500,18 @@ async function connectStream() {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data)
-        if (msg.type === 'frame' && msg.data) frameData.value = 'data:image/jpeg;base64,' + msg.data
-        else if (msg.type === 'error') ElMessage.error(msg.message)
+        if (msg.type === 'frame' && msg.data) {
+          frameData.value = 'data:image/jpeg;base64,' + msg.data
+          // 彩色类流 (raw/annotated) 缓存原始 base64 供拍照
+          if (['raw', 'annotated'].includes(streamType.value)) {
+            latestFrameB64.value = msg.data
+          }
+        } else if (msg.type === 'error') ElMessage.error(msg.message)
       } catch (e) { /* ignore */ }
     }
     ws.onerror = () => { ElMessage.error('WebSocket 错误'); disconnectStream() }
-    ws.onclose = () => { streaming.value = false; frameData.value = '' }
+    ws.onclose = () => { streaming.value = false; frameData.value = ''; latestFrameB64.value = '' }
+    setStreamingColor(true)
   } catch (e) {
     ElMessage.error(e.message || '连接失败')
     connecting.value = false
@@ -394,12 +523,16 @@ function disconnectStream() {
     try { ws.send(JSON.stringify({ action: 'unsubscribe' })) } catch (e) { /* ignore */ }
     ws.close(); ws = null
   }
-  streaming.value = false; frameData.value = ''
+  streaming.value = false; frameData.value = ''; latestFrameB64.value = ''
+  setStreamingColor(false)
   cameraApi.stopStream(cameraId.value).catch(() => {})
 }
 
 function onDropdownToggle(visible) { if (visible) { loadCameras(); loadSceneList() } }
-function onCameraChange() { if (streaming.value) { disconnectStream(); setTimeout(connectStream, 300) } }
+function onCameraChange() {
+  setCapState(cameraId.value, undefined, undefined, undefined)
+  if (streaming.value) { disconnectStream(); setTimeout(connectStream, 300) }
+}
 
 // ========== 场景 & 点位管理 ==========
 
@@ -454,6 +587,14 @@ async function deleteCurrentScene() {
     await cameraApi.scene('delete', mgmtSceneId.value)
     ElMessage.success('场景已删除')
     scenePoints.value[mgmtSceneId.value] = null
+    // 若删除的是当前拍照场景, 清空照片集选择 (后端已级联清理照片)
+    if (capSceneId.value === mgmtSceneId.value) {
+      capSceneId.value = ''
+      capAlbumId.value = ''
+      albumList.value = []
+      photoList.value = []
+      setCapState(undefined, undefined, '', '')
+    }
     mgmtSceneId.value = ''
     await loadSceneList()
   } catch (e) { if (e !== 'cancel') ElMessage.error(e.message || '删除失败') }
@@ -593,11 +734,135 @@ async function runCalibration() {
   }
 }
 
+// ========== 拍照 & 照片集 ==========
+
+function photoFileUrl(photoId) {
+  return photoApi.photoFileUrl(capSceneId.value, capAlbumId.value, photoId)
+}
+
+async function loadAlbumList() {
+  if (!capSceneId.value) { albumList.value = []; return }
+  try {
+    const res = await photoApi.listAlbums(capSceneId.value)
+    albumList.value = res.data || []
+  } catch { albumList.value = [] }
+}
+
+async function loadPhotoList() {
+  if (!capSceneId.value || !capAlbumId.value) { photoList.value = []; return }
+  try {
+    const res = await photoApi.listPhotos(capSceneId.value, capAlbumId.value)
+    photoList.value = res.data || []
+  } catch { photoList.value = [] }
+}
+
+function onCapSceneChange(sceneId) {
+  setCapState(undefined, undefined, sceneId, '')
+  capAlbumId.value = ''
+  albumList.value = []
+  photoList.value = []
+  loadAlbumList()
+}
+
+function onCapAlbumChange(albumId) {
+  setCapState(undefined, undefined, undefined, albumId)
+  photoList.value = []
+  loadPhotoList()
+}
+
+async function createAlbum() {
+  if (!capSceneId.value) { ElMessage.warning('请先选择场景'); return }
+  if (!newAlbumName.value.trim()) { ElMessage.warning('请输入照片集名称'); return }
+  try {
+    const res = await photoApi.createAlbum(capSceneId.value, newAlbumName.value.trim())
+    ElMessage.success('照片集已创建')
+    showNewAlbum.value = false; newAlbumName.value = ''
+    await loadAlbumList()
+    capAlbumId.value = res.data.id
+    setCapState(undefined, undefined, undefined, capAlbumId.value)
+    await loadPhotoList()
+  } catch (e) { ElMessage.error(e.message || '创建失败') }
+}
+
+async function deleteCurrentAlbum() {
+  if (!capAlbumId.value) return
+  try {
+    await ElMessageBox.confirm(`确定删除照片集？将一并删除其下所有照片`, '确认删除', { type: 'warning' })
+    await photoApi.deleteAlbum(capSceneId.value, capAlbumId.value)
+    ElMessage.success('照片集已删除')
+    capAlbumId.value = ''
+    setCapState(undefined, undefined, undefined, '')
+    photoList.value = []
+    await loadAlbumList()
+  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message || '删除失败') }
+}
+
+async function capturePhoto() {
+  if (!canCapture.value) { ElMessage.warning(captureHint.value || '当前无法拍照'); return }
+  capturing.value = true
+  try {
+    await photoApi.capture({
+      camera_id: cameraId.value,
+      scene_id: capSceneId.value,
+      album_id: capAlbumId.value,
+      stream_type: streamType.value,
+      note: captureNote.value.trim(),
+      jpeg_b64: latestFrameB64.value,
+    })
+    ElMessage.success('已拍照')
+    captureNote.value = ''
+    await loadPhotoList()
+  } catch (e) {
+    ElMessage.error(e.message || '拍照失败')
+  } finally {
+    capturing.value = false
+  }
+}
+
+function downloadPhoto(photoId) {
+  window.open(photoApi.photoFileUrl(capSceneId.value, capAlbumId.value, photoId), '_blank')
+}
+
+function downloadAlbumZip() {
+  if (!capAlbumId.value) return
+  window.location.href = photoApi.albumDownloadUrl(capSceneId.value, capAlbumId.value)
+}
+
+async function deletePhoto(photoId) {
+  try {
+    await ElMessageBox.confirm(`确定删除该照片？`, '确认删除', { type: 'warning' })
+    await photoApi.deletePhoto(capSceneId.value, capAlbumId.value, photoId)
+    ElMessage.success('照片已删除')
+    await loadPhotoList()
+    await loadAlbumList()  // 刷新照片计数
+  } catch (e) { if (e !== 'cancel') ElMessage.error(e.message || '删除失败') }
+}
+
 // ========== 初始化 ==========
 
-onMounted(() => {
-  loadCameras()
-  loadSceneList()
+onMounted(async () => {
+  // 从全局缓存恢复选择
+  if (capState.cameraId) cameraId.value = capState.cameraId
+  if (capState.streamType) streamType.value = capState.streamType
+  if (capState.sceneId) capSceneId.value = capState.sceneId
+  if (capState.albumId) capAlbumId.value = capState.albumId
+
+  await loadCameras()
+  await loadSceneList()
+
+  // 恢复照片集/照片列表
+  if (capSceneId.value) {
+    await loadAlbumList()
+    if (capAlbumId.value) await loadPhotoList()
+  }
+
+  // 自动重连彩色流: 上次在连 + 确有已连接相机
+  if (capState.wasStreamingColor && cameraId.value) {
+    const cam = cameras.value.find(c => c.id === cameraId.value && c.connected)
+    if (cam) {
+      connectStream().catch(() => { /* 静默: 用户可手动连接 */ })
+    }
+  }
 })
 </script>
 
@@ -610,4 +875,9 @@ onMounted(() => {
 .detect-result { margin-top: 10px; padding: 8px; background: #0d1a26; border: 1px solid #2a3a4a; border-radius: 6px; }
 .detect-title { font-size: 12px; color: #00d4ff; margin-bottom: 6px; }
 .point-data-panel { margin-top: 10px; padding: 10px; background: #0d1a26; border: 1px solid #2a3a4a; border-radius: 6px; }
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 6px; }
+.photo-thumb { background: #0d1a26; border: 1px solid #2a3a4a; border-radius: 6px; overflow: hidden; }
+.photo-thumb-err { height: 110px; display: flex; align-items: center; justify-content: center; color: #6b7b8d; font-size: 12px; }
+.photo-meta { padding: 4px 6px; display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: #9ca3af; }
+.photo-actions { display: flex; gap: 4px; justify-content: flex-end; }
 </style>
