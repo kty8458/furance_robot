@@ -1,0 +1,6 @@
+# 训练产物目录 - 忽略权重文件, 避免误提交大文件
+# (best.pt / last.pt / *.onnx 等)
+
+*
+!.gitignore
+!README.md

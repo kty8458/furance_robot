@@ -14,19 +14,20 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name), ['python_pkgs/vision/best2.onnx']),
         (os.path.join('share', package_name, 'orbbec_vision'), ['python_pkgs/orbbec_vision/camera_config.yaml']),
+        (os.path.join('share', package_name, 'orbbec_vision'), ['python_pkgs/orbbec_vision/yolo_config.yaml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'config'), glob('config/*.rviz')),
     ],
     install_requires=['setuptools'],
     extras_require={
         'qt': ['PyQt5'],
+        'test': ['pytest'],
     },
     zip_safe=True,
     maintainer='baosight',
     maintainer_email='banwf@foxmail.com',
     description='TODO: Package description',
     license='TODO: License declaration',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'qr_dete = python_pkgs.vision.QR_dete:main',

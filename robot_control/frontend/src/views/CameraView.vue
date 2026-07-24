@@ -25,6 +25,7 @@
               <el-option label="红外图" value="ir" />
               <el-option label="带框标注" value="annotated" />
               <el-option label="红外标注" value="ir_annotated" />
+              <el-option label="yolo分割" value="mask" />
             </el-select>
           </div>
           <el-row :gutter="8">

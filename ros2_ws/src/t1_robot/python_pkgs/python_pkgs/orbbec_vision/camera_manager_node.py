@@ -279,6 +279,24 @@ def _annotate_frame(manager, camera_id: str, frame: np.ndarray) -> np.ndarray:
     return frame
 
 
+def _yolo_annotate_frame(manager, camera_id: str, frame: np.ndarray) -> np.ndarray:
+    """YOLO 分割标注: 掩码半透明叠加 + 检测框 + 类名置信度 (供 mask 流复用)。
+
+    模型未加载时返回原图 (优雅降级)。
+    """
+    detector = None
+    if hasattr(manager, '_yolo_detectors') and camera_id in manager._yolo_detectors:
+        detector = manager._yolo_detectors[camera_id]
+    if detector is None:
+        return frame
+    try:
+        results = detector.detect(frame)
+        frame = detector.draw_results(frame, results)
+    except Exception:
+        logger.exception("yolo annotate frame failed: %s", camera_id)
+    return frame
+
+
 def _draw_multi_stability_overlay(frame: np.ndarray, trackers: dict, visible_ids: list) -> np.ndarray:
     """在画面左上角叠加多个 QR 的稳定性统计 (每个 QR 一组紧凑显示)。"""
     out = frame.copy()
@@ -384,12 +402,16 @@ class CameraManager:
 
         devices_by_serial = {}
         for i in range(device_list.get_count()):
-            d = device_list.get_device_by_index(i)
-            s = d.get_device_info().get_serial_number()
-            logger.info("  device[%d]: serial='%s' name='%s'",
-                        i, s, d.get_device_info().get_name())
-            if s:
-                devices_by_serial[s] = d
+            try:
+                d = device_list.get_device_by_index(i)
+                s = d.get_device_info().get_serial_number()
+                logger.info("  device[%d]: serial='%s' name='%s'",
+                            i, s, d.get_device_info().get_name())
+                if s:
+                    devices_by_serial[s] = d
+            except Exception as e:
+                # 单个设备 UVC 打开失败不应让整个节点崩溃 (跳过该设备)
+                logger.warning("  device[%d] 打开失败, 跳过: %s (可能被占用或 USB 异常)", i, e)
         logger.info("  serial index: %s", list(devices_by_serial.keys()))
 
         for cfg in configs:
@@ -489,7 +511,7 @@ class CameraManager:
 
         from pyorbbecsdk import Config, OBSensorType, OBError
         config = Config()
-        need_color = stream_type in ("raw", "annotated")
+        need_color = stream_type in ("raw", "annotated", "mask")
         need_depth = stream_type == "depth"
         need_ir = stream_type in ("ir", "ir_annotated")
 
@@ -597,21 +619,21 @@ class CameraManager:
         error_count = 0
         max_errors = 10
         empty_count = 0
-        max_empty = 30
+        max_empty = 5  # wait_for_frames 超时 1000ms, 5 次=约 5s 无帧才重启
         stream_type = self._stream_types.get(camera_id, "raw")
 
         while self._running and self._streaming.get(camera_id, False):
             try:
-                frames = pipeline.wait_for_frames(100)
+                # 超时 1000ms (对齐奥比中光官方示例, 100ms 过短易误判重启)
+                frames = pipeline.wait_for_frames(1000)
                 if frames is None:
                     empty_count += 1
                     if empty_count >= max_empty:
-                        logger.warning("No frames for %s for ~3s, restarting streams", camera_id)
+                        logger.warning("No frames for %s for ~5s, restarting streams", camera_id)
                         self._restart_streams(camera_id, stream_type)
                         pipeline = self._pipelines.get(camera_id)
                         empty_count = 0
                         error_count = 0
-                    time.sleep(0.01)
                     continue
                 empty_count = 0
 
@@ -653,7 +675,7 @@ class CameraManager:
 
         from pyorbbecsdk import Config, OBSensorType
         config = Config()
-        need_color = stream_type in ("raw", "annotated")
+        need_color = stream_type in ("raw", "annotated", "mask")
         need_depth = stream_type == "depth"
         need_ir = stream_type in ("ir", "ir_annotated")
 
@@ -813,6 +835,13 @@ class _WsProtocol:
                                 frame = _annotate_frame(self._manager, camera_id, frame)
                             except Exception:
                                 logger.exception("annotated frame generation failed")
+                    elif stream_type == "mask":
+                        frame = self._manager.get_latest_color(camera_id)
+                        if frame is not None:
+                            try:
+                                frame = _yolo_annotate_frame(self._manager, camera_id, frame)
+                            except Exception:
+                                logger.exception("mask frame generation failed")
                     elif stream_type == "ir_annotated":
                         frame = self._manager.get_latest_ir(camera_id)
                         if frame is not None:
@@ -821,7 +850,16 @@ class _WsProtocol:
                                 frame = _annotate_frame(self._manager, camera_id, frame)
                             except Exception:
                                 logger.exception("ir_annotated frame generation failed")
+                    elif stream_type == "mask_ir":
+                        frame = self._manager.get_latest_ir(camera_id)
+                        if frame is not None:
+                            try:
+                                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                                frame = _yolo_annotate_frame(self._manager, camera_id, frame)
+                            except Exception:
+                                logger.exception("mask_ir frame generation failed")
                     else:
+                        # raw 及其它: 取彩色帧
                         frame = self._manager.get_latest_color(camera_id)
 
                     if frame is None:
@@ -837,6 +875,7 @@ class _WsProtocol:
                 except asyncio.CancelledError:
                     break
                 except Exception:
+                    logger.exception("push_loop error: %s/%s", camera_id, stream_type)
                     await asyncio.sleep(0.1)
 
         try:
@@ -1013,6 +1052,51 @@ def main(args=None):
     manager._qr_detectors = _qr_detectors
     manager._stability_trackers = _stability_trackers
     manager._stability_trackers_per_id = {}  # camera_id -> {qr_id: PoseStabilityTracker}
+
+    # ---- YOLO 分割检测模块 (per camera, 供 mask 流与后续点云模块使用) ----
+    _yolo_detectors: dict[str, object] = {}
+    _yolo_dir = _config_dir  # orbbec_vision 目录 (yolo_config.yaml 所在)
+    try:
+        _yolo_cfg_path = os.path.join(_yolo_dir, "yolo_config.yaml")
+        with open(_yolo_cfg_path) as _f:
+            _yolo_cfg = _yaml.safe_load(_f) or {}
+        if _yolo_cfg.get("enabled", True):
+            from python_pkgs.orbbec_vision.yolo_detector import YOLODetector
+            _base_names = _yolo_cfg.get("names") or ["object"]
+            _per_cam = _yolo_cfg.get("per_camera", {}) or {}
+            # 只为实际连接的相机构建 detector (避免为未连接相机浪费资源)
+            for cid, cam_info in manager._cameras.items():
+                if not cam_info.connected:
+                    continue
+                cam_cfg = {**_yolo_cfg, **(_per_cam.get(cid, {}) or {})}
+                # 环境变量覆盖模型路径 (YOLO_MODEL_PATH, 优先 per-camera: YOLO_MODEL_PATH_<cid>)
+                env_path = os.environ.get(f"YOLO_MODEL_PATH_{cid}") or os.environ.get("YOLO_MODEL_PATH")
+                model_path = env_path or cam_cfg.get("model_path", "")
+                if model_path and not os.path.isabs(model_path):
+                    model_path = os.path.join(_yolo_dir, model_path)
+                if not model_path or not os.path.isfile(model_path):
+                    logger.warning("YOLO model not found for camera '%s' (path=%s), "
+                                   "mask stream will degrade to raw", cid, model_path)
+                    _yolo_detectors[cid] = None
+                    continue
+                try:
+                    _yolo_detectors[cid] = YOLODetector(
+                        model_path=model_path,
+                        names=cam_cfg.get("names", _base_names),
+                        conf=float(cam_cfg.get("conf", 0.5)),
+                        iou=float(cam_cfg.get("iou", 0.45)),
+                        imgsz=int(cam_cfg.get("imgsz", 640)),
+                        device=cam_cfg.get("device", "cpu"),
+                    )
+                    logger.info("YOLODetector ready for camera '%s'", cid)
+                except Exception:
+                    logger.exception("Failed to create YOLODetector for camera '%s'", cid)
+                    _yolo_detectors[cid] = None
+        else:
+            logger.info("YOLO module disabled by config")
+    except Exception:
+        logger.exception("Failed to init YOLO module (mask stream degrades to raw)")
+    manager._yolo_detectors = _yolo_detectors
 
     # 启动 WS server 线程
     ws_thread = threading.Thread(target=_run_ws_in_thread, args=(manager,), daemon=True)

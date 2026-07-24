@@ -1,0 +1,28 @@
+# YOLO 分割检测模块配置
+# camera_manager_node 启动时读取此文件, 为每个已连接相机构建 YOLODetector。
+# 模型未训练/缺失时优雅降级 (mask 流退化为原图)。
+
+enabled: true
+
+# 模型路径: 绝对路径 (训练产物在源码 orbbec_vision/models 下)
+# 注意: 模型在源码目录, colcon clean / 重新 clone 会丢, 正式部署应拷到固定位置。
+model_path: "/home/kty/Desktop/furance_robot/ros2_ws/src/t1_robot/python_pkgs/python_pkgs/orbbec_vision/models/train/weights/best.onnx"
+
+# 类别数与名称 (须与训练 data.yaml 一致)
+classes: 1
+names: ["gan 1"]
+
+# 推理参数
+conf: 0.5      # 置信度阈值
+iou: 0.45      # NMS IoU 阈值
+imgsz: 640     # 推理尺寸 (32 倍数, 与导出一致)
+device: "cpu"  # cpu | cuda (cuda 需 onnxruntime-gpu)
+
+# 按相机覆盖 (可选): 不同相机用不同模型/阈值
+# per_camera:
+#   head:
+#     model_path: "models/train/weights/best_head.onnx"
+#     conf: 0.4
+#   right_arm:
+#     conf: 0.35
+per_camera: {}
