@@ -383,15 +383,16 @@ def mask_width_profile(mask, bins=20):
     return np.array(widths), axis, center, edges
 
 
-def find_grasp_via_mask(mask, color_bgr, depth_m, K_color, K_depth, bins=20):
-    """用 mask 像素宽度找粗细突变, 用点云算 3D 抓取坐标。
+def find_grasp_via_mask(mask, color_bgr, depth_m, K_color, axis_rod=None, bins=20):
+    """用 mask 像素宽度找粗细突变, 用点云算 3D 抓取坐标 + 姿态。
 
     流程:
       1. mask 宽度剖面 (视觉, 干净) 找突变段
       2. 突变段在 mask 上的像素中心 -> 反投影到 3D (用 color 内参 + depth)
-      3. 返回抓取点 3D (相机系) + 突变信息
+      3. 姿态: Y轴=杆中轴线, X轴=相机视线在垂直Y平面的投影, Z=X×Y
+      4. 返回抓取点 3D (相机系) + 姿态三轴 + 突变信息
 
-    返回 dict: {grasp_pt, seg_type, mask_widths, jump_idx, width_mm(突变段粗侧像素宽度)}
+    axis_rod: 杆中轴线方向 (相机光学系, 3,), 来自点云 PCA。None 则不算姿态。
     """
     widths, axis2d, center2d, edges = mask_width_profile(mask, bins)
     if widths is None:
@@ -410,12 +411,17 @@ def find_grasp_via_mask(mask, color_bgr, depth_m, K_color, K_depth, bins=20):
     w_med = float(np.median(wv_s))
     w_max = float(wv_s.max())
     w_min = float(wv_s.min())
-    width_range_ratio = (w_max - w_min) / max(w_med, 1.0)
     n = len(wv_s)
     thresh = w_med * 0.15  # 阶跃阈值 (粗细交界应明显陡降)
 
-    # 异常: 整体宽度变化很小, 只看到粗端
-    if width_range_ratio < 0.08:
+    # 段0=图像下方, 下方1/3 常被滑槽遮挡 (渐变窄, 非真交界), 直接忽略
+    # 只在后 2/3 (上 2/3) 找粗细交界
+    search_lo = n // 3
+    upper_w = wv_s[search_lo:]  # 后2/3的宽度
+    upper_range_ratio = (upper_w.max() - upper_w.min()) / max(w_med, 1.0)
+
+    # 异常: 后2/3宽度变化很小, 说明只看到粗端 (交界在视野外)
+    if upper_range_ratio < 0.08:
         return {"error": "只看到粗端, 粗细交界不在视野内 (相机位置太靠下), 请调整相机位置",
                 "mask_widths": widths}
 
@@ -430,9 +436,9 @@ def find_grasp_via_mask(mask, color_bgr, depth_m, K_color, K_depth, bins=20):
     jump_idx = -1
     found = False
 
-    # 候选: 所有满足"粗->细"的陡降位置 (下降后变细), 取下降幅度最大的
+    # 候选: 在后 2/3 范围找"粗->细"陡降 (下降后变细), 取下降幅度最大的
     candidates = []
-    for i in range(n - 1):
+    for i in range(search_lo, n - 1):
         if wv_s[i + 1] <= thin_thresh and grads_drop[i] > thresh:
             candidates.append((i, grads_drop[i]))
     if candidates:
@@ -440,14 +446,14 @@ def find_grasp_via_mask(mask, color_bgr, depth_m, K_color, K_depth, bins=20):
         candidates.sort(key=lambda x: -x[1])
         jump_idx = candidates[0][0]
         # 抓粗段一侧 (交界前1段)
-        grasp_bin = max(0, jump_idx - 1)
+        grasp_bin = max(search_lo, jump_idx - 1)
         seg_type = "thick-to-thin"
         found = True
 
     if not found:
         # 无明显粗->细陡降, 找细->粗上升 (可能视野只看到细->粗过渡)
         rise_candidates = []
-        for i in range(n - 1):
+        for i in range(search_lo, n - 1):
             if wv_s[i] <= thin_thresh and (-grads_drop[i]) > thresh:
                 rise_candidates.append((i, -grads_drop[i]))
         if rise_candidates:
@@ -458,10 +464,12 @@ def find_grasp_via_mask(mask, color_bgr, depth_m, K_color, K_depth, bins=20):
             found = True
 
     if not found:
-        # 无陡变, 抓最宽区域中点
-        thick_mask = wv_s > (w_max - (w_max - w_min) * 0.2)
-        if thick_mask.any():
-            thick_idx = np.where(thick_mask)[0]
+        # 无陡变, 抓最宽区域中点 (仅在后2/3范围, 避开遮挡区)
+        thick_mask = (wv_s > (w_max - (w_max - w_min) * 0.2))
+        # 只取 search_lo 之后的粗段
+        thick_idx = np.where(thick_mask)[0]
+        thick_idx = thick_idx[thick_idx >= search_lo]
+        if len(thick_idx):
             grasp_bin = int(thick_idx[len(thick_idx) // 2])
             seg_type = "thick-region"
 
@@ -502,6 +510,22 @@ def find_grasp_via_mask(mask, color_bgr, depth_m, K_color, K_depth, bins=20):
     width_px = float(wv_s[grasp_bin]) if grasp_bin < len(wv_s) else 0
     diameter_mm = width_px * z / fx * 1000  # 像素宽度->米->mm
 
+    # 姿态三轴 (相机光学系): Y=杆中轴, X=视线投影, Z=X×Y
+    grasp_axes = None
+    if axis_rod is not None:
+        Y = np.asarray(axis_rod, dtype=np.float64)
+        Y = Y / (np.linalg.norm(Y) + 1e-9)
+        # 视线方向: 从杆指向相机原点 (相机在原点) = -grasp_pt 归一化
+        view = -grasp_pt / (np.linalg.norm(grasp_pt) + 1e-9)
+        # X = 视线在垂直 Y 平面的投影
+        X = view - np.dot(view, Y) * Y
+        Xn = np.linalg.norm(X)
+        if Xn > 1e-4:
+            X = X / Xn
+            Z = np.cross(X, Y)
+            Z = Z / (np.linalg.norm(Z) + 1e-9)
+            grasp_axes = {"X": X, "Y": Y, "Z": Z}
+
     return {
         "grasp_pt": grasp_pt,
         "seg_type": seg_type,
@@ -511,6 +535,7 @@ def find_grasp_via_mask(mask, color_bgr, depth_m, K_color, K_depth, bins=20):
         "grasp_px": (pu, pv),
         "width_px": width_px,
         "diameter_mm": diameter_mm,
+        "grasp_axes": grasp_axes,
     }
 
 
@@ -576,11 +601,11 @@ def project_to_pixel(pt3d, K):
 
 
 def draw_axis_and_grasp(img, grasp_pt, axis, center, K, diameter_m, seg_type, jump_idx=-1,
-                         bin_centers=None, diameters=None, seg_centers_3d=None):
-    """在 RGB 上画: 以抓取点为原点的坐标系 + 杆轴 + 抓取点 + 各段直径标注 + 直径剖面。
+                         bin_centers=None, diameters=None, seg_centers_3d=None, grasp_axes=None):
+    """在 RGB 上画: 抓取姿态坐标系 + 杆轴 + 抓取点 + 各段直径标注 + 直径剖面。
 
-    坐标系原点 = grasp_pt (相机光学系)。
-    各段直径: 沿杆在每个段截面圆心位置画短线 + 标长度(mm)。
+    若 grasp_axes 给定: 画抓取姿态三轴 (X进刀红/Y杆轴绿/Z蓝), 原点=抓取点。
+    否则: 画相机光学系 XYZ 轴。
     """
     out = img.copy()
     axis_len = 0.05  # 5cm
@@ -617,19 +642,28 @@ def draw_axis_and_grasp(img, grasp_pt, axis, center, K, diameter_m, seg_type, ju
                 cv2.putText(out, f"{d*1000:.0f}", (mid[0] + 4, mid[1] - 4),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.4, col, 1)
 
-    # 以抓取点为原点的 XYZ 轴
+    # 抓取点处坐标系: 优先画抓取姿态三轴 (X进刀红/Y杆轴绿/Z蓝), 否则画相机光学系 XYZ
     o_px = proj(grasp_pt)
     if o_px is None:
         return out
-    for axis_v, col, lbl in [
-        (np.array([axis_len, 0, 0]), (0, 0, 255), "X"),
-        (np.array([0, axis_len, 0]), (0, 255, 0), "Y"),
-        (np.array([0, 0, axis_len]), (255, 0, 0), "Z"),
-    ]:
-        e = proj(grasp_pt + axis_v)
+    axis_len = 0.06  # 6cm
+    if grasp_axes is not None:
+        axes_to_draw = [
+            (grasp_axes["X"], (0, 0, 255), "X(进刀)"),
+            (grasp_axes["Y"], (0, 255, 0), "Y(杆轴)"),
+            (grasp_axes["Z"], (255, 0, 0), "Z"),
+        ]
+    else:
+        axes_to_draw = [
+            (np.array([1, 0, 0]), (0, 0, 255), "X"),
+            (np.array([0, 1, 0]), (0, 255, 0), "Y"),
+            (np.array([0, 0, 1]), (255, 0, 0), "Z"),
+        ]
+    for axis_v, col, lbl in axes_to_draw:
+        e = proj(grasp_pt + axis_v * axis_len)
         if e is not None:
-            cv2.arrowedLine(out, o_px, e, col, 2, tipLength=0.15)
-            cv2.putText(out, lbl, (e[0] + 4, e[1] + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, col, 1)
+            cv2.arrowedLine(out, o_px, e, col, 3, tipLength=0.15)
+            cv2.putText(out, lbl, (e[0] + 4, e[1] + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, col, 1)
 
     # 杆轴 (黄色)
     p1 = center + axis * 0.15
@@ -736,13 +770,14 @@ def main():
     if bin_centers is not None:
         print(f"[直径-点云] 各段(mm): {(diameters*1000).round(1).tolist()} (参考, 易受框污染)")
 
-    # ==== 主方案: 用 mask 像素宽度找突变 (视觉, 不受深度/框污染) + 点云算 3D 坐标 ====
-    mask_result = find_grasp_via_mask(mask, color, depth, K_color, K_depth)
+    # ==== 主方案: 用 mask 像素宽度找突变 (视觉, 不受深度/框污染) + 点云算 3D 坐标 + 姿态 ====
+    mask_result = find_grasp_via_mask(mask, color, depth, K_color, axis_rod=axis)
     if mask_result is None:
         print("[警告] mask 宽度分析失败, 退回点云直径方案")
         grasp_pt, seg_type, diameter_m, jump_idx = find_grasp_point(diameters, seg_centers_3d)
         seg_centers_3d_draw = seg_centers_3d
         diameters_draw = diameters
+        grasp_axes = None
     elif "error" in mask_result:
         # 异常: 只看到粗端, 交界不在视野内
         print(f"[mask宽度] 各段(px): {[int(w) for w in mask_result['mask_widths']]}")
@@ -761,17 +796,35 @@ def main():
         seg_type = mask_result["seg_type"]
         jump_idx = mask_result["jump_idx"]
         diameter_m = mask_result["diameter_mm"] / 1000.0
+        grasp_axes = mask_result.get("grasp_axes")
         print(f"[mask宽度] 各段(px): {[int(w) for w in mask_result['mask_widths']]}")
         print(f"[抓取点] 段类型={seg_type} 交界bin={jump_idx} 突变段像素宽={mask_result['width_px']:.0f}px 估算直径={diameter_m*1000:.1f}mm")
         seg_centers_3d_draw = seg_centers_3d
         diameters_draw = diameters
 
     print(f"[抓取点] 相机系: x={grasp_pt[0]*1000:.1f} y={grasp_pt[1]*1000:.1f} z={grasp_pt[2]*1000:.1f} mm")
+    if grasp_axes is not None:
+        X, Y, Z = grasp_axes["X"], grasp_axes["Y"], grasp_axes["Z"]
+        print(f"[姿态] 光学系 Y(杆轴)=[{Y[0]:.3f},{Y[1]:.3f},{Y[2]:.3f}]")
+        print(f"[姿态] 光学系 X(进刀)=[{X[0]:.3f},{X[1]:.3f},{X[2]:.3f}] (相机视线投影)")
+        print(f"[姿态] 光学系 Z      =[{Z[0]:.3f},{Z[1]:.3f},{Z[2]:.3f}]")
+        # 转 RPY (光学系, xyz 欧拉角, 度)
+        R = np.column_stack([X, Y, Z])
+        sy = np.sqrt(R[0, 0] ** 2 + R[1, 0] ** 2)
+        if sy > 1e-6:
+            roll = np.degrees(np.arctan2(R[2, 1], R[2, 2]))
+            pitch = np.degrees(np.arctan2(-R[2, 0], sy))
+            yaw = np.degrees(np.arctan2(R[1, 0], R[0, 0]))
+        else:
+            roll = np.degrees(np.arctan2(-R[1, 2], R[1, 1]))
+            pitch = np.degrees(np.arctan2(-R[2, 0], sy))
+            yaw = 0.0
+        print(f"[姿态] 光学系 RPY(度): roll={roll:.1f} pitch={pitch:.1f} yaw={yaw:.1f}")
 
     # 可视化 (用 color 内参投影到 color 图; 坐标系原点=抓取点; 沿杆标各段直径)
     out = draw_axis_and_grasp(color, grasp_pt, axis, center, K_color, diameter_m, seg_type,
                               jump_idx=jump_idx, bin_centers=bin_centers, diameters=diameters_draw,
-                              seg_centers_3d=seg_centers_3d_draw)
+                              seg_centers_3d=seg_centers_3d_draw, grasp_axes=grasp_axes)
     overlay = color.copy()
     overlay[mask] = (0, 255, 0)
     cv2.addWeighted(overlay, 0.3, out, 0.7, 0, dst=out)
