@@ -84,9 +84,14 @@ def load_intrinsics(config_path, camera_id):
 
 
 def grab_one_frame(camera_id, config_path):
-    """启动 color+depth 硬件对齐流, 取一帧。返回 (color_bgr, depth_m 单位米)。"""
+    """启动 color+depth 流, 用 AlignFilter 把 depth 对齐到 color (同尺寸同视角)。
+
+    返回 (color_bgr, depth_m), 两者同分辨率 (color 尺寸 1280x720), 已对齐。
+    color 保持原始 (供 YOLO 分割), depth 对齐到 color (供点云+叠加)。
+    """
     import time
-    from pyorbbecsdk import Context, Pipeline, Config, OBSensorType
+    from pyorbbecsdk import (Context, Pipeline, Config, OBSensorType, OBFormat,
+                             OBFrameAggregateOutputMode, AlignFilter, OBStreamType)
 
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
@@ -106,53 +111,58 @@ def grab_one_frame(camera_id, config_path):
 
     pipe = Pipeline(device)
     config = Config()
-    config.enable_stream(pipe.get_stream_profile_list(OBSensorType.COLOR_SENSOR).get_default_video_stream_profile())
-    config.enable_stream(pipe.get_stream_profile_list(OBSensorType.DEPTH_SENSOR).get_default_video_stream_profile())
-    # depth->color 对齐 + start: HW_MODE 优先, start 失败则回退 SW_MODE
-    from pyorbbecsdk import OBAlignMode
-    pipe_started = False
-    for mode, label in [(OBAlignMode.HW_MODE, "硬件 D2C"), (OBAlignMode.SW_MODE, "软件 D2C")]:
-        try:
-            config.set_align_mode(mode)
-            pipe.start(config)
-            print(f"[相机] 对齐: {label}, pipeline started")
-            pipe_started = True
-            break
-        except Exception as e:
-            print(f"[相机] {label} 失败: {e}")
-            try:
-                pipe.stop()
-            except Exception:
-                pass
-    if not pipe_started:
-        # 都失败: 不对齐直接 start (depth/color 尺寸不一致, mask_to_pointcloud 会 resize mask)
-        try:
-            config.set_align_mode(OBAlignMode.DISABLE)
-            pipe.start(config)
-            print("[相机] 对齐不可用, 直接启动 (depth/color 尺寸不一致, 将手动 resize mask)")
-        except Exception as e:
-            raise RuntimeError(f"pipeline 启动失败: {e}")
-    time.sleep(1.0)
+    try:
+        cp = pipe.get_stream_profile_list(OBSensorType.COLOR_SENSOR).get_video_stream_profile(0, 0, OBFormat.RGB, 0)
+    except Exception:
+        cp = pipe.get_stream_profile_list(OBSensorType.COLOR_SENSOR).get_default_video_stream_profile()
+    config.enable_stream(cp)
+    try:
+        dp = pipe.get_stream_profile_list(OBSensorType.DEPTH_SENSOR).get_video_stream_profile(0, 0, OBFormat.Y16, 0)
+    except Exception:
+        dp = pipe.get_stream_profile_list(OBSensorType.DEPTH_SENSOR).get_default_video_stream_profile()
+    config.enable_stream(dp)
+    try:
+        config.set_frame_aggregate_output_mode(OBFrameAggregateOutputMode.FULL_FRAME_REQUIRE)
+    except Exception:
+        pass
+    pipe.start(config)
+    print("[相机] pipeline started (用 AlignFilter 后处理 depth->color)")
+
+    # AlignFilter: depth -> color (对齐后 color 不变, depth 变 color 尺寸)
+    align_filter = AlignFilter(align_to_stream=OBStreamType.COLOR_STREAM)
 
     color_bgr = None
-    depth_mm = None
-    for _ in range(30):
+    depth_m = None
+    t0 = time.time()
+    for _ in range(60):
         fs = pipe.wait_for_frames(1000)
         if fs is None:
+            if time.time() - t0 > 5:
+                break
             continue
-        cf = fs.get_color_frame()
-        df = fs.get_depth_frame()
+        try:
+            aligned = align_filter.process(fs)
+        except Exception:
+            continue
+        if not aligned:
+            continue
+        try:
+            aligned = aligned.as_frame_set()
+        except Exception:
+            pass
+        cf = aligned.get_color_frame()
+        df = aligned.get_depth_frame()
         if cf is not None and df is not None:
             color_bgr = _frame_to_bgr(cf)
-            depth_mm = _frame_to_depth_mm(df)
-            if color_bgr is not None and depth_mm is not None:
+            depth_m = _frame_to_depth_mm(df)
+            if color_bgr is not None and depth_m is not None:
                 break
         time.sleep(0.03)
     pipe.stop()
-    if color_bgr is None or depth_mm is None:
-        raise RuntimeError("取帧失败")
-    print(f"[相机] 取帧成功: color {color_bgr.shape}, depth {depth_mm.shape}")
-    return color_bgr, depth_mm
+    if color_bgr is None or depth_m is None:
+        raise RuntimeError("取帧失败 (AlignFilter depth->color)")
+    print(f"[相机] 取帧成功 (depth已对齐到color): color {color_bgr.shape}, depth {depth_m.shape}")
+    return color_bgr, depth_m
 
 
 def _frame_to_bgr(frame):
@@ -177,27 +187,33 @@ def _frame_to_depth_mm(frame):
 
 # ============ 点云 + 抓取点算法 ============
 
-def mask_to_pointcloud(color_bgr, depth_m, mask, K_depth):
+def render_depth_colormap(depth_m, min_m=MIN_DEPTH_M, max_m=MAX_DEPTH_M):
+    """depth (米) -> 伪彩 BGR (近红远蓝), 无效值(0或越界)置黑。"""
+    valid = (depth_m > min_m) & (depth_m < max_m)
+    d = np.clip(depth_m, min_m, max_m)
+    norm = ((d - min_m) / (max_m - min_m + 1e-6) * 255).astype(np.uint8)
+    colored = cv2.applyColorMap(norm, cv2.COLORMAP_JET)
+    colored[~valid] = 0
+    return colored
+
+
+def mask_to_pointcloud(color_bgr, depth_m, mask, K):
     """mask 区域 -> 相机光学系点云 (open3d)。
 
-    用 depth 原始尺寸 + depth 内参 (depth 未与 color 对齐时)。
-    mask resize 到 depth 尺寸。color 仅用于点云着色 (resize 到 depth)。
-    depth_m 单位: 米。
+    depth 已对齐到 color (同尺寸同视角), 用 color 内参 K 生成点云。
+    mask 与 depth_m 同尺寸 (无需 resize)。depth_m 单位: 米。
     """
     h, w = depth_m.shape
-    # mask resize 到 depth 尺寸
-    if mask.shape != depth_m.shape:
-        mask_r = cv2.resize(mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST).astype(bool)
-    else:
-        mask_r = mask
+    mask_r = mask if mask.shape == depth_m.shape else \
+        cv2.resize(mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST).astype(bool)
     valid = (depth_m > MIN_DEPTH_M) & (depth_m < MAX_DEPTH_M) & mask_r
 
     ys, xs = np.where(valid)
     if len(xs) < 50:
         return None, None
     depths = depth_m[ys, xs]
-    fx, fy = K_depth[0, 0], K_depth[1, 1]
-    cx, cy = K_depth[0, 2], K_depth[1, 2]
+    fx, fy = K[0, 0], K[1, 1]
+    cx, cy = K[0, 2], K[1, 2]
     # 光学系: x 右, y 下, z 前
     x = (xs - cx) * depths / fx
     y = (ys - cy) * depths / fy
@@ -480,7 +496,38 @@ def find_grasp_via_mask(mask, color_bgr, depth_m, K_color, axis_rod=None, bins=2
     # 突变段在 mask 上的像素中心: 沿轴位置 edges[orig_bin] 处 + center2d
     ax_pos = (edges[orig_bin] + edges[orig_bin + 1]) / 2
     px_center = center2d + ax_pos * axis2d
-    pu, pv = int(px_center[0]), int(px_center[1])
+
+    # 实际抓取点: 沿杆轴法向(向粗段方向)偏移 5cm, 确保抓在粗段上而非交界线
+    # 粗段方向: thick-to-thin(粗->细下降) 粗段在 bin 小侧 = -axis2d;
+    #          thin-to-thick(细->粗上升) 粗段在 bin 大侧 = +axis2d;
+    #          thick-region(无陡变) 不偏移 (已在粗段中心)
+    OFFSET_M = 0.05  # 沿杆轴向粗段偏移 5cm
+    if seg_type == "thick-to-thin":
+        offset_dir = -1.0  # 向 bin 减小(粗段)
+    elif seg_type == "thin-to-thick":
+        offset_dir = +1.0  # 向 bin 增大(粗段)
+    else:
+        offset_dir = 0.0  # thick-region / uniform, 不偏移
+    # 先取交界处深度估像素偏移量
+    h0, w0 = color_bgr.shape[:2]
+    if depth_m.shape != (h0, w0):
+        depth_r0 = cv2.resize(depth_m, (w0, h0), interpolation=cv2.INTER_NEAREST)
+    else:
+        depth_r0 = depth_m
+    pu0, pv0 = int(px_center[0]), int(px_center[1])
+    d0_vals = []
+    for dy in range(-3, 4):
+        for dx in range(-3, 4):
+            yy, xx = pv0 + dy, pu0 + dx
+            if 0 <= yy < h0 and 0 <= xx < w0:
+                dv = depth_r0[yy, xx]
+                if 0.3 < dv < 2.0:
+                    d0_vals.append(dv)
+    z_est = float(np.median(d0_vals)) if len(d0_vals) >= 3 else 0.5
+    fx_est = K_color[0, 0]
+    offset_px = OFFSET_M / z_est * fx_est  # 5cm 对应的像素数
+    px_grasp = px_center + offset_dir * axis2d * offset_px
+    pu, pv = int(px_grasp[0]), int(px_grasp[1])
 
     # 反投影到 3D: 用 color 内参 + depth (depth resize 到 color 尺寸取最近邻)
     h, w = color_bgr.shape[:2]
@@ -536,6 +583,7 @@ def find_grasp_via_mask(mask, color_bgr, depth_m, K_color, axis_rod=None, bins=2
         "width_px": width_px,
         "diameter_mm": diameter_mm,
         "grasp_axes": grasp_axes,
+        "offset_m": OFFSET_M if offset_dir != 0.0 else 0.0,
     }
 
 
@@ -737,8 +785,8 @@ def main():
     print(f"[YOLO] 检测到 {len(results)} 目标, 取最大 mask: conf={best.conf:.3f} area={best.mask_area_px}px")
     mask = best.mask
 
-    # 点云 (用 depth 内参, depth 尺寸)
-    pcd, pts = mask_to_pointcloud(color, depth, mask, K_depth)
+    # 点云 (depth 已对齐到 color, 用 color 内参, color 尺寸)
+    pcd, pts = mask_to_pointcloud(color, depth, mask, K_color)
     if pcd is None or len(pts) < 50:
         print(f"[错误] 点云不足: {0 if pts is None else len(pts)} 点")
         sys.exit(1)
@@ -782,9 +830,13 @@ def main():
         # 异常: 只看到粗端, 交界不在视野内
         print(f"[mask宽度] 各段(px): {[int(w) for w in mask_result['mask_widths']]}")
         print(f"[错误] {mask_result['error']}")
-        # 仍输出可视化 (标出可见区域), 但不输出抓取点
-        out = color.copy()
-        overlay = color.copy(); overlay[mask] = (0, 255, 0)
+        # 仍输出叠加可视化 (标出可见区域), 但不输出抓取点
+        depth_color = render_depth_colormap(depth)
+        if depth_color.shape[:2] != color.shape[:2]:
+            depth_color = cv2.resize(depth_color, (color.shape[1], color.shape[0]), interpolation=cv2.INTER_NEAREST)
+        blended = cv2.addWeighted(color, 0.5, depth_color, 0.5, 0)
+        out = blended.copy()
+        overlay = blended.copy(); overlay[mask] = (0, 255, 0)
         cv2.addWeighted(overlay, 0.3, out, 0.7, 0, dst=out)
         cv2.putText(out, "ERROR: " + mask_result["error"], (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
@@ -821,15 +873,20 @@ def main():
             yaw = 0.0
         print(f"[姿态] 光学系 RPY(度): roll={roll:.1f} pitch={pitch:.1f} yaw={yaw:.1f}")
 
-    # 可视化 (用 color 内参投影到 color 图; 坐标系原点=抓取点; 沿杆标各段直径)
-    out = draw_axis_and_grasp(color, grasp_pt, axis, center, K_color, diameter_m, seg_type,
+    # 可视化: RGB + depth 伪彩叠加 (depth 已对齐到 color, 同尺寸)
+    depth_color = render_depth_colormap(depth)
+    if depth_color.shape[:2] != color.shape[:2]:
+        depth_color = cv2.resize(depth_color, (color.shape[1], color.shape[0]), interpolation=cv2.INTER_NEAREST)
+    blended = cv2.addWeighted(color, 0.5, depth_color, 0.5, 0)
+    # 在叠加图上画标注 (抓取点/姿态轴/直径), 能清晰看到中轴线在 depth 上的位置
+    out = draw_axis_and_grasp(blended, grasp_pt, axis, center, K_color, diameter_m, seg_type,
                               jump_idx=jump_idx, bin_centers=bin_centers, diameters=diameters_draw,
                               seg_centers_3d=seg_centers_3d_draw, grasp_axes=grasp_axes)
-    overlay = color.copy()
+    overlay = blended.copy()
     overlay[mask] = (0, 255, 0)
     cv2.addWeighted(overlay, 0.3, out, 0.7, 0, dst=out)
     cv2.imwrite(args.out, out)
-    print(f"[输出] 可视化图: {args.out}")
+    print(f"[输出] 可视化图 (RGB+depth叠加): {args.out}")
 
 
 if __name__ == "__main__":
