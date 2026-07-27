@@ -1,6 +1,21 @@
-# 训练产物目录 - 忽略权重文件, 避免误提交大文件
-# (best.pt / last.pt / *.onnx 等)
+# 训练产物目录 - 只提交 .onnx (部署推理用) + .gitkeep (保留目录结构), 忽略其它训练产物
 
-*
-!.gitignore
-!README.md
+# 忽略权重文件
+*.pt
+*.pth
+*.engine
+*.xml
+
+# 忽略训练记录/曲线图/日志
+*.png
+*.jpg
+*.jpeg
+*.csv
+*.yaml
+*.json
+*.log
+*.txt
+
+# 保留 onnx 推理模型 + .gitkeep 目录占位
+*.onnx
+!.gitkeep
