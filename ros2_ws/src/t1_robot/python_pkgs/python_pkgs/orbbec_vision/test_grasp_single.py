@@ -418,74 +418,62 @@ def find_grasp_via_mask(mask, color_bgr, depth_m, K_color, axis_rod=None, bins=2
     if len(wv) < 3:
         return None
 
-    # 平滑
-    if len(wv) >= 5:
-        wv_s = np.convolve(wv, np.ones(3) / 3, mode="same")
-    else:
-        wv_s = wv.copy()
+    # 不平滑 (平滑会分散真实阶跃 + 边界伪影), 直接用原始宽度
+    wv_s = wv.copy()
 
     w_med = float(np.median(wv_s))
     w_max = float(wv_s.max())
     w_min = float(wv_s.min())
     n = len(wv_s)
-    thresh = w_med * 0.15  # 阶跃阈值 (粗细交界应明显陡降)
+    width_range_ratio = (w_max - w_min) / max(w_med, 1.0)
 
-    # 段0=图像下方, 下方1/3 常被滑槽遮挡 (渐变窄, 非真交界), 直接忽略
-    # 只在后 2/3 (上 2/3) 找粗细交界
-    search_lo = n // 3
-    upper_w = wv_s[search_lo:]  # 后2/3的宽度
-    upper_range_ratio = (upper_w.max() - upper_w.min()) / max(w_med, 1.0)
-
-    # 异常: 后2/3宽度变化很小, 说明只看到粗端 (交界在视野外)
-    if upper_range_ratio < 0.08:
+    # 异常: 整体宽度变化很小, 说明只看到粗端 (交界在视野外)
+    if width_range_ratio < 0.12:
         return {"error": "只看到粗端, 粗细交界不在视野内 (相机位置太靠下), 请调整相机位置",
                 "mask_widths": widths}
 
-    # 策略: 找全局最大的"粗->细"单段陡降 = 真交界
-    # 遮挡是渐变 (多段缓慢降), 真交界是单段陡降 (一两段内大幅降)
-    # 不强制"粗段阈值", 只找最大下降, 但要求下降后段宽度 < 中位*0.9 (确实变细)
-    grads_drop = wv_s[:-1] - wv_s[1:]  # >0 表示下降(粗->细)
-    thin_thresh = w_med * 0.9
+    # 策略: 识别"粗段区"和"细段区", 找粗->细的过渡边界 (不依赖单段阶跃)
+    # 粗段: 宽度 > w_med*0.95; 细段: 宽度 < w_med*0.75
+    thick_thresh = w_med * 0.95
+    thin_thresh = w_med * 0.75
+
+    is_thick = wv_s >= thick_thresh
+    is_thin = wv_s <= thin_thresh
 
     seg_type = "uniform"
     grasp_bin = n // 2
     jump_idx = -1
     found = False
 
-    # 候选: 在后 2/3 范围找"粗->细"陡降 (下降后变细), 取下降幅度最大的
-    candidates = []
-    for i in range(search_lo, n - 1):
-        if wv_s[i + 1] <= thin_thresh and grads_drop[i] > thresh:
-            candidates.append((i, grads_drop[i]))
-    if candidates:
-        # 取下降幅度最大的
-        candidates.sort(key=lambda x: -x[1])
-        jump_idx = candidates[0][0]
-        # 抓粗段一侧 (交界前1段)
-        grasp_bin = max(search_lo, jump_idx - 1)
-        seg_type = "thick-to-thin"
-        found = True
-
-    if not found:
-        # 无明显粗->细陡降, 找细->粗上升 (可能视野只看到细->粗过渡)
-        rise_candidates = []
-        for i in range(search_lo, n - 1):
-            if wv_s[i] <= thin_thresh and (-grads_drop[i]) > thresh:
-                rise_candidates.append((i, -grads_drop[i]))
-        if rise_candidates:
-            rise_candidates.sort(key=lambda x: -x[1])
-            jump_idx = rise_candidates[0][0]
-            grasp_bin = min(n - 1, jump_idx + 2)
-            seg_type = "thin-to-thick"
+    # 找粗段区 -> 细段区的过渡: 最后一个粗段之后, 第一个细段的位置
+    if is_thick.any() and is_thin.any():
+        thick_indices = np.where(is_thick)[0]
+        thin_indices = np.where(is_thin)[0]
+        # 粗段结束位置
+        last_thick = thick_indices[-1]
+        # 粗段之后的第一个细段
+        thin_after = thin_indices[thin_indices > last_thick]
+        if len(thin_after) > 0:
+            # 过渡边界在 last_thick 和 thin_after[0] 之间
+            jump_idx = last_thick
+            grasp_bin = last_thick  # 抓粗段最后一格 (交界处偏粗段)
+            seg_type = "thick-to-thin"
             found = True
+        else:
+            # 细段在粗段之前 (细->粗), 找细段结束->粗段开始的过渡
+            first_thick = thick_indices[0]
+            thin_before = thin_indices[thin_indices < first_thick]
+            if len(thin_before) > 0:
+                jump_idx = thin_before[-1]
+                grasp_bin = first_thick  # 抓粗段第一格
+                seg_type = "thin-to-thick"
+                found = True
 
     if not found:
-        # 无陡变, 抓最宽区域中点 (仅在后2/3范围, 避开遮挡区)
-        thick_mask = (wv_s > (w_max - (w_max - w_min) * 0.2))
-        # 只取 search_lo 之后的粗段
-        thick_idx = np.where(thick_mask)[0]
-        thick_idx = thick_idx[thick_idx >= search_lo]
-        if len(thick_idx):
+        # 无明确粗细过渡, 抓最宽区域中点
+        thick_mask = wv_s > (w_max - (w_max - w_min) * 0.2)
+        if thick_mask.any():
+            thick_idx = np.where(thick_mask)[0]
             grasp_bin = int(thick_idx[len(thick_idx) // 2])
             seg_type = "thick-region"
 
@@ -578,6 +566,9 @@ def find_grasp_via_mask(mask, color_bgr, depth_m, K_color, axis_rod=None, bins=2
         "seg_type": seg_type,
         "jump_idx": jump_idx,
         "mask_widths": widths,
+        "mask_axis2d": axis2d,
+        "mask_center2d": center2d,
+        "mask_edges": edges,
         "grasp_bin": orig_bin,
         "grasp_px": (pu, pv),
         "width_px": width_px,
@@ -649,7 +640,9 @@ def project_to_pixel(pt3d, K):
 
 
 def draw_axis_and_grasp(img, grasp_pt, axis, center, K, diameter_m, seg_type, jump_idx=-1,
-                         bin_centers=None, diameters=None, seg_centers_3d=None, grasp_axes=None):
+                         bin_centers=None, diameters=None, seg_centers_3d=None, grasp_axes=None,
+                         mask_widths=None, mask_axis2d=None, mask_center2d=None, mask_edges=None,
+                         depth_z_for_mask=None):
     """在 RGB 上画: 抓取姿态坐标系 + 杆轴 + 抓取点 + 各段直径标注 + 直径剖面。
 
     若 grasp_axes 给定: 画抓取姿态三轴 (X进刀红/Y杆轴绿/Z蓝), 原点=抓取点。
@@ -666,29 +659,46 @@ def draw_axis_and_grasp(img, grasp_pt, axis, center, K, diameter_m, seg_type, ju
         v = K[1, 1] * p[1] / z + K[1, 2]
         return int(u), int(v)
 
-    # 各段直径标注 (沿杆画): 每段截面位置画垂直杆轴的短线, 标直径
+    # 各段直径标注 (点云值, 蓝色, 参考-易受框污染): 每段截面位置画垂直杆轴短线+标直径
     if seg_centers_3d is not None and diameters is not None:
         valid = diameters > 0
         sc = seg_centers_3d[valid]
         dv = diameters[valid]
-        # 杆轴的垂直方向 (图像平面内): axis 投影到图像的垂直方向
         for i, (c3d, d) in enumerate(zip(sc, dv)):
             cp = proj(c3d)
             if cp is None:
                 continue
             r = d / 2.0  # 半径(米)
-            # 在垂直 axis 的平面内画直径线: 取两个垂直 axis 的方向
-            # 简化: 用 axis 的垂直方向 (图像上)
             perp1 = np.array([-axis[1], axis[0], 0]) if abs(axis[0]) + abs(axis[1]) > 1e-3 else np.array([0, -axis[2], axis[1]])
             perp1 = perp1 / (np.linalg.norm(perp1) + 1e-9)
             p_a = proj(c3d + perp1 * r)
             p_b = proj(c3d - perp1 * r)
             if p_a and p_b:
-                col = (0, 200, 0) if i != jump_idx else (0, 0, 255)
-                cv2.line(out, p_a, p_b, col, 2)
+                col = (255, 0, 0) if i != jump_idx else (0, 0, 255)  # 蓝色(点云)
+                cv2.line(out, p_a, p_b, col, 1)
                 mid = ((p_a[0] + p_b[0]) // 2, (p_a[1] + p_b[1]) // 2)
-                cv2.putText(out, f"{d*1000:.0f}", (mid[0] + 4, mid[1] - 4),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, col, 1)
+                cv2.putText(out, f"pc{d*1000:.0f}", (mid[0] + 4, mid[1] - 4),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.35, col, 1)
+
+    # 各段 mask 宽度标注 (绿色, 干净): 沿 mask 主轴画宽度线+标 mm
+    # mask 宽度是像素值, 用 grasp_pt 深度换算 mm (width_px * z / fx)
+    if mask_widths is not None and mask_axis2d is not None and mask_center2d is not None and mask_edges is not None:
+        z_ref = depth_z_for_mask if depth_z_for_mask else grasp_pt[2]
+        fx_ref = K[0, 0]
+        perp2d = np.array([-mask_axis2d[1], mask_axis2d[0]])  # 垂直 mask 轴的 2D 方向
+        for i, w_px in enumerate(mask_widths):
+            if w_px <= 0:
+                continue
+            ax_pos = (mask_edges[i] + mask_edges[i + 1]) / 2
+            px_c = mask_center2d + ax_pos * mask_axis2d
+            half = w_px / 2.0
+            pa = (int(px_c[0] + perp2d[0] * half), int(px_c[1] + perp2d[1] * half))
+            pb = (int(px_c[0] - perp2d[0] * half), int(px_c[1] - perp2d[1] * half))
+            w_mm = w_px * z_ref / fx_ref * 1000
+            col = (0, 200, 0) if i != jump_idx else (0, 0, 255)
+            cv2.line(out, pa, pb, col, 2)
+            cv2.putText(out, f"{w_mm:.0f}", (pa[0] + 4, pa[1] - 2),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, col, 1)
 
     # 抓取点处坐标系: 优先画抓取姿态三轴 (X进刀红/Y杆轴绿/Z蓝), 否则画相机光学系 XYZ
     o_px = proj(grasp_pt)
@@ -879,9 +889,16 @@ def main():
         depth_color = cv2.resize(depth_color, (color.shape[1], color.shape[0]), interpolation=cv2.INTER_NEAREST)
     blended = cv2.addWeighted(color, 0.5, depth_color, 0.5, 0)
     # 在叠加图上画标注 (抓取点/姿态轴/直径), 能清晰看到中轴线在 depth 上的位置
+    # mask 宽度(绿, 干净) + 点云直径(蓝, 参考) 都画
+    mw = mask_result.get("mask_widths") if (mask_result and "mask_widths" in (mask_result or {})) else None
+    ma2 = mask_result.get("mask_axis2d") if (mask_result and "mask_axis2d" in (mask_result or {})) else None
+    mc2 = mask_result.get("mask_center2d") if (mask_result and "mask_center2d" in (mask_result or {})) else None
+    me = mask_result.get("mask_edges") if (mask_result and "mask_edges" in (mask_result or {})) else None
     out = draw_axis_and_grasp(blended, grasp_pt, axis, center, K_color, diameter_m, seg_type,
                               jump_idx=jump_idx, bin_centers=bin_centers, diameters=diameters_draw,
-                              seg_centers_3d=seg_centers_3d_draw, grasp_axes=grasp_axes)
+                              seg_centers_3d=seg_centers_3d_draw, grasp_axes=grasp_axes,
+                              mask_widths=mw, mask_axis2d=ma2, mask_center2d=mc2, mask_edges=me,
+                              depth_z_for_mask=grasp_pt[2])
     overlay = blended.copy()
     overlay[mask] = (0, 255, 0)
     cv2.addWeighted(overlay, 0.3, out, 0.7, 0, dst=out)
