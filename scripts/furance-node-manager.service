@@ -8,7 +8,10 @@ Type=simple
 User=__USER__
 Group=__USER__
 WorkingDirectory=__PROJECT_ROOT__
-ExecStart=/usr/local/bin/furance-node-manager.sh
+ExecStart=/home/kty/Desktop/furance_robot/scripts/furance-node-manager.sh
+# EtherCAT 夹爪节点需要 CAP_NET_RAW 打开网卡原始 socket
+# AmbientCapabilities 让子进程 (gripper_node) 也能继承此能力, 无需 setcap/sudo
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 Restart=on-failure
 RestartSec=5s
 KillSignal=SIGINT

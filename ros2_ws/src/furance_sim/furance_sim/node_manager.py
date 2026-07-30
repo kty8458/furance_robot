@@ -9,11 +9,14 @@ from rclpy.node import Node
 from furance_interfaces.srv import GenericCommand
 
 # Node entries: type='node' uses `ros2 run`, type='launch' uses `ros2 launch`
+# node 类型支持 args (通过 --ros-args -p key:=value 传参)
 NODE_REGISTRY = {
     'command_node': {'type': 'node', 'package': 'furance_sim', 'executable': 'command_node'},
     't1_moveit': {'type': 'launch', 'package': 't1_moveit_config', 'launch_file': 't1_moveit_headless.launch.py', 'args': {'use_sim': 'false', 'rviz': 'false'}},
     'camera_manager': {'type': 'node', 'package': 'python_pkgs', 'executable': 'camera_manager_node'},
     'modbus_gripper': {'type': 'node', 'package': 'python_pkgs', 'executable': 'modbus_gripper'},
+    # EtherCAT 夹爪节点 (需 setcap CAP_NET_RAW, 见部署脚本; 参数从 gripper.yaml 加载)
+    'ec_gripper': {'type': 'launch', 'package': 'grippers_control', 'launch_file': 'gripper.launch.py'},
 }
 
 SELF_MANAGED = True
