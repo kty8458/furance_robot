@@ -54,6 +54,7 @@ async def lifespan(app: FastAPI):
         await components.topic_listener.start(status_service)
         await components.joint_state_listener.start(status_service)
         await components.motor_feedback_listener.start(status_service)
+        await components.gripper_status_listener.start(status_service)
 
     # Store on app.state for access from API endpoints and WS handlers
     app.state.ros2 = components
@@ -131,6 +132,7 @@ async def lifespan(app: FastAPI):
         await components.joint_state_listener.stop()
         await components.topic_listener.stop()
         await components.motor_feedback_listener.stop()
+        await components.gripper_status_listener.stop()
         components.runtime.stop()
     logger.info("Application stopped")
 

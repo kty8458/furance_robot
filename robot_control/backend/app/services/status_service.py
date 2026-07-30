@@ -51,6 +51,18 @@ class StatusService:
     def get_ros2_cache(self, robot_id: str) -> dict:
         return self._ros2_cache.get(robot_id) or {}
 
+    def update_gripper_status(self, gripper_name: str, data: dict):
+        """更新 EtherCAT 夹爪状态 (由 gripper_status_listener 调用)。
+
+        存入 ros2_cache['gripper'][gripper_name], 供状态推送使用。
+        """
+        robot_id = "robot_001"
+        cache = self._ros2_cache.get(robot_id) or {}
+        grippers = cache.get("gripper", {})
+        grippers[gripper_name] = data
+        cache["gripper"] = grippers
+        self._ros2_cache[robot_id] = cache
+
     # ---- Source freshness tracking ----
 
     def mark_source_fresh(self, robot_id: str, source: str):
@@ -137,8 +149,8 @@ class StatusService:
             "charging": charging,
             "lift_height": ros2.get("lift_height", 0.0),
             "gripper": ros2.get("gripper", {
-                "left": {"state": "open", "force": 0.0},
-                "right": {"state": "open", "force": 0.0},
+                "left": {"state": "unknown"},
+                "right": {"state": "unknown"},
             }),
             "enabled": ros2.get("enabled", False),
             "error_code": ros2.get("error_code", 0),

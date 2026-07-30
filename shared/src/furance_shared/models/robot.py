@@ -1,7 +1,10 @@
-from furance_shared.utils.enum import StrEnum
-from typing import Dict
+from __future__ import annotations
+
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
+
+from furance_shared.utils.enum import StrEnum
 
 
 class ArmSide(StrEnum):
@@ -38,12 +41,22 @@ class Position(BaseModel):
 
 
 class GripperInfo(BaseModel):
-    state: GripperState
+    state: str = "unknown"
     force: float = 0.0
-    torque: float = 0.0        # 当前力矩 (Nm, 接口未确认—占位)
-    distance: float = 0.0      # 移动距离 (mm, 接口未确认—占位)
-    temperature: float = 0.0   # 温度 (°C, 接口未确认—占位)
-    connected: bool = False    # 连接状态
+    torque: float = 0.0
+    distance: float = 0.0
+    temperature: float = 0.0
+    connected: bool = False
+    # EtherCAT 夹爪扩展字段
+    claw_status: int = 0
+    claw_status_text: str = ""
+    claw_error: int = 0
+    motor_error: int = 0
+    current_width_mm: float = 0.0
+    bus_voltage_v: float = 0.0
+    driver_temperature_c: float = 0.0
+    online: bool = False
+    has_error: bool = False
 
 
 class EndEffectorPose(BaseModel):
@@ -55,12 +68,18 @@ class EndEffectorPose(BaseModel):
     yaw: float = 0.0
 
 
+class JointState(BaseModel):
+    robot_id: str
+    joints: List[float] = Field(default_factory=list)
+    timestamp: Optional[str] = None
+
+
 class ArmState(BaseModel):
     joint_angles: list[float] = Field(min_length=7, max_length=7)
     end_effector: EndEffectorPose = EndEffectorPose()
     coordinate_frame: str = "base_link"
     status: str = "idle"
-    error_code: int = 0  # 手臂错误码，0=正常
+    error_code: int = 0
 
 
 class RobotStatus(BaseModel):

@@ -46,6 +46,11 @@ from app.ros2.camera_client import (
     MockCameraClient,
     RealCameraClient,
 )
+from app.ros2.gripper_status_listener import (
+    MockGripperStatusListener,
+    RealGripperStatusListener,
+    GripperStatusListenerBase,
+)
 from app.ros2.motor_feedback_listener import (
     MockMotorFeedbackListener,
     RealMotorFeedbackListener,
@@ -95,6 +100,7 @@ class Ros2Components:
     upper_body_client: UpperBodyClientBase
     camera_client: CameraClientBase
     motor_feedback_listener: MotorFeedbackListenerBase
+    gripper_status_listener: GripperStatusListenerBase
     runtime: object | None  # Ros2Runtime when real mode, None when mock
 
 
@@ -127,6 +133,7 @@ def create_ros2_components(settings: Settings | None = None) -> Ros2Components:
                 upper_body_client=RealUpperBodyClient(runtime, timeout=settings.ros2_service_timeout),
                 camera_client=RealCameraClient(service_client=service_client, runtime=runtime, timeout=settings.ros2_service_timeout),
                 motor_feedback_listener=RealMotorFeedbackListener(runtime),
+                gripper_status_listener=RealGripperStatusListener(runtime),
             )
             logger.info("ROS2 components created in REAL mode (domain_id=%d)", settings.ros2_domain_id)
             return components
@@ -147,6 +154,7 @@ def create_ros2_components(settings: Settings | None = None) -> Ros2Components:
         upper_body_client=MockUpperBodyClient(),
         camera_client=MockCameraClient(),
         motor_feedback_listener=MockMotorFeedbackListener(),
+        gripper_status_listener=MockGripperStatusListener(),
     )
     logger.info("ROS2 components created in MOCK mode")
     return components

@@ -47,34 +47,40 @@ class RobotService:
     async def gripper(self, robot_id: str, cmd: GripperCommand) -> ApiResponse:
         import logging as _log
         _l = _log.getLogger("app.services.robot_service")
-        # 调用 modbus_gripper 的 /gripper_control service (GripperControl srv 类型)
+        # 调用 EtherCAT 夹爪节点 /gripper_node/EC_grippers_control (ECGrippersControl srv)
         try:
-            from control_interfaces.srv import GripperControl
+            from control_interfaces.srv import ECGrippersControl
             from rclpy.node import Node
         except ImportError as ie:
-            _l.warning("GripperControl 导入失败, fallback 到 /GripperCommand: %s", ie)
-            result = await self._ros2.call_service("/GripperCommand", cmd.model_dump())
-            return _check_result(result)
+            _l.warning("ECGrippersControl 导入失败: %s", ie)
+            return _check_result({"success": False, "message": f"ECGrippersControl 接口不可用: {ie}"})
 
         runtime = getattr(self._ros2, "_runtime", None)
         if runtime is None:
-            _l.warning("ROS2 runtime 不可用, fallback 到 /GripperCommand")
-            result = await self._ros2.call_service("/GripperCommand", cmd.model_dump())
-            return _check_result(result)
+            _l.warning("ROS2 runtime 不可用")
+            return _check_result({"success": False, "message": "ROS2 runtime 不可用"})
 
         node: Node = runtime.node
-        client = node.create_client(GripperControl, "/gripper_control")
+        client = node.create_client(ECGrippersControl, "/gripper_node/EC_grippers_control")
         if not client.wait_for_service(timeout_sec=2.0):
-            _l.warning("/gripper_control service not available")
-            return _check_result({"success": False, "message": "/gripper_control service not available"})
+            _l.warning("/gripper_node/EC_grippers_control service not available")
+            return _check_result({"success": False, "message": "EtherCAT 夹爪服务未启动"})
 
-        req = GripperControl.Request()
-        req.arm = cmd.arm.value if hasattr(cmd.arm, "value") else str(cmd.arm)
-        req.method = cmd.action.value if hasattr(cmd.action, "value") else str(cmd.action)
-        req.torque = float(cmd.force)
-        req.position = float(cmd.position)
-        _l.info("调用 /gripper_control: arm=%s method=%s torque=%.1f position=%.1f",
-                req.arm, req.method, req.torque, req.position)
+        # 映射: arm -> gripper_name, action -> command, position(0-100%) -> width_mm(100-180)
+        gripper_name = cmd.arm.value if hasattr(cmd.arm, "value") else str(cmd.arm)
+        action_str = cmd.action.value if hasattr(cmd.action, "value") else str(cmd.action)
+        # open/close 直接映射, position -> move
+        command_map = {"open": "open", "close": "close", "position": "move"}
+        command = command_map.get(action_str, action_str)
+        # position 0-100% -> width_mm 100-180mm (0%=闭合100mm, 100%=张开180mm)
+        width_mm = 100.0 + (cmd.position / 100.0) * 80.0 if command == "move" else 0.0
+
+        req = ECGrippersControl.Request()
+        req.gripper_name = gripper_name
+        req.command = command
+        req.width_mm = float(width_mm)
+        _l.info("调用 /gripper_node/EC_grippers_control: gripper=%s command=%s width=%.1fmm",
+                req.gripper_name, req.command, req.width_mm)
 
         import asyncio
         loop = asyncio.get_event_loop()
@@ -85,25 +91,28 @@ class RobotService:
             if aio_future.done(): return
             try:
                 resp = fut.result()
-                _l.info("/gripper_control 响应: success=%s message=%s", resp.success, resp.gripper_message)
+                _l.info("EC_grippers 响应: success=%s message=%s width=%.1fmm",
+                        resp.success, resp.message, resp.current_width_mm)
                 loop.call_soon_threadsafe(aio_future.set_result, {
                     "success": bool(resp.success),
-                    "message": resp.gripper_message,
+                    "message": resp.message,
                     "data": {
-                        "status": resp.gripper_status,
-                        "current_position": float(resp.current_position),
+                        "current_width_mm": float(resp.current_width_mm),
+                        "claw_status": int(resp.claw_status),
+                        "claw_error": int(resp.claw_error),
+                        "motor_error": int(resp.motor_error),
                     },
                 })
             except Exception as e:
-                _l.error("/gripper_control 回调异常: %s", e)
+                _l.error("EC_grippers 回调异常: %s", e)
                 loop.call_soon_threadsafe(aio_future.set_exception, e)
         ros_future.add_done_callback(_done)
         try:
-            result = await asyncio.wait_for(aio_future, timeout=10.0)
-            _l.info("/gripper_control 结果: %s", result)
+            result = await asyncio.wait_for(aio_future, timeout=15.0)
+            _l.info("EC_grippers 结果: %s", result)
         except asyncio.TimeoutError:
-            _l.warning("/gripper_control 超时")
-            result = {"success": False, "message": "Gripper service timed out"}
+            _l.warning("EC_grippers 超时")
+            result = {"success": False, "message": "EtherCAT 夹爪服务超时"}
         return _check_result(result)
 
     async def lift(self, robot_id: str, cmd: LiftCommand) -> ApiResponse:

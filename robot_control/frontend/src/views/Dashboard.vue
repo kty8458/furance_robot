@@ -3,7 +3,7 @@
     <div class="top-bar">
       <span :class="['status-dot', connected ? 'online' : 'offline']"></span>
       <el-tag :type="connected ? 'success' : 'danger'" size="small">{{ connected ? '在线' : '离线' }}</el-tag>
-      <span style="margin-left: 16px; color: #6b7b8d; font-size: 13px">机器人状态监控</span>
+      <span style="margin-left: 16px; color: #9ca3af; font-size: 13px">机器人状态监控</span>
     </div>
 
     <el-row :gutter="16">
@@ -87,21 +87,19 @@
           <div class="card-body">
             <div class="sub-title">左夹爪</div>
             <div class="field-row"><label>状态</label><el-tag :type="gripperTag('left')" size="small">{{ gripperText('left') }}</el-tag></div>
-            <div class="field-row"><label>力度</label><span>{{ gripperField('left', 'force') }} N</span></div>
-            <div class="field-row"><label>力矩</label><span>{{ gripperField('left', 'torque') }} Nm</span></div>
-            <div class="field-row"><label>距离</label><span>{{ gripperField('left', 'distance') }} mm</span></div>
-            <div class="field-row"><label>温度</label><span>{{ gripperField('left', 'temperature') }} °C</span></div>
-            <div class="field-row"><label>连接</label>
-              <span :class="gripperField('left', 'connected') ? 'text-ok' : 'text-danger'">{{ gripperField('left', 'connected') ? '已连接' : '未连接' }}</span>
+            <div class="field-row"><label>宽度</label><span>{{ gripperField('left', 'current_width_mm') }} mm</span></div>
+            <div class="field-row"><label>电压</label><span>{{ gripperField('left', 'bus_voltage_v') }} V</span></div>
+            <div class="field-row"><label>温度</label><span>{{ gripperField('left', 'driver_temperature_c') }} °C</span></div>
+            <div class="field-row"><label>错误</label>
+              <span :class="gripperField('left', 'has_error') ? 'text-danger' : 'text-ok'">{{ gripperField('left', 'has_error') ? '有错误' : '正常' }}</span>
             </div>
             <div class="sub-title">右夹爪</div>
             <div class="field-row"><label>状态</label><el-tag :type="gripperTag('right')" size="small">{{ gripperText('right') }}</el-tag></div>
-            <div class="field-row"><label>力度</label><span>{{ gripperField('right', 'force') }} N</span></div>
-            <div class="field-row"><label>力矩</label><span>{{ gripperField('right', 'torque') }} Nm</span></div>
-            <div class="field-row"><label>距离</label><span>{{ gripperField('right', 'distance') }} mm</span></div>
-            <div class="field-row"><label>温度</label><span>{{ gripperField('right', 'temperature') }} °C</span></div>
-            <div class="field-row"><label>连接</label>
-              <span :class="gripperField('right', 'connected') ? 'text-ok' : 'text-danger'">{{ gripperField('right', 'connected') ? '已连接' : '未连接' }}</span>
+            <div class="field-row"><label>宽度</label><span>{{ gripperField('right', 'current_width_mm') }} mm</span></div>
+            <div class="field-row"><label>电压</label><span>{{ gripperField('right', 'bus_voltage_v') }} V</span></div>
+            <div class="field-row"><label>温度</label><span>{{ gripperField('right', 'driver_temperature_c') }} °C</span></div>
+            <div class="field-row"><label>错误</label>
+              <span :class="gripperField('right', 'has_error') ? 'text-danger' : 'text-ok'">{{ gripperField('right', 'has_error') ? '有错误' : '正常' }}</span>
             </div>
           </div>
         </el-card>
@@ -121,7 +119,7 @@
               <span class="camera-label">{{ cam.name }}</span>
               <span :class="cam.connected ? 'text-ok' : 'text-danger'">{{ cam.connected ? '已连接' : '未连接' }}</span>
             </div>
-            <div v-if="!cameraStatus.length" style="color: #6b7b8d; font-size: 13px">点击刷新获取相机状态</div>
+            <div v-if="!cameraStatus.length" style="color: #9ca3af; font-size: 13px">点击刷新获取相机状态</div>
           </div>
         </el-card>
       </el-col>
@@ -172,8 +170,22 @@ function jointText(side) {
 }
 
 // ---- 夹爪 ----
-function gripperTag(side) { return status.value?.gripper?.[side]?.state === 'closed' ? 'success' : 'info' }
-function gripperText(side) { return status.value?.gripper?.[side]?.state === 'closed' ? '闭合' : '打开' }
+function gripperTag(side) {
+  const s = status.value?.gripper?.[side]
+  if (!s) return 'info'
+  if (s.has_error) return 'danger'
+  if (s.state === 'grip_ok') return 'success'
+  if (s.state === 'closing' || s.state === 'opening') return 'warning'
+  return 'info'
+}
+function gripperText(side) {
+  const s = status.value?.gripper?.[side]
+  if (!s) return '未连接'
+  if (s.has_error) return '错误'
+  const map = { ready: '就绪', open: '已张开', closing: '闭合中', opening: '张开中',
+                grip_ok: '已夹持', empty_grip: '空夹', fault: '故障' }
+  return map[s.state] || s.claw_status_text || s.state || '未知'
+}
 function gripperField(side, key) {
   const v = status.value?.gripper?.[side]?.[key]
   if (v == null) return '--'
@@ -218,7 +230,7 @@ onMounted(refreshCameras)
 .card-body { display: flex; flex-direction: column; gap: 6px; }
 
 .field-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
-.field-row label { color: var(--tech-text-muted); font-size: 12px; min-width: 60px; }
+.field-row label { color: #9ca3af; font-size: 12px; min-width: 60px; }
 .field-row span { color: var(--tech-text-bright); }
 
 .camera-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
@@ -228,6 +240,6 @@ onMounted(refreshCameras)
 
 .mono { font-family: 'Consolas', monospace; font-size: 11px; }
 
-.text-ok { color: #00ff88; }
-.text-danger { color: #ff4444; }
+.text-ok { color: #00ff88; font-weight: 500; }
+.text-danger { color: #ff5555; font-weight: 500; }
 </style>

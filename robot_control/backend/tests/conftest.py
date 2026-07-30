@@ -18,6 +18,7 @@ from app.ros2.arm_enable_client import MockArmEnableClient
 from app.ros2.upper_body_client import MockUpperBodyClient
 from app.ros2.camera_client import MockCameraClient
 from app.ros2.motor_feedback_listener import MockMotorFeedbackListener
+from app.ros2.gripper_status_listener import MockGripperStatusListener
 
 
 @pytest.fixture
@@ -47,6 +48,7 @@ def app(tmp_path):
         upper_body_client=MockUpperBodyClient(),
         camera_client=MockCameraClient(),
         motor_feedback_listener=MockMotorFeedbackListener(),
+        gripper_status_listener=MockGripperStatusListener(),
     )
     application.state.status_service = StatusService()
     application.state.log_service = LogService()

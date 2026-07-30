@@ -736,7 +736,7 @@ class WorkflowService:
 
     async def _execute_gripper(self, step, nav_lookup, context, robot_id) -> StepResult:
         config = GripperStepConfig(**step.config)
-        # 通过 robot_service.gripper 走 /gripper_control (modbus_gripper)
+        # 通过 robot_service.gripper 走 /gripper_node/EC_grippers_control (EtherCAT)
         from app.services.robot_service import RobotService
         if self._ros2 is None:
             return StepResult(step_id=step.id, success=False, message="ROS2 client not available")
