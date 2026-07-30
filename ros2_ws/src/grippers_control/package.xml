@@ -3,14 +3,24 @@
 <package format="3">
   <name>grippers_control</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>ROS2 service and status node for JODELL EPG-L80-400 EtherCAT grippers via SOEM.</description>
   <maintainer email="baosight@todo.todo">baosight</maintainer>
   <license>TODO: License declaration</license>
 
-  <depend>rclpy</depend>
-  <depend>pymodbus</depend>
-  
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <build_depend>rclcpp</build_depend>
+  <build_depend>control_interfaces</build_depend>
+  <build_depend>std_msgs</build_depend>
+
+  <exec_depend>rclcpp</exec_depend>
+  <exec_depend>control_interfaces</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

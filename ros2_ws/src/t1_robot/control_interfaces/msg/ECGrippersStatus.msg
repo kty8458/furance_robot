@@ -1,0 +1,15 @@
+std_msgs/Header header
+string gripper_name
+int32 slave_index
+bool online
+int32 working_counter
+uint16 claw_status
+string claw_status_text
+uint16 claw_error
+uint16 motor_status
+uint16 motor_error
+float64 current_width_mm
+float64 current_position_mm
+float64 target_position_mm
+float64 bus_voltage_v
+float64 driver_temperature_c

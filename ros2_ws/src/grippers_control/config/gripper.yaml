@@ -1,0 +1,36 @@
+gripper_node:
+  ros__parameters:
+    interface_name: "enx00e01b76020c"
+    expected_device_name: "EPG-L80-400"
+    cycle_us: 5000
+    ready_timeout_cycles: 4000
+    move_timeout_cycles: 6000
+    position_tolerance_units: 3
+    monitor_period_ms: 100
+    grippers: ["right", "left"]
+
+    right:
+      slave_index: 2
+      enable: 1
+      close_speed: 80
+      open_speed: 80
+      close_force: 200
+      close_width_units: 1000
+      open_width_units: 1800
+      object_width_units: 0
+      object_width_error_units: 0
+      max_finger_width_units: 1800
+      min_finger_width_units: 1000
+
+    left:
+      slave_index: 3
+      enable: 1
+      close_speed: 80
+      open_speed: 80
+      close_force: 200
+      close_width_units: 1000
+      open_width_units: 1800
+      object_width_units: 0
+      object_width_error_units: 0
+      max_finger_width_units: 1800
+      min_finger_width_units: 1000

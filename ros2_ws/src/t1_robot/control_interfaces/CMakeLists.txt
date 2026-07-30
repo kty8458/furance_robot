@@ -13,12 +13,14 @@ find_package(action_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 set(
   DEPENDENCY_LIST
-  action_msgs 
+  action_msgs
   geometry_msgs
   sensor_msgs
   trajectory_msgs
+  std_msgs
 )
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/YoloDetection.srv"
@@ -39,6 +41,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SceneOperation.srv"
   "srv/ComputePose.srv"
   "srv/GripperControl.srv"
+  "srv/ECGrippersControl.srv"
+  "msg/ECGrippersStatus.msg"
   "action/GripperAction.action"
   "action/MoveP.action"
   "action/MoveJ.action"
