@@ -116,6 +116,15 @@ ROS2_MODE=real python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --relo
 cd dispatch/frontend
 npm install
 npm run dev  # http://localhost:3001
+
+# 6. EtherCat模块安装
+cd /home/kty/Desktop/furance_robot/ros2_ws/src
+git clone https://github.com/OpenEtherCATsociety/SOEM.git
+cd SOEM && git checkout v1.4.0
+mkdir build && cd build
+cmake -DCMAKE_INSTALL_PREFIX=../install ..
+make -j$(nproc) && make install
+ls ../install/lib/libsoem.a   # 验证
 ```
 
 </details>
