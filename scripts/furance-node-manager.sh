@@ -6,8 +6,8 @@
 set -e
 
 # 用户环境 (安装时替换)
-export HOME="/home/kty"
-PROJECT_ROOT="/home/kty/Desktop/furance_robot"
+export HOME="__USER_HOME__"
+PROJECT_ROOT="__PROJECT_ROOT__"
 cd "$PROJECT_ROOT"
 
 # Source 用户 bashrc (加载 ROS2_DISTRO 等)
