@@ -2,12 +2,15 @@
 Description=Furance ROS2 Node Manager
 After=network-online.target
 Wants=network-online.target
+# 等 USB-Ethernet 网卡枚举完成后再启动 (EtherCAT 夹爪依赖)
+# 开机后网卡可能延迟几秒出现, 这里给足等待时间
 
 [Service]
 Type=simple
 User=__USER__
 Group=__USER__
 WorkingDirectory=__PROJECT_ROOT__
+ExecStartPre=/bin/sleep 10
 ExecStart=/usr/local/bin/furance-node-manager.sh
 # EtherCAT 夹爪节点需要 CAP_NET_RAW 打开网卡原始 socket
 # AmbientCapabilities 让子进程 (gripper_node) 也能继承此能力, 无需 setcap/sudo
