@@ -231,7 +231,9 @@ onMounted(refreshCameras)
 
 .field-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
 .field-row label { color: #9ca3af; font-size: 12px; min-width: 60px; }
-.field-row span { color: var(--tech-text-bright); }
+.field-row > span { color: var(--tech-text-light); }
+/* el-tag 状态标签文字颜色不受 .field-row span 影响, 用各 type 自带颜色 */
+.field-row .el-tag { color: var(--el-tag-text-color, inherit) !important; }
 
 .camera-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
 .camera-label { color: var(--tech-text-bright); }

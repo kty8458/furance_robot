@@ -158,9 +158,9 @@ class StatusService:
             "arm": ros2.get("arm", {}),
             "motor": motor_data,
             "source_status": self._build_source_status(robot_id),
-            # 底盘新增字段
-            "chassis_error": int(chassis_data.get("error", 0)) if chassis_data else 0,
-            "chassis_state": int(chassis_data.get("current_working", 0)) if chassis_data else 0,
+            # 底盘字段: chassis_data 有值时用新值, 否则复用上次缓存 (避免跳变到0)
+            "chassis_error": int(chassis_data.get("error", 0)) if chassis_data else prev.get("chassis_error", 0),
+            "chassis_state": int(chassis_data.get("current_working", 0)) if chassis_data else prev.get("chassis_state", 0),
             "upper_body_connected": upper_body_connected,
         }
         return merged

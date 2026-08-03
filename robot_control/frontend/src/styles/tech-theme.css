@@ -13,6 +13,7 @@
   --tech-red: #ff3b5c;
   --tech-text: #c8d6e5;
   --tech-text-bright: #e8f0fe;
+  --tech-text-dark: #200088;
   --tech-text-muted: #6b7b8d;
   --tech-grid: #1a2332;
 }
@@ -254,10 +255,13 @@ body {
 }
 
 /* ── Tags ── */
+.el-tag {
+  font-weight: 500;
+}
 .el-tag--info {
-  --el-tag-bg-color: #111e2e;
-  --el-tag-border-color: #1e3a5f;
-  --el-tag-text-color: #6b8ba5;
+  --el-tag-bg-color: #1a2a3e;
+  --el-tag-border-color: #2a4a6a;
+  --el-tag-text-color: #9ab4cc;
 }
 
 .el-tag--success {
