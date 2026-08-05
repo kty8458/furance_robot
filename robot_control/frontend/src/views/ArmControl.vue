@@ -536,13 +536,8 @@ function onArmChange(val) {
 const upperBodyInitialized = ref(false)
 watch(() => status.value?.motor, (motor) => {
   if (!motor || upperBodyInitialized.value) return
-  // 兼容新旧字段名: lift_height_mm (新) / lift_height_cm (旧, ×10转mm)
-  const hmm = motor.lift_height_mm
-  const hcm = motor.lift_height_cm
-  if (typeof hmm === 'number') {
-    upperBody.value.waist_angle = Math.round(hmm)
-  } else if (typeof hcm === 'number') {
-    upperBody.value.waist_angle = Math.round(hcm * 10)
+  if (typeof motor.lift_height_cm === 'number') {
+    upperBody.value.waist_angle = Math.round(motor.lift_height_cm * 10)
   }
   if (typeof motor.head_pan_deg === 'number') {
     upperBody.value.ascend_pos = Math.round(motor.head_pan_deg)
