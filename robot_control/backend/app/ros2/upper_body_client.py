@@ -85,8 +85,7 @@ class RealUpperBodyClient(UpperBodyClientBase):
         return await self._bridge_future(client.call_async(req))
 
     async def head_control(self, head_angle: float, head_speed: float) -> dict[str, Any]:
-        # 头部偏转 -> head_control service
-        # 方向: 向左(逆时针)为正, 底层 angle 向右为负(顺时针为负), 需取反
+        # 头部俯仰 -> head_control service (俯仰方向: 向下为正, 与底层一致, 不取反)
         from interface_pkg.srv import HeadControl
 
         client = self._get_or_create_client("head_control", HeadControl)
@@ -95,7 +94,7 @@ class RealUpperBodyClient(UpperBodyClientBase):
             return {"success": False, "message": "HeadControl service not available"}
 
         req = HeadControl.Request()
-        req.head_angle = float(-head_angle)  # 向左(逆时针)为正 -> 底层取反
+        req.head_angle = float(head_angle)
         req.head_speed = int(head_speed)
         req.reserve = 0
         return await self._bridge_future(client.call_async(req))
