@@ -55,36 +55,38 @@ class RealUpperBodyClient(UpperBodyClientBase):
         return self._clients[service_name]
 
     async def waist_control(self, waist_angle: float, waist_speed: float) -> dict[str, Any]:
-        # 控制板更换后: 腰部升降实际接在 ascend_control service 上
-        from interface_pkg.srv import AscendControl
-
-        client = self._get_or_create_client("ascend_control", AscendControl)
-        if not client.wait_for_service(timeout_sec=5.0):
-            logger.error("AscendControl service not available (waist)")
-            return {"success": False, "message": "WaistControl service not available"}
-
-        req = AscendControl.Request()
-        req.ascend_pos = float(waist_angle)
-        req.ascend_speed = int(waist_speed)
-        req.reserve = 0
-        return await self._bridge_future(client.call_async(req))
-
-    async def ascend_control(self, ascend_pos: float, ascend_speed: float) -> dict[str, Any]:
-        # 控制板更换后: 头部偏转实际接在 waist_control service 上
+        # 腰部升降 -> waist_control service (老控制板恢复正常映射)
         from interface_pkg.srv import WaistControl
 
         client = self._get_or_create_client("waist_control", WaistControl)
         if not client.wait_for_service(timeout_sec=5.0):
-            logger.error("WaistControl service not available (ascend/head)")
-            return {"success": False, "message": "AscendControl service not available"}
+            logger.error("WaistControl service not available")
+            return {"success": False, "message": "WaistControl service not available"}
 
         req = WaistControl.Request()
-        req.waist_angle = float(ascend_pos)
-        req.waist_speed = int(ascend_speed)
+        req.waist_angle = float(waist_angle)
+        req.waist_speed = int(waist_speed)
+        req.reserve = 0
+        return await self._bridge_future(client.call_async(req))
+
+    async def ascend_control(self, ascend_pos: float, ascend_speed: float) -> dict[str, Any]:
+        # 升降机构 -> ascend_control service (老控制板恢复正常映射)
+        from interface_pkg.srv import AscendControl
+
+        client = self._get_or_create_client("ascend_control", AscendControl)
+        if not client.wait_for_service(timeout_sec=5.0):
+            logger.error("AscendControl service not available")
+            return {"success": False, "message": "AscendControl service not available"}
+
+        req = AscendControl.Request()
+        req.ascend_pos = float(ascend_pos)
+        req.ascend_speed = int(ascend_speed)
         req.reserve = 0
         return await self._bridge_future(client.call_async(req))
 
     async def head_control(self, head_angle: float, head_speed: float) -> dict[str, Any]:
+        # 头部偏转 -> head_control service
+        # 方向: 向左(逆时针)为正, 底层 angle 向右为负(顺时针为负), 需取反
         from interface_pkg.srv import HeadControl
 
         client = self._get_or_create_client("head_control", HeadControl)
@@ -93,7 +95,7 @@ class RealUpperBodyClient(UpperBodyClientBase):
             return {"success": False, "message": "HeadControl service not available"}
 
         req = HeadControl.Request()
-        req.head_angle = float(head_angle)
+        req.head_angle = float(-head_angle)  # 向左(逆时针)为正 -> 底层取反
         req.head_speed = int(head_speed)
         req.reserve = 0
         return await self._bridge_future(client.call_async(req))

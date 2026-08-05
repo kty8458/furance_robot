@@ -2,7 +2,7 @@
 
 Only three fields are exposed:
   - head_pan_deg     : msg.angle           (头部偏转, deg)
-  - lift_height_cm   : msg.pos / 100       (升降机高度, cm)
+  - lift_height_mm   : msg.pos / 100       (升降机高度, mm)
   - head_tilt_deg    : msg.head_back_angle (头部俯仰, deg)
 
 Other fields (errs, temps, currents, ready flags) are ignored per spec.
@@ -84,7 +84,7 @@ class RealMotorFeedbackListener(MotorFeedbackListenerBase):
             data = {
                 "motor": {
                     "head_pan_deg": float(msg.angle),
-                    "lift_height_cm": float(msg.pos) / 100.0,
+                    "lift_height_mm": float(msg.pos) / 100.0,
                     "head_tilt_deg": float(msg.head_back_angle),
                 },
             }

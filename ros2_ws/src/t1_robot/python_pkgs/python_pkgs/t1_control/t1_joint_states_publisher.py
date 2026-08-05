@@ -50,12 +50,16 @@ class JointStateBridge(Node):
 
     def motor_callback(self, msg):
         try:
-            if hasattr(msg, 'waist_angle'):
-                self.sj_joint = msg.waist_angle / 100000.0
-            if hasattr(msg, 'head_angle'):
-                self.tou2_joint = math.radians(msg.head_angle)
+            # SJ_Joint (升降): pos 值除100为 mm, 向上为正; URDF axis (0,0,1) 向上为正, limit 0~0.6m
+            if hasattr(msg, 'pos'):
+                self.sj_joint = msg.pos / 100.0 / 1000.0  # pos->mm->m
+            # tou2_Joint (俯仰): head_back_angle 单位 度, 向下为正; URDF axis (0,-1,0) 向下为正
+            if hasattr(msg, 'head_back_angle'):
+                self.tou2_joint = math.radians(msg.head_back_angle)
+            # tou_Joint (偏航): angle 单位 度, 向右为负(顺时针为负); URDF axis (0,0,-1) 顺时针为正
+            # 需取反: motor angle 顺时针负值 -> URDF 绕-Z 正值
             if hasattr(msg, 'angle'):
-                self.tou_joint = math.radians(msg.angle)
+                self.tou_joint = math.radians(-msg.angle)
         except Exception as e:
             self.get_logger().error(f"Error parsing MotFeedback: {e}")
 

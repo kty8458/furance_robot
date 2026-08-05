@@ -155,8 +155,8 @@ function motorField(key) {
   return v != null ? v.toFixed(2) : '--'
 }
 const liftHeightText = computed(() => {
-  const h = status.value?.motor?.lift_height_cm
-  return h != null ? `${(h * 10).toFixed(0)} mm` : '--'
+  const h = status.value?.motor?.lift_height_mm
+  return h != null ? `${h.toFixed(1)} mm` : '--'
 })
 
 // ---- 上肢 ----
