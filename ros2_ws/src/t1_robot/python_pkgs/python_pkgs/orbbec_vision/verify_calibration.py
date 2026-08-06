@@ -153,10 +153,10 @@ def load_images_and_chessboard(data_dir, chessboard_size, square_size, K, dist):
     return cHw_list, valid_indices
 
 
-def verify(data_dir, K, dist, T_cam_target, records, mode):
+def verify(data_dir, K, dist, T_cam_target, records, mode, chessboard_size):
     """验证: 把每帧 camera->chessboard 转到 base_link, 检查一致性。"""
     cHw_list, valid_indices = load_images_and_chessboard(
-        data_dir, args.chessboard, args.square, K, dist)
+        data_dir, chessboard_size, args.square, K, dist)
 
     if len(cHw_list) < 2:
         print("有效帧数不足, 无法验证")
@@ -252,6 +252,7 @@ def main():
     args = parser.parse_args()
 
     w, h = map(int, args.chessboard.split("x"))
+    chessboard_size = (w, h)
 
     # 1. 读内参
     K, dist = load_intrinsics(args.camera, args.config)
@@ -293,7 +294,7 @@ def main():
     print(f"records: {len(records)} 条")
 
     # 5. 验证
-    verify(data_dir, K, dist, T_cam_target, records, args.mode)
+    verify(data_dir, K, dist, T_cam_target, records, args.mode, chessboard_size)
 
 
 if __name__ == "__main__":
