@@ -600,19 +600,31 @@ def _collect_frames_with_tf(pipeline, chessboard_size, square_size, num_frames,
         if key == ord("q"):
             break
         elif key == ord("s") and ret and tf_pose is not None:
+            # ---- 保存前等待 TF 更新 (头部刚动完, TF 可能有延迟) ----
+            for _ in range(10):
+                rclpy.spin_once(node, timeout_sec=0.03)
+            # 重新获取最新 TF (不用循环里缓存的旧值)
+            import rclpy as _rclpy
+            from geometry_msgs.msg import TransformStamped as _TS
+            t_stamped: _TS = tf_buffer.lookup_transform(base_link, target_link, _rclpy.time.Time())
+            t_t = t_stamped.transform.translation
+            t_r = t_stamped.transform.rotation
+            qx, qy, qz, qw = t_r.x, t_r.y, t_r.z, t_r.w
+            R_tf = np.array([
+                [1-2*qy*qy-2*qz*qz, 2*qx*qy-2*qz*qw, 2*qx*qz+2*qy*qw],
+                [2*qx*qy+2*qz*qw, 1-2*qx*qx-2*qz*qz, 2*qy*qz-2*qx*qw],
+                [2*qx*qz-2*qy*qw, 2*qy*qz+2*qx*qw, 1-2*qx*qx-2*qy*qy],
+            ])
+            tf_pose = np.eye(4)
+            tf_pose[:3, :3] = R_tf
+            tf_pose[:3, 3] = [t_t.x, t_t.y, t_t.z]
+
             # ---- 保存图像和数据 ----
             idx_str = f"{captured + 1:04d}"
             raw_path = session_dir / f"frame_{idx_str}_raw.png"
             anno_path = session_dir / f"frame_{idx_str}_annotated.png"
             cv2.imwrite(str(raw_path), img)
             cv2.imwrite(str(anno_path), display)
-
-            # TF 四元数
-            import rclpy as _rclpy
-            from geometry_msgs.msg import TransformStamped as _TS
-            t_stamped: _TS = tf_buffer.lookup_transform(base_link, target_link, _rclpy.time.Time())
-            t_t = t_stamped.transform.translation
-            t_r = t_stamped.transform.rotation
 
             # 写入 records.txt
             ts = datetime.now().isoformat()
@@ -626,9 +638,12 @@ def _collect_frames_with_tf(pipeline, chessboard_size, square_size, num_frames,
             img_points.append(corners2)
             arm_poses.append(tf_pose)
             captured += 1
+            # 打印平移 + 旋转(度), 让用户确认 TF 在变化
+            rpy = rotmat_to_rpy(tf_pose[:3, :3])
             print(f"  [{captured}/{num_frames}] "
                   f"t=[{tf_pose[0,3]:.3f},{tf_pose[1,3]:.3f},{tf_pose[2,3]:.3f}] "
-                  f"→ {raw_path.name}, {anno_path.name}")
+                  f"rpy=[{np.degrees(rpy[0]):.1f},{np.degrees(rpy[1]):.1f},{np.degrees(rpy[2]):.1f}]deg "
+                  f"-> {raw_path.name}")
         elif key == ord("s") and ret and tf_pose is None:
             print(f"  skip: TF unavailable ({base_link}->{target_link})")
 
