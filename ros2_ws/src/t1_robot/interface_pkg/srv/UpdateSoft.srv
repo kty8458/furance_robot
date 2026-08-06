@@ -1,0 +1,6 @@
+bool state   # 是否升级
+string update_assembly #需要升级的部件
+---
+# Response
+bool success
+string message

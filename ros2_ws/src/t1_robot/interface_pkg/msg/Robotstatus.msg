@@ -12,3 +12,6 @@ float32[]   left_tcp_pose               # 机器人末端在世界坐标系下�
 
 float32[]   right_joint_positions       # 机器人各关节的实时反馈角度/位置 (单位: 度 或 弧度，需明确)，数组长度对应关节数
 float32[]   right_tcp_pose              # 机器人末端在世界坐标系下的实时反馈位姿 (XYZ-位置, UVW-欧拉角姿态)，格式: [X, Y, Z, U, V, W]
+
+string      hostversion  # 版本号1   
+string      driveversion # 版本号2
