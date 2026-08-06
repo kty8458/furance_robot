@@ -109,7 +109,7 @@ class RealArmController(Node):
 
         req = MoveToJointPositions.Request()
         req.left_joints = [float(math.degrees(a)) for a in left_rad]
-        req.right_joints = [float(-math.degrees(a)) for a in right_rad]
+        req.right_joints = [float(math.degrees(a)) for a in right_rad]
         left_str = '[' + ', '.join(f'{v:7.2f}' for v in req.left_joints) + ']'
         right_str = '[' + ', '.join(f'{v:7.2f}' for v in req.right_joints) + ']'
         self.get_logger().info(f"send_move L(deg)={left_str} R(deg)={right_str}")
