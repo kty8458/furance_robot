@@ -586,23 +586,29 @@ def _collect_frames_with_tf(pipeline, chessboard_size, square_size, num_frames,
 
         rclpy.spin_once(node, timeout_sec=0.01)
         tf_pose = get_tf_pose(tf_buffer, target_link, base_link)
-        tf_str = "TF:OK" if tf_pose is not None else "TF:--"
+
+        # 画面上显示实时 TF (rpy 度), 用户可以看到角度是否已更新
+        if tf_pose is not None:
+            rpy_now = rotmat_to_rpy(tf_pose[:3, :3])
+            tf_str = f"rpy=[{np.degrees(rpy_now[0]):.1f},{np.degrees(rpy_now[1]):.1f},{np.degrees(rpy_now[2]):.1f}]"
+        else:
+            tf_str = "TF:--"
 
         if ret:
-            status = f"OK — s=save ({captured + 1}/{num_frames}) {tf_str}"
+            status = f"OK s=save ({captured + 1}/{num_frames}) {tf_str}"
         else:
             status = f"no board ({captured + 1}/{num_frames}) {tf_str}"
         cv2.putText(display, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7, (0, 255, 0) if ret else (0, 0, 255), 2)
+                    0.6, (0, 255, 0) if ret else (0, 0, 255), 2)
         cv2.imshow("Calibration", display)
 
         key = cv2.waitKey(1)
         if key == ord("q"):
             break
         elif key == ord("s") and ret and tf_pose is not None:
-            # ---- 保存前等待 TF 更新 (头部刚动完, TF 可能有延迟) ----
-            for _ in range(10):
-                rclpy.spin_once(node, timeout_sec=0.03)
+            # ---- 保存前等待 TF 更新 (motor_feedback ~1Hz, 需等 ~2s) ----
+            for _ in range(40):
+                rclpy.spin_once(node, timeout_sec=0.05)
             # 重新获取最新 TF (不用循环里缓存的旧值)
             import rclpy as _rclpy
             from geometry_msgs.msg import TransformStamped as _TS
