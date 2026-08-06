@@ -43,6 +43,38 @@
           filename="package://t1_description/meshes/base_link.STL" />
       </geometry>
     </collision>
+    <!-- 外壳碰撞块1 (左侧, 可视化用半透明红, 调整 xyz/size 后可删除 visual) -->
+    <visual>
+      <origin xyz="0.27 0.21 0.3" rpy="0 0 0" />
+      <geometry>
+        <box size="0.35 0.1 0.3" />
+      </geometry>
+      <material name="shell_left">
+        <color rgba="1 0 0 0.3" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.27 0.21 0.3" rpy="0 0 0" />
+      <geometry>
+        <box size="0.35 0.1 0.3" />
+      </geometry>
+    </collision>
+    <!-- 外壳碰撞块2 (右侧, 可视化用半透明蓝, 调整 xyz/size 后可删除 visual) -->
+    <visual>
+      <origin xyz="0.27 -0.21 0.3" rpy="0 0 0" />
+      <geometry>
+        <box size="0.5 0.1 0.3" />
+      </geometry>
+      <material name="shell_right">
+        <color rgba="0 0 1 0.3" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.27 -0.21 0.3" rpy="0 0 0" />
+      <geometry>
+        <box size="0.5 0.1 0.3" />
+      </geometry>
+    </collision>
   </link>
   <link
     name="ZQ_steer_Link">
