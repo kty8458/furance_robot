@@ -249,7 +249,10 @@
           <div v-if="jogForm.method === 'moveJ' && jogForm.arm !== 'both'" class="jog-grid">
             <div v-for="i in 7" :key="'jog'+i" class="jog-row">
               <span class="jog-label">J{{ i }}</span>
-              <span class="jog-value">{{ currentAngles(jogForm.arm)[i-1]?.toFixed(4) ?? '0.0000' }}°</span>
+              <div class="jog-value-wrap">
+                <span class="jog-value">{{ currentAngles(jogForm.arm)[i-1]?.toFixed(4) ?? '0.0000' }}°</span>
+                <span class="jog-limit">{{ jointLimitRange(jogForm.arm, i-1) }}</span>
+              </div>
               <el-button class="jog-btn jog-minus" size="large" @mousedown="startJog('joint', i-1, -1)" @mouseup="stopJog" @mouseleave="stopJog" @touchstart.prevent="startJog('joint', i-1, -1)" @touchend="stopJog">-</el-button>
               <el-button class="jog-btn jog-plus" size="large" type="primary" @mousedown="startJog('joint', i-1, 1)" @mouseup="stopJog" @mouseleave="stopJog" @touchstart.prevent="startJog('joint', i-1, 1)" @touchend="stopJog">+</el-button>
             </div>
@@ -274,7 +277,10 @@
                 <div class="jog-grid">
                   <div v-for="i in 7" :key="'lb'+i" class="jog-row">
                     <span class="jog-label">J{{ i }}</span>
-                    <span class="jog-value">{{ currentAngles('left')[i-1]?.toFixed(4) ?? '0.0000' }}°</span>
+                    <div class="jog-value-wrap">
+                      <span class="jog-value">{{ currentAngles('left')[i-1]?.toFixed(4) ?? '0.0000' }}°</span>
+                      <span class="jog-limit">{{ jointLimitRange('left', i-1) }}</span>
+                    </div>
                     <el-button class="jog-btn jog-minus" size="large" @mousedown="startJog('joint_both', i-1, -1, 'left')" @mouseup="stopJog" @mouseleave="stopJog">-</el-button>
                     <el-button class="jog-btn jog-plus" size="large" type="primary" @mousedown="startJog('joint_both', i-1, 1, 'left')" @mouseup="stopJog" @mouseleave="stopJog">+</el-button>
                   </div>
@@ -285,7 +291,10 @@
                 <div class="jog-grid">
                   <div v-for="i in 7" :key="'rb'+i" class="jog-row">
                     <span class="jog-label">J{{ i }}</span>
-                    <span class="jog-value">{{ currentAngles('right')[i-1]?.toFixed(4) ?? '0.0000' }}°</span>
+                    <div class="jog-value-wrap">
+                      <span class="jog-value">{{ currentAngles('right')[i-1]?.toFixed(4) ?? '0.0000' }}°</span>
+                      <span class="jog-limit">{{ jointLimitRange('right', i-1) }}</span>
+                    </div>
                     <el-button class="jog-btn jog-minus" size="large" @mousedown="startJog('joint_both', i-1, -1, 'right')" @mouseup="stopJog" @mouseleave="stopJog">-</el-button>
                     <el-button class="jog-btn jog-plus" size="large" type="primary" @mousedown="startJog('joint_both', i-1, 1, 'right')" @mouseup="stopJog" @mouseleave="stopJog">+</el-button>
                   </div>
@@ -499,6 +508,18 @@ async function execGripper(arm, action, g) {
 }
 
 const poseLabels = ['X', 'Y', 'Z', 'Roll', 'Pitch', 'Yaw']
+
+// 关节角度限位 (度), 取自 urdf: t1_description/urdf/t1.urdf (弧度转角度)
+// 顺序 J1..J7 对应 ARM-{L,R}-J1_Joint .. J7_Joint
+const JOINT_LIMITS = {
+  left:  [[-120, 90], [-7, 155], [-180, 180], [-20, 180], [-180, 180], [-30, 30], [-85, 85]],
+  right: [[-90, 120], [-155, 7], [-175, 175], [-180, 20], [-175, 175], [-30, 30], [-85, 85]],
+}
+function jointLimitRange(arm, idx) {
+  const lim = JOINT_LIMITS[arm]?.[idx]
+  if (!lim) return ''
+  return `${lim[0]}° ~ ${lim[1]}°`
+}
 
 const jogForm = ref({ arm: 'left', method: 'moveJ', coordinate: 'base_link', step: 0.05, stepXyz: 2, stepRpy: 0.5 })
 const teachList = ref([])
@@ -770,7 +791,9 @@ async function handleHeadControl() {
 .jog-grid { display: flex; flex-direction: column; gap: 8px; }
 .jog-row { display: flex; align-items: center; gap: 8px; }
 .jog-label { width: 32px; font-weight: 600; font-size: 14px; color: #00d4ff; flex-shrink: 0; }
-.jog-value { width: 110px; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; color: #e5e7eb; flex-shrink: 0; }
+.jog-value-wrap { display: flex; flex-direction: column; align-items: center; width: 110px; flex-shrink: 0; }
+.jog-value { font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; color: #e5e7eb; }
+.jog-limit { font-size: 9px; color: #6b7b8d; font-family: 'Consolas', 'Monaco', monospace; line-height: 1; white-space: nowrap; }
 .jog-btn { flex: 1; height: 48px; font-size: 22px; font-weight: 700; border-radius: 8px; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
 .jog-minus { background: #1a2332; border-color: #ff3b5c44; color: #ff3b5c; }
 .jog-minus:hover, .jog-minus:active { background: #2a1520; border-color: #ff3b5c; }
