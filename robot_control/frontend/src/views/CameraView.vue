@@ -185,6 +185,12 @@
             </div>
             <el-table :data="scenePoints[mgmtSceneId] || []" size="small" border style="width: 100%" max-height="300">
               <el-table-column prop="name" label="点位名称" />
+              <el-table-column label="类型" width="70" align="center">
+                <template #default="{ row }">
+                  <el-tag v-if="row.calib_type === 'secondary'" type="warning" size="small">二次</el-tag>
+                  <el-tag v-else type="info" size="small">正常</el-tag>
+                </template>
+              </el-table-column>
               <el-table-column label="操作" width="120" align="center">
                 <template #default="{ row }">
                   <el-button size="small" link type="primary" @click="openEditPointDialog(row)">编辑</el-button>
@@ -209,7 +215,8 @@
           <div style="margin-bottom: 10px">
             <div class="field-label">标定点</div>
             <el-select v-model="calibPointName" style="width: 100%" filterable placeholder="选择点位" @change="onCalibPointChange">
-              <el-option v-for="p in (scenePoints[calibSceneId] || [])" :key="p.name" :label="p.name" :value="p.name" />
+              <el-option v-for="p in (scenePoints[calibSceneId] || [])" :key="p.name"
+                :label="p.calib_type === 'secondary' ? `${p.name} (二次)` : p.name" :value="p.name" />
             </el-select>
           </div>
 
@@ -265,6 +272,36 @@
                   <div class="field-label" style="font-size: 9px; text-align: center">{{ f }}</div>
                   <div style="font-family: 'Consolas', monospace; font-size: 12px; color: #e5e7eb; text-align: center">
                     {{ calibResult.xyzrpy?.[f]?.toFixed(4) ?? '--' }}
+                  </div>
+                </el-col>
+              </el-row>
+            </div>
+
+            <!-- 二次标定: 基于场景存储的 baselink->QR 变换 -->
+            <el-divider style="margin: 12px 0 8px" />
+            <div class="field-label">二次标定 - 来源: {{ calibPointName }}</div>
+            <div style="font-size: 10px; color: #6b7b8d; margin: 4px 0 6px">
+              前提: 该场景已在观察位完成正常标定且底盘未移动。将手臂移动到目标位姿后,
+              以当前选中点位为来源, 用已存储的 baselink->QR 变换和当前末端位姿计算新点位。
+            </div>
+            <el-row :gutter="8">
+              <el-col :span="14">
+                <el-input v-model="secNewPointName" placeholder="新点位名称" size="small" />
+              </el-col>
+              <el-col :span="10">
+                <el-button size="small" type="warning" style="width: 100%" :loading="secCalibrating"
+                  :disabled="!calibSceneId || !calibPointName" @click="runSecondaryCalibration">
+                  二次标定
+                </el-button>
+              </el-col>
+            </el-row>
+            <div v-if="secCalibResult" class="detect-result" style="margin-top: 10px">
+              <div class="detect-title">二次标定结果 - {{ secCalibResult.point_name }}</div>
+              <el-row :gutter="4" style="margin-bottom: 4px">
+                <el-col :span="4" v-for="f in ['x','y','z','roll','pitch','yaw']" :key="'scr_'+f">
+                  <div class="field-label" style="font-size: 9px; text-align: center">{{ f }}</div>
+                  <div style="font-family: 'Consolas', monospace; font-size: 12px; color: #e5e7eb; text-align: center">
+                    {{ secCalibResult.xyzrpy?.[f]?.toFixed(4) ?? '--' }}
                   </div>
                 </el-col>
               </el-row>
@@ -397,6 +434,9 @@ const calibQrIds = ref('')  // 逗号分隔字符串，空=通配
 const calibMarkerSize = ref(0.058)
 const calibrating = ref(false)
 const calibResult = ref(null)
+const secNewPointName = ref('')
+const secCalibrating = ref(false)
+const secCalibResult = ref(null)
 
 // ---- 拍照 & 照片集 ----
 // 场景/照片集选择 (从全局缓存恢复)
@@ -555,6 +595,8 @@ async function loadSceneDetails(sceneId) {
       marker_size: p.marker_size,
       stream_type: p.stream_type || 'color',
       T_qr_ee_per_id: p.T_qr_ee_per_id || {},
+      calib_type: p.calib_type || 'primary',
+      source_point: p.source_point || '',
       T_qr_workspace: p.T_qr_workspace || { translation: [0,0,0], rotation: [0,0,0,1] },
     }))
   } catch { scenePoints.value[sceneId] = [] }
@@ -732,6 +774,39 @@ async function runCalibration() {
     ElMessage.error(e.message || '标定失败')
   } finally {
     calibrating.value = false
+  }
+}
+
+async function runSecondaryCalibration() {
+  if (!calibSceneId.value) { ElMessage.warning('请选择场景'); return }
+  if (!calibPointName.value) { ElMessage.warning('请选择来源点位'); return }
+  if (!secNewPointName.value) { ElMessage.warning('请输入新点位名称'); return }
+  secCalibrating.value = true; secCalibResult.value = null
+  try {
+    const res = await cameraApi.calibrateSecondary({
+      scene_id: calibSceneId.value,
+      source_point: calibPointName.value,
+      point_name: secNewPointName.value,
+    })
+    secCalibResult.value = res.data || res
+    secCalibResult.value.point_name = secNewPointName.value
+    if (secCalibResult.value?.rotation) {
+      const r = secCalibResult.value.rotation
+      const euler = quatToEuler(r[0], r[1], r[2], r[3])
+      secCalibResult.value.xyzrpy = {
+        x: secCalibResult.value.translation?.[0] ?? 0,
+        y: secCalibResult.value.translation?.[1] ?? 0,
+        z: secCalibResult.value.translation?.[2] ?? 0,
+        roll: euler.roll, pitch: euler.pitch, yaw: euler.yaw,
+      }
+    }
+    ElMessage.success(`二次标定点位 "${secNewPointName.value}" 已保存`)
+    secNewPointName.value = ''
+    await reloadScenePoints()
+  } catch (e) {
+    ElMessage.error(e.message || '二次标定失败')
+  } finally {
+    secCalibrating.value = false
   }
 }
 

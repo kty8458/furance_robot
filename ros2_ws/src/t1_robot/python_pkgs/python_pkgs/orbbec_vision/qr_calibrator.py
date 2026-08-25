@@ -6,6 +6,13 @@
   3. 对每个检测到的 QR 多帧平均 → T_camera_qr_i
   4. T_qr_i_ee = inv(T_camera_qr_i) * T_camera_ee
   5. 存储 {qr_ids, T_qr_ee_per_id: {qr_id: T_qr_ee}}
+  6. (可选, 提供 T_base_ee 时) 计算并存储场景级 T_base_qr_per_id,
+     供二次标定使用: T_base_qr = T_base_ee @ inv(T_camera_ee) @ T_camera_qr
+
+二次标定 (calibrate_secondary): 在相机看不到二维码的位置,
+用已存储的场景级 T_base_qr 和当前 TF 的 T_base_ee 计算
+  T_qr_ee_new = inv(T_base_qr) @ T_base_ee_now
+使末端在任意位置获得与二维码的标定关系。
 
 识别时每个 QR 独立算目标，再加权融合 + MAD 离群剔除。
 """
@@ -77,6 +84,17 @@ def _matrix_to_pose(T: np.ndarray) -> tuple[list[float], list[float]]:
     return t, [v / norm for v in quat]
 
 
+def _pose_to_matrix(t: list[float], quat_xyzw: list[float]) -> np.ndarray:
+    """translation [x,y,z] + quaternion [x,y,z,w] -> 4x4 齐次变换矩阵。"""
+    qx, qy, qz, qw = quat_xyzw
+    R = np.array([
+        [1-2*qy*qy-2*qz*qz, 2*qx*qy-2*qz*qw, 2*qx*qz+2*qy*qw],
+        [2*qx*qy+2*qz*qw, 1-2*qx*qx-2*qz*qz, 2*qy*qz-2*qx*qw],
+        [2*qx*qz-2*qy*qw, 2*qy*qz+2*qx*qw, 1-2*qx*qx-2*qy*qy],
+    ], dtype=np.float64)
+    return _make_transform(R, np.array(t, dtype=np.float64))
+
+
 class QRCalibrator:
     """QR 现场标定器。"""
 
@@ -110,7 +128,8 @@ class QRCalibrator:
                   qr_ids: list[int],
                   marker_size: float, point_name: str, scene_id: str,
                   stream_type: str = "color",
-                  frames: Optional[list[np.ndarray]] = None) -> dict:
+                  frames: Optional[list[np.ndarray]] = None,
+                  T_base_ee: Optional[np.ndarray] = None) -> dict:
         """
         多 QR 标定：为每个允许的 QR 独立计算 T_qr_ee 并存入字典。
 
@@ -182,6 +201,7 @@ class QRCalibrator:
         T_link_optical = np.eye(4); T_link_optical[:3, :3] = R_link_optical
 
         T_qr_ee_per_id: dict[str, dict] = {}
+        T_base_qr_per_id: dict[str, dict] = {}
         for qid, tvecs in per_id_tvecs.items():
             if len(tvecs) < 3:
                 logger.warning("calibrate: skip QR id=%d (only %d frames)", qid, len(tvecs))
@@ -195,6 +215,11 @@ class QRCalibrator:
             T_qr_ee = np.linalg.inv(T_camera_qr) @ T_camera_ee
             t, r = _matrix_to_pose(T_qr_ee)
             T_qr_ee_per_id[str(qid)] = {"translation": t, "rotation": r}
+            # 场景级 baselink->QR 变换 (供二次标定): T_base_qr = T_base_ee @ inv(T_camera_ee) @ T_camera_qr
+            if T_base_ee is not None:
+                T_base_qr = T_base_ee @ np.linalg.inv(T_camera_ee) @ T_camera_qr
+                tb, rb = _matrix_to_pose(T_base_qr)
+                T_base_qr_per_id[str(qid)] = {"translation": tb, "rotation": rb}
             logger.info("calibrate: QR id=%d (%d frames) → T_qr_ee t=%s r=%s",
                         qid, len(tvecs), t, r)
 
@@ -211,9 +236,17 @@ class QRCalibrator:
             stream_type=stream_type,
             qr_ids=calibrated_ids,
             T_qr_ee_per_id=T_qr_ee_per_id,
+            calib_type="primary",
         )
         if not ok:
             return {"success": False, "message": f"Failed to save point to scene {scene_id}"}
+        # 场景级 T_base_qr (供二次标定), 每次正常标定刷新覆盖
+        if T_base_qr_per_id:
+            self._scene.set_base_qr_transforms(scene_id, T_base_qr_per_id)
+            logger.info("calibrate: stored scene-level T_base_qr_per_id, ids=%s",
+                        list(T_base_qr_per_id.keys()))
+        else:
+            logger.warning("calibrate: T_base_ee not available, T_base_qr_per_id not stored")
 
         elapsed = (time.time() - t0) * 1000
         logger.info("calibrate: done (%.1fms) calibrated %d QRs: %s",
@@ -224,6 +257,86 @@ class QRCalibrator:
         return {
             "success": True,
             "message": f"Calibration complete ({len(calibrated_ids)} QRs)",
+            "translation": first["translation"],
+            "rotation": first["rotation"],
+            "qr_ids_calibrated": calibrated_ids,
+            "T_qr_ee_per_id": T_qr_ee_per_id,
+            "T_base_qr_per_id": T_base_qr_per_id,
+        }
+
+    def calibrate_secondary(self, scene_id: str, source_point: str, point_name: str,
+                            T_base_ee_now: np.ndarray) -> dict:
+        """二次标定: 在相机看不到二维码的位置, 用已存储的 T_base_qr 计算新点位。
+
+        前提: 该场景已完成一次正常标定 (存储了场景级 T_base_qr_per_id),
+        且主标定后底盘未移动 (T_base_qr 依赖底盘位置)。
+
+        数学: T_qr_ee_new = inv(T_base_qr_stored) @ T_base_ee_now
+        新点位参数 (arm/marker_size/stream_type/qr_ids) 继承自 source_point。
+
+        Returns:
+            {success, message, translation, rotation, qr_ids_calibrated, T_qr_ee_per_id}
+        """
+        t0 = time.time()
+        logger.info("calibrate_secondary: scene=%s source=%s point=%s",
+                    scene_id, source_point, point_name)
+
+        if T_base_ee_now is None:
+            return {"success": False, "message": "TF lookup failed: base_link to ee_link"}
+
+        # 1. 场景级 T_base_qr (须先完成正常标定)
+        T_base_qr_per_id = self._scene.get_base_qr_transforms(scene_id)
+        if not T_base_qr_per_id:
+            return {"success": False,
+                    "message": f"Scene '{scene_id}' has no stored T_base_qr. "
+                               "Run a normal calibration at an observation pose first."}
+
+        # 2. 源点位 (继承参数)
+        src_point = self._scene.find_point(scene_id, source_point)
+        if src_point is None:
+            return {"success": False,
+                    "message": f"Source point '{source_point}' not found in scene '{scene_id}'"}
+
+        # 3. 逐 QR 计算 T_qr_ee_new = inv(T_base_qr) @ T_base_ee_now
+        T_qr_ee_per_id: dict[str, dict] = {}
+        for qid, pose in T_base_qr_per_id.items():
+            try:
+                T_base_qr = _pose_to_matrix(pose["translation"], pose["rotation"])
+            except Exception:
+                logger.warning("calibrate_secondary: skip QR id=%s (bad stored pose)", qid)
+                continue
+            T_qr_ee_new = np.linalg.inv(T_base_qr) @ T_base_ee_now
+            t, r = _matrix_to_pose(T_qr_ee_new)
+            T_qr_ee_per_id[str(qid)] = {"translation": t, "rotation": r}
+            logger.info("calibrate_secondary: QR id=%s -> T_qr_ee t=%s r=%s", qid, t, r)
+
+        if not T_qr_ee_per_id:
+            return {"success": False, "message": "No valid stored T_base_qr to compute from"}
+
+        # 4. 存储 (calib_type=secondary, 继承源点位参数)
+        calibrated_ids = [int(k) for k in T_qr_ee_per_id.keys()]
+        ok = self._scene.add_point(
+            scene_id=scene_id,
+            name=point_name,
+            arm=src_point.get("arm", "right"),
+            marker_size=src_point.get("marker_size", 0.058),
+            stream_type=src_point.get("stream_type", "color"),
+            qr_ids=src_point.get("qr_ids", calibrated_ids),
+            T_qr_ee_per_id=T_qr_ee_per_id,
+            calib_type="secondary",
+            source_point=source_point,
+        )
+        if not ok:
+            return {"success": False, "message": f"Failed to save point to scene {scene_id}"}
+
+        elapsed = (time.time() - t0) * 1000
+        logger.info("calibrate_secondary: done (%.1fms) calibrated %d QRs: %s",
+                    elapsed, len(calibrated_ids), calibrated_ids)
+        first_qid = str(calibrated_ids[0])
+        first = T_qr_ee_per_id[first_qid]
+        return {
+            "success": True,
+            "message": f"Secondary calibration complete ({len(calibrated_ids)} QRs)",
             "translation": first["translation"],
             "rotation": first["rotation"],
             "qr_ids_calibrated": calibrated_ids,

@@ -20,6 +20,8 @@ export const cameraApi = {
     }),
   calibrate: (data) =>
     api.post(`/robot/${ROBOT_ID}/camera/calibrate`, data),
+  calibrateSecondary: (data) =>
+    api.post(`/robot/${ROBOT_ID}/camera/calibrate_secondary`, data),
   scene: (action, sceneId, params = {}) =>
     api.post(`/robot/${ROBOT_ID}/camera/scene`, {
       action,

@@ -423,7 +423,9 @@
                         <el-select v-model="step.config.point_name" size="small" style="width: 100%"
                           @visible-change="v => v && step.config.scene && loadScenePoints(step.config.scene)">
                           <el-option v-for="p in (scenePoints[step.config.scene] || [])"
-                            :key="p.name || p" :label="p.name || p" :value="p.name || p" />
+                            :key="p.name || p"
+                            :label="p.calib_type === 'secondary' ? `${p.name || p} (二次)` : (p.name || p)"
+                            :value="p.name || p" />
                         </el-select>
                       </el-col>
                     </el-row>
@@ -736,6 +738,7 @@ async function loadScenePoints(sceneId) {
     const data = res.data || {}
     scenePoints.value[sceneId] = (data.qr_transforms || []).map(p => ({
       name: p.name, arm: p.arm, qr_id: p.qr_id, marker_size: p.marker_size, stream_type: p.stream_type || 'color',
+      calib_type: p.calib_type || 'primary',
     }))
   } catch { scenePoints.value[sceneId] = [] }
 }
