@@ -15,6 +15,7 @@ from furance_shared.models.workflow import (
     UpperBodyStepConfig,
     GripperStepConfig,
     VisionStepConfig,
+    MixedStepConfig,
     SleepStepConfig,
 )
 from furance_shared.models.command import GripperCommand
@@ -27,6 +28,7 @@ NAV_POLL_TIMEOUT = 600       # 10 分钟 (点对点导航)
 NAV_POLL_INTERVAL = 1.0
 MWP_POLL_TIMEOUT = 120      # 定距离/定角度移动超时 (2 分钟)
 MWP_POLL_INTERVAL = 0.5
+MIXED_POLL_INTERVAL = 1.0   # 混合功能状态轮询间隔
 
 
 class WorkflowService:
@@ -183,7 +185,7 @@ class WorkflowService:
         try:
             while True:
                 nav_lookup = {np.step_id: np for np in execute_req.nav_params}
-                context: dict[str, dict] = {}
+                context: dict[str, dict] = {"_cancel_event": cancel_event}
                 step_results: list[StepResult] = []
 
                 # Pre-validate navigation targets against chassis
@@ -447,6 +449,7 @@ class WorkflowService:
             "upper_body": self._execute_upper_body,
             "gripper": self._execute_gripper,
             "vision": self._execute_vision,
+            "mixed": self._execute_mixed,
             "sleep": self._execute_sleep,
         }
         handler = handlers.get(step.type)
@@ -776,6 +779,76 @@ class WorkflowService:
         context[step.id] = {"target_pose": target_pose}
         logger.info("Vision detection completed: %s", pose_msg)
         return StepResult(step_id=step.id, success=True, message=pose_msg, data={"target_pose": target_pose})
+
+    async def _execute_mixed(self, step, nav_lookup, context, robot_id) -> StepResult:
+        """混合功能步骤: 调用 /mixed/execute 异步启动 + 轮询 /mixed/status。
+
+        执行期间该步骤在监控页保持 "running" (与导航步骤同构),
+        支持工作流取消 (触发 /mixed/cancel) 和步骤级超时。
+        """
+        if self._ros2 is None:
+            return StepResult(step_id=step.id, success=False, message="ROS2 client not available")
+
+        config = MixedStepConfig(**step.config)
+        if not config.function:
+            return StepResult(step_id=step.id, success=False, message="Mixed step requires 'function'")
+
+        cancel_event = context.get("_cancel_event")
+
+        # 启动异步执行
+        result = await self._ros2.call_service("/mixed/execute", {
+            "function": config.function,
+            "params": config.params or {},
+        })
+        if result.get("success") is False:
+            return StepResult(step_id=step.id, success=False,
+                              message=result.get("message", "Mixed execution failed to start"))
+        execution_id = (result.get("data") or {}).get("execution_id", "")
+        if not execution_id:
+            return StepResult(step_id=step.id, success=False,
+                              message="No execution_id returned by /mixed/execute")
+
+        # 轮询状态
+        deadline = asyncio.get_event_loop().time() + config.timeout
+        last_msg = ""
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                try:
+                    await self._ros2.call_service("/mixed/cancel", {"execution_id": execution_id})
+                except Exception:
+                    logger.exception("Failed to cancel mixed execution %s", execution_id)
+                return StepResult(step_id=step.id, success=False,
+                                  message=f"Mixed function '{config.function}' cancelled")
+            await asyncio.sleep(MIXED_POLL_INTERVAL)
+            if asyncio.get_event_loop().time() > deadline:
+                try:
+                    await self._ros2.call_service("/mixed/cancel", {"execution_id": execution_id})
+                except Exception:
+                    logger.exception("Failed to cancel mixed execution %s on timeout", execution_id)
+                return StepResult(step_id=step.id, success=False,
+                                  message=f"Mixed function '{config.function}' timed out ({config.timeout}s)")
+            try:
+                st = await self._ros2.call_service("/mixed/status", {"execution_id": execution_id})
+            except Exception:
+                logger.exception("Mixed status poll failed: %s", execution_id)
+                st = {}
+            data = st.get("data") or {}
+            state = data.get("state", "")
+            msg = data.get("message", "")
+            if msg != last_msg:
+                last_msg = msg
+                logger.info("Mixed '%s' (%s): %s", config.function, state, msg)
+            if state == "succeeded":
+                return StepResult(step_id=step.id, success=True,
+                                  message=f"Mixed function '{config.function}' completed: {msg}")
+            if state in ("failed", "cancelled"):
+                err = data.get("error") or msg
+                return StepResult(step_id=step.id, success=False,
+                                  message=f"Mixed function '{config.function}' {state}: {err}")
+            if state == "unknown":
+                return StepResult(step_id=step.id, success=False,
+                                  message=f"Mixed execution {execution_id} status unknown")
+
 
     async def _execute_sleep(self, step, nav_lookup, context, robot_id) -> StepResult:
         config = SleepStepConfig(**step.config)

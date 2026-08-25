@@ -15,6 +15,7 @@ from app.api.ros2_nodes import router as ros2_router
 from app.api.upper_body import router as upper_body_router
 from app.api.workflow import router as workflow_router
 from app.api.camera import router as camera_router
+from app.api.mixed import router as mixed_router
 from app.api.photo import router as photo_router
 from app.api.log_viewer import router as log_viewer_router
 from app.ws.status import router as status_ws_router
@@ -226,6 +227,7 @@ def create_app(static_dir: str | None = None) -> FastAPI:
     app.include_router(upper_body_router)
     app.include_router(workflow_router)
     app.include_router(camera_router)
+    app.include_router(mixed_router)
     app.include_router(photo_router)
     app.include_router(log_viewer_router)
     app.include_router(status_ws_router)

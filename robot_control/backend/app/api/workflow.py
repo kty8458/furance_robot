@@ -71,7 +71,10 @@ def _validate_robot_ready(request: Request, robot_id: str, workflow_steps: list)
         return "机器人状态未就绪，请先确认控制系统已连接"
 
     needs_arm = any(s.type in ("upper_limb", "upper_body", "gripper") for s in workflow_steps)
-    needs_move = any(s.type == "move" for s in workflow_steps)
+    needs_move = any(
+        s.type == "move" or (s.type == "mixed" and bool(s.config.get("moves_base")))
+        for s in workflow_steps
+    )
 
     if needs_arm and not status.get("enabled", False):
         return "上肢未使能，请先使能机械臂"

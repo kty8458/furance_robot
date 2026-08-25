@@ -1,7 +1,7 @@
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
-StepType = Literal["move", "upper_limb", "upper_body", "gripper", "vision", "sleep"]
+StepType = Literal["move", "upper_limb", "upper_body", "gripper", "vision", "mixed", "sleep"]
 
 
 class MoveStepConfig(BaseModel):
@@ -69,6 +69,14 @@ class VisionStepConfig(BaseModel):
     function: str = "qr_detect"    # qr_detect / vision_model
     scene: str = ""               # scene_id
     point_name: str = ""          # 标定点名称
+
+
+class MixedStepConfig(BaseModel):
+    """混合功能步骤: 调用 mixed_execution 服务的注册脚本 (视觉+底盘等组合动作)。"""
+    function: str = ""            # 混合功能名 (/mixed/list 中的 name)
+    params: dict = {}             # 脚本参数 (按 params_schema 填写)
+    timeout: float = Field(gt=0, default=300.0)   # 执行超时 (秒)
+    moves_base: bool = False      # 是否移动底盘 (预检: 电量/地图), 由编辑器从 /mixed/list 元数据写入
 
 
 class SleepStepConfig(BaseModel):
