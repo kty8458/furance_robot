@@ -16,19 +16,37 @@ find_package(rosidl_default_generators REQUIRED)
  
 #为接口文件生成源代码,接口名字首字母必须大写
 rosidl_generate_interfaces(${PROJECT_NAME}
+    "msg/CoreStatus.msg"
+    "msg/WheelStatus.msg"
+    "msg/SensorStatus.msg"
+    "msg/NavStatus.msg"
+    "msg/PosStatus.msg"
     "msg/Robotstatus.msg"
     "msg/MoveJoint.msg"
     "msg/MoveWorld.msg"
+    "msg/MotFeedback.msg" 
+    "msg/DeviceStatus.msg"
+    "msg/Setfingerpos.msg"
 
-    "srv/UpdateSoft.srv"
-    "srv/RobotEnableControl.srv"
-    "srv/ProtectControl.srv"
-    "srv/MoveToWorldPose.srv"
-    "srv/MoveToJointPositions.srv"
-    "srv/GlobalSpeedSet.srv"
-    "srv/GetAxisParameter.srv"
-    "srv/ClearError.srv"
+    "srv/SetFingerPositions.srv"
+    "srv/SetHeartBeat.srv"
+    "srv/MotControl.srv"
+    "srv/AscendControl.srv"
     "srv/AxisParameter.srv"
+    "srv/HeadControl.srv"
+    "srv/WaistControl.srv"
+    "srv/GlobalSpeedSet.srv"
+    "srv/MoveToJointPositions.srv"
+    "srv/MoveToWorldPose.srv"
+    "srv/RobotEnableControl.srv"
+    "srv/ClearError.srv"
+    "srv/ChargingControl.srv"
+    "srv/GetMap.srv"
+    "srv/Move.srv"
+    "srv/SetMode.srv"
+    "srv/NavControl.srv"
+    "srv/Relocate.srv"
+    DEPENDENCIES
 )
  
 if(BUILD_TESTING)

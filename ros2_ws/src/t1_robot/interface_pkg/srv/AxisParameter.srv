@@ -1,7 +1,7 @@
-uint8   robot_id   # 1--左臂  2--右臂 
-uint8   axis_id    # 机械臂id 
-uint8   index      # 1-正限位 2-负限位
-float64   limitation # 限位值
+uint8 robot_id
+uint8 axis_id
+uint8 index
+float32 limitation
 ---
 # Response
 bool success
