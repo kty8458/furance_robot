@@ -183,7 +183,7 @@ class WorkflowService:
         try:
             while True:
                 nav_lookup = {np.step_id: np for np in execute_req.nav_params}
-                context: dict[str, dict] = {"_workflow_name": workflow.name}
+                context: dict[str, dict] = {}
                 step_results: list[StepResult] = []
 
                 # Pre-validate navigation targets against chassis
@@ -409,7 +409,7 @@ class WorkflowService:
     ) -> WorkflowExecuteResponse:
         workflow = self.get_workflow(robot_id, name)
         nav_lookup = {np.step_id: np for np in execute_req.nav_params}
-        context: dict[str, dict] = {"_workflow_name": workflow.name}
+        context: dict[str, dict] = {}
         step_results: list[StepResult] = []
 
         for i, step in enumerate(workflow.steps):
@@ -593,7 +593,7 @@ class WorkflowService:
 
             # Both-arm: load left+right presets and combine
             if config.arm == "both":
-                presets = self._arm_service.list_teach(robot_id, workflow_name=context.get("_workflow_name"))
+                presets = self._arm_service.list_teach(robot_id)
 
                 # Checked mode: use a pre-composed both-arm preset directly
                 use_composed = config.use_composed_preset if hasattr(config, 'use_composed_preset') else False
@@ -646,7 +646,7 @@ class WorkflowService:
             else:
                 if not config.preset_name:
                     return StepResult(step_id=step.id, success=False, message="Preset name required")
-                presets = self._arm_service.list_teach(robot_id, workflow_name=context.get("_workflow_name"))
+                presets = self._arm_service.list_teach(robot_id)
                 preset = next((p for p in presets if p.name == config.preset_name and p.arm.value == config.arm), None)
                 if preset is None:
                     return StepResult(step_id=step.id, success=False, message=f"Preset '{config.preset_name}' not found")

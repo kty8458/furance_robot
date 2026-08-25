@@ -339,11 +339,6 @@
           <el-button size="small" @click="refreshTeachList">刷新</el-button>
         </el-form-item>
         <el-form-item>
-          <el-tag :type="sharedWfState.currentWorkflowName ? 'success' : 'info'" size="small">
-            {{ sharedWfState.currentWorkflowName ? `工作流: ${sharedWfState.currentWorkflowName}` : '全局示教点' }}
-          </el-tag>
-        </el-form-item>
-        <el-form-item>
           <el-button size="small" type="warning" @click="showComposeDialog = true">双臂组合</el-button>
         </el-form-item>
       </el-form>
@@ -476,7 +471,6 @@
 <script setup>
 defineOptions({ name: 'ArmControl' })
 import { ref, computed, watch, onMounted, onUnmounted, onActivated } from 'vue'
-import { useSharedWorkflowState } from '../composables/useSharedWorkflow'
 import { armApi } from '../api/arm'
 import { upperBodyApi } from '../api/upperBody'
 import { robotApi } from '../api/robot'
@@ -524,7 +518,6 @@ function jointLimitRange(arm, idx) {
 const jogForm = ref({ arm: 'left', method: 'moveJ', coordinate: 'base_link', step: 0.05, stepXyz: 2, stepRpy: 0.5 })
 const teachList = ref([])
 const teachFilter = ref({ arm: '' })
-const { state: sharedWfState } = useSharedWorkflowState()
 const teachPage = ref(1)
 const showSaveDialog = ref(false)
 const showTeachDialog = ref(false)
@@ -649,8 +642,7 @@ function round4(v) { return Math.round(v * 10000) / 10000 }
 // -- Teach management --
 async function refreshTeachList() {
   try {
-    const wf = sharedWfState.currentWorkflowName || undefined
-    const response = await armApi.teachList(wf)
+    const response = await armApi.teachList()
     const payload = response.data
     teachList.value = payload?.data || payload || []
   } catch (error) {
@@ -682,7 +674,7 @@ async function handleSavePreset() {
   }
   saving.value = true
   try {
-    await armApi.teachSave(jogForm.value.arm, saveForm.value.name, jogForm.value.method, sharedWfState.currentWorkflowName || undefined)
+    await armApi.teachSave(jogForm.value.arm, saveForm.value.name, jogForm.value.method)
     ElMessage.success(`点位 "${saveForm.value.name}" 已保存`)
     saveForm.value.name = ''
     showSaveDialog.value = false
@@ -696,7 +688,7 @@ async function handleSavePreset() {
 
 async function handleTeachExec(row) {
   try {
-    await armApi.teachExec(row.arm, row.name, null, sharedWfState.currentWorkflowName || undefined)
+    await armApi.teachExec(row.arm, row.name, null)
     ElMessage.success(`执行指令已发送 (${row.method || 'moveJ'})`)
   } catch (error) {
     ElMessage.error(error.message || '执行失败')
@@ -705,7 +697,7 @@ async function handleTeachExec(row) {
 
 async function handleTeachUpdate(row) {
   try {
-    await armApi.teachUpdate(row.arm, row.name, row.method || 'moveJ', sharedWfState.currentWorkflowName || undefined)
+    await armApi.teachUpdate(row.arm, row.name, row.method || 'moveJ')
     ElMessage.success(`预设位 "${row.name}" 已更新`)
     refreshTeachList()
   } catch (error) {
@@ -716,7 +708,7 @@ async function handleTeachUpdate(row) {
 async function handleTeachDelete(row) {
   try {
     await ElMessageBox.confirm(`确定删除预设位 "${row.name}" 吗？`, '确认', { type: 'warning' })
-    await armApi.teachDelete(row.name, sharedWfState.currentWorkflowName || undefined)
+    await armApi.teachDelete(row.name)
     ElMessage.success('删除成功')
     refreshTeachList()
   } catch (error) {
@@ -732,7 +724,7 @@ async function handleCompose() {
   }
   composing.value = true
   try {
-    await armApi.teachCompose(left_name, right_name, composed_name, false, sharedWfState.currentWorkflowName || undefined)
+    await armApi.teachCompose(left_name, right_name, composed_name, false)
     ElMessage.success(`双臂点位 "${composed_name}" 已创建`)
     composeForm.value = { left_name: '', right_name: '', composed_name: '' }
     showComposeDialog.value = false

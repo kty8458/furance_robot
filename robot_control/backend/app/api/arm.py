@@ -37,7 +37,7 @@ async def arm_move(robot_id: str, cmd: ArmMoveCommand, request: Request):
 
 
 @router.post("/teach/save", response_model=ApiResponse)
-async def teach_save(robot_id: str, cmd: TeachSaveCommand, request: Request, workflow: Optional[str] = None):
+async def teach_save(robot_id: str, cmd: TeachSaveCommand, request: Request):
     try:
         side_data = _get_current_arm_state(request, robot_id, cmd.arm)
         joint_angles = side_data.get("joint_angles", [0.0] * 7)
@@ -48,7 +48,7 @@ async def teach_save(robot_id: str, cmd: TeachSaveCommand, request: Request, wor
             arm=cmd.arm, name=cmd.name, joint_angles=joint_angles,
             end_effector=end_effector, coordinate_frame=coordinate_frame,
             method=cmd.method,
-        ), workflow_name=workflow)
+        ))
         return ApiResponse(data={"name": cmd.name})
     except FuranceError as e:
         raise HTTPException(status_code=400, detail=e.to_dict())
@@ -60,7 +60,7 @@ async def teach_save(robot_id: str, cmd: TeachSaveCommand, request: Request, wor
 
 
 @router.put("/teach/{name}", response_model=ApiResponse)
-async def teach_update(robot_id: str, name: str, cmd: TeachSaveCommand, request: Request, workflow: Optional[str] = None):
+async def teach_update(robot_id: str, name: str, cmd: TeachSaveCommand, request: Request):
     try:
         side_data = _get_current_arm_state(request, robot_id, cmd.arm)
         joint_angles = side_data.get("joint_angles", [0.0] * 7)
@@ -71,29 +71,29 @@ async def teach_update(robot_id: str, name: str, cmd: TeachSaveCommand, request:
             arm=cmd.arm, name=name, joint_angles=joint_angles,
             end_effector=end_effector, coordinate_frame=coordinate_frame,
             method=cmd.method,
-        ), overwrite=True, workflow_name=workflow)
+        ), overwrite=True)
         return ApiResponse(data={"name": name})
     except FuranceError as e:
         raise HTTPException(status_code=400, detail=e.to_dict())
 
 
 @router.get("/teach/list", response_model=ApiResponse)
-async def teach_list(robot_id: str, request: Request, workflow: Optional[str] = None):
-    presets = _get_arm_service(request).list_teach(robot_id, workflow_name=workflow)
+async def teach_list(robot_id: str, request: Request):
+    presets = _get_arm_service(request).list_teach(robot_id)
     return ApiResponse(data=[p.model_dump() for p in presets])
 
 
 @router.post("/teach/exec", response_model=ApiResponse)
-async def teach_exec(robot_id: str, cmd: TeachExecCommand, request: Request, workflow: Optional[str] = None):
+async def teach_exec(robot_id: str, cmd: TeachExecCommand, request: Request):
     try:
-        return await _get_arm_service(request).exec_teach(robot_id, cmd, workflow_name=workflow)
+        return await _get_arm_service(request).exec_teach(robot_id, cmd)
     except FuranceError as e:
         raise HTTPException(status_code=404, detail=e.to_dict())
 
 
 @router.delete("/teach/{name}", response_model=ApiResponse)
-async def teach_delete(robot_id: str, name: str, request: Request, workflow: Optional[str] = None):
-    _get_arm_service(request).delete_teach(robot_id, name, workflow_name=workflow)
+async def teach_delete(robot_id: str, name: str, request: Request):
+    _get_arm_service(request).delete_teach(robot_id, name)
     return ApiResponse(data={"deleted": name})
 
 
@@ -110,8 +110,11 @@ async def teach_ros2_list(robot_id: str, request: Request, arm: Optional[str] = 
 
 
 @router.post("/teach/compose", response_model=ApiResponse)
-async def teach_compose(robot_id: str, request: Request, workflow: Optional[str] = None):
-    """Combine two single-arm moveJ presets into a dual-arm both preset."""
+async def teach_compose(robot_id: str, request: Request):
+    """Combine two single-arm moveJ presets into a dual-arm both preset.
+
+    Request body: { left_name, right_name, composed_name, overwrite? }
+    """
     try:
         from pydantic import BaseModel, Field
         class ComposeRequest(BaseModel):
@@ -123,7 +126,6 @@ async def teach_compose(robot_id: str, request: Request, workflow: Optional[str]
         body = ComposeRequest(**await request.json())
         preset = _get_arm_service(request).compose_teach(
             robot_id, body.left_name, body.right_name, body.composed_name, body.overwrite,
-            workflow_name=workflow,
         )
         return ApiResponse(data=preset.model_dump())
     except FuranceError as e:

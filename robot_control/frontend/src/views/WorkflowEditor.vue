@@ -702,8 +702,7 @@ onActivated(() => {
 
 async function loadTeachPresets() {
   try {
-    const wfName = currentWorkflow.value?.name
-    const r = await armApi.teachList(wfName)
+    const r = await armApi.teachList()
     const payload = r.data
     teachPresets.value = payload?.data || payload || []
   } catch {
