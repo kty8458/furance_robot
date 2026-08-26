@@ -1144,6 +1144,42 @@ def main(args=None):
         arm = params.get("arm", "right")
         stream_type = params.get("stream_type", "color") or "color"
 
+        mode = params.get("mode", "primary") or "primary"
+
+        if mode == "secondary":
+            # 二次标定: 不需要推流/检测, 用场景存储的 T_base_qr + 当前 TF 计算
+            scene_id = params.get("scene_id", "")
+            source_point = params.get("source_point", "")
+            point_name = params.get("point_name", "")
+            if not scene_id or not source_point or not point_name:
+                response.success = False
+                response.message = "secondary calibration requires scene_id/source_point/point_name"
+                return response
+            src_point = _scene_manager.find_point(scene_id, source_point)
+            if src_point is None:
+                response.success = False
+                response.message = f"Source point '{source_point}' not found in scene '{scene_id}'"
+                return response
+            arm = src_point.get("arm", "right")
+            T_base_ee_now = _get_T_base_ee(arm)
+            result = _qr_calibrator.calibrate_secondary(
+                scene_id=scene_id,
+                source_point=source_point,
+                point_name=point_name,
+                T_base_ee_now=T_base_ee_now,
+            )
+            response.success = result["success"]
+            response.message = result["message"]
+            if result["success"]:
+                response.result_json = json.dumps({
+                    "translation": result.get("translation", []),
+                    "rotation": result.get("rotation", []),
+                    "qr_ids_calibrated": result.get("qr_ids_calibrated", []),
+                    "T_qr_ee_per_id": result.get("T_qr_ee_per_id", {}),
+                })
+            return response
+
+
         # 自动按需启动推流
         was_streaming = manager.is_streaming(camera_id)
         if not was_streaming:
@@ -1202,6 +1238,7 @@ def main(args=None):
                 scene_id=params.get("scene_id", ""),
                 stream_type=stream_type,
                 frames=calib_frames if calib_frames else None,
+                T_base_ee=_get_T_base_ee(arm),
             )
             response.success = result["success"]
             response.message = result["message"]

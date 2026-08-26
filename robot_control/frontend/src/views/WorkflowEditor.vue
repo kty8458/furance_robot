@@ -423,12 +423,42 @@
                         <el-select v-model="step.config.point_name" size="small" style="width: 100%"
                           @visible-change="v => v && step.config.scene && loadScenePoints(step.config.scene)">
                           <el-option v-for="p in (scenePoints[step.config.scene] || [])"
-                            :key="p.name || p" :label="p.name || p" :value="p.name || p" />
+                            :key="p.name || p"
+                            :label="p.calib_type === 'secondary' ? `${p.name || p} (二次)` : (p.name || p)"
+                            :value="p.name || p" />
                         </el-select>
                       </el-col>
                     </el-row>
                     <div style="font-size: 10px; color: #6b7b8d; margin-top: 4px">
                       输出: target_pose — 后续坐标模式用「关联视觉」引用
+                    </div>
+                  </template>
+
+                  <!-- mixed -->
+                  <template v-if="step.type === 'mixed'">
+                    <div style="font-size: 11px; color: #6b7b8d">混合功能</div>
+                    <el-select v-model="step.config.function" size="small" style="width: 100%; margin-bottom: 6px"
+                      filterable placeholder="选择混合功能"
+                      @visible-change="v => v && loadMixedFunctions()"
+                      @change="val => onMixedFunctionChange(step, val)">
+                      <el-option v-for="f in mixedFunctions" :key="f.name"
+                        :label="`${f.name} - ${f.description || ''}`" :value="f.name" />
+                    </el-select>
+                    <div v-for="p in mixedSchemaOf(step)" :key="'mp_' + p.name" style="margin-bottom: 6px">
+                      <div style="font-size: 10px; color: #6b7b8d">{{ p.description || p.name }} ({{ p.name }})</div>
+                      <el-input-number v-if="p.type === 'number'" v-model="step.config.params[p.name]"
+                        size="small" controls-position="right" style="width: 100%" />
+                      <el-switch v-else-if="p.type === 'bool'" v-model="step.config.params[p.name]" size="small" />
+                      <el-select v-else-if="p.type === 'select'" v-model="step.config.params[p.name]" size="small" style="width: 100%">
+                        <el-option v-for="o in (p.options || [])" :key="String(o)" :label="String(o)" :value="o" />
+                      </el-select>
+                      <el-input v-else v-model="step.config.params[p.name]" size="small" placeholder="string" />
+                    </div>
+                    <div style="font-size: 10px; color: #6b7b8d">超时 (秒)</div>
+                    <el-input-number v-model="step.config.timeout" :min="10" :step="10" size="small"
+                      controls-position="right" style="width: 100%; margin-bottom: 6px" />
+                    <div style="font-size: 10px; color: #6b7b8d; margin-top: 4px">
+                      异步执行 + 状态轮询{{ step.config.moves_base ? '; 该功能会移动底盘 (执行前校验电量/地图)' : '' }}
                     </div>
                   </template>
 
@@ -589,6 +619,7 @@ const stepTypes = [
   { type: 'upper_body', label: '上身', icon: 'Operation' },
   { type: 'gripper', label: '夹爪', icon: 'Scissor' },
   { type: 'vision', label: '视觉', icon: 'View' },
+  { type: 'mixed', label: '混合', icon: 'MagicStick' },
   { type: 'sleep', label: '延时', icon: 'Timer' },
 ]
 
@@ -702,13 +733,40 @@ onActivated(() => {
 
 async function loadTeachPresets() {
   try {
-    const wfName = currentWorkflow.value?.name
-    const r = await armApi.teachList(wfName)
+    const r = await armApi.teachList()
     const payload = r.data
     teachPresets.value = payload?.data || payload || []
   } catch {
     teachPresets.value = []
   }
+}
+
+// ---- 混合功能 ----
+
+const mixedFunctions = ref([])
+
+async function loadMixedFunctions() {
+  if (mixedFunctions.value.length) return
+  try {
+    const { mixedApi } = await import('../api/mixed')
+    const res = await mixedApi.listFunctions()
+    mixedFunctions.value = res.data || []
+  } catch {
+    mixedFunctions.value = []
+  }
+}
+
+function mixedSchemaOf(step) {
+  const f = mixedFunctions.value.find(fn => fn.name === step.config.function)
+  return f?.params_schema || []
+}
+
+function onMixedFunctionChange(step, name) {
+  const f = mixedFunctions.value.find(fn => fn.name === name)
+  const params = {}
+  for (const p of (f?.params_schema || [])) params[p.name] = p.default
+  step.config.params = params
+  step.config.moves_base = !!f?.moves_base
 }
 
 async function loadCameraList() {
@@ -737,6 +795,7 @@ async function loadScenePoints(sceneId) {
     const data = res.data || {}
     scenePoints.value[sceneId] = (data.qr_transforms || []).map(p => ({
       name: p.name, arm: p.arm, qr_id: p.qr_id, marker_size: p.marker_size, stream_type: p.stream_type || 'color',
+      calib_type: p.calib_type || 'primary',
     }))
   } catch { scenePoints.value[sceneId] = [] }
 }
@@ -802,7 +861,7 @@ async function triggerNextStep() {
 }
 
 function stepTagType(type) {
-  const map = { move: '', upper_limb: 'success', upper_body: 'warning', gripper: 'danger', vision: 'info', sleep: '' }
+  const map = { move: '', upper_limb: 'success', upper_body: 'warning', gripper: 'danger', vision: 'info', mixed: 'warning', sleep: '' }
   return map[type] || ''
 }
 
@@ -911,6 +970,10 @@ async function selectWorkflow(row) {
         if (s.type === 'vision' && !s.config.point_name) s.config.point_name = ''
         if (s.type === 'vision' && !s.config.camera_id) s.config.camera_id = cameraList.value.find(c => c.connected)?.id || 'head'
         if (s.type === 'sleep' && !s.config.duration) s.config.duration = 1
+        if (s.type === 'mixed' && !s.config.function) s.config.function = ''
+        if (s.type === 'mixed' && !s.config.params) s.config.params = {}
+        if (s.type === 'mixed' && !s.config.timeout) s.config.timeout = 300
+        if (s.type === 'mixed' && s.config.moves_base == null) s.config.moves_base = false
         stepCounter = Math.max(stepCounter, parseInt(s.id?.split('_').pop()) || 0)
       })
     }
@@ -1004,6 +1067,7 @@ function addStep(type) {
     upper_body: { _waist: false, _ascend: false, _head: false, waist_angle: 300, waist_speed: 20, ascend_pos: 100, ascend_speed: 20, head_angle: 15, head_speed: 10 },
     gripper: { arm: 'left', action: 'open', force: 0, position: 0 },
     vision: { camera_id: cameraList.value.find(c => c.connected)?.id || 'head', function: 'qr_detect', scene: '', point_name: '' },
+    mixed: { function: '', params: {}, timeout: 300, moves_base: false },
     sleep: { duration: 1 },
   }
   const newStep = {

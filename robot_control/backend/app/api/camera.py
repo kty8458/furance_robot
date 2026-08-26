@@ -71,6 +71,30 @@ async def calibrate_qr(robot_id: str, req: dict, request: Request):
     return ApiResponse(data=result.get("data", result))
 
 
+@router.post("/calibrate_secondary", response_model=ApiResponse)
+async def calibrate_qr_secondary(robot_id: str, req: dict, request: Request):
+    """二次标定: 用场景存储的 baselink->QR 变换 + 当前末端 TF 计算新点位。
+
+    前提: 该场景已在观察位完成一次正常标定, 且主标定后底盘未移动。
+    新点位参数 (arm/marker_size/stream_type/qr_ids) 继承自 source_point。
+
+    Body: {scene_id, source_point, point_name}
+    """
+    scene_id = req.get("scene_id", "")
+    source_point = req.get("source_point", "")
+    point_name = req.get("point_name", "")
+    if not scene_id or not source_point or not point_name:
+        return ApiResponse(code=3001, message="scene_id/source_point/point_name required")
+    result = await _get_client(request).calibrate_qr_secondary(
+        scene_id=scene_id,
+        source_point=source_point,
+        point_name=point_name,
+    )
+    if not result.get("success"):
+        return ApiResponse(code=3001, message=result.get("message", "Secondary calibration failed"))
+    return ApiResponse(data=result.get("data", result))
+
+
 @router.post("/scene", response_model=ApiResponse)
 async def scene_operation(robot_id: str, req: dict, request: Request):
     """场景管理: action=list|get|create|delete|add_point|delete_point|update_point.

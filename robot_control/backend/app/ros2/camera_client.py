@@ -31,6 +31,11 @@ class CameraClientBase(ABC):
         ...
 
     @abstractmethod
+    async def calibrate_qr_secondary(self, scene_id: str, source_point: str,
+                                     point_name: str) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
     async def scene_operation(self, action: str, scene_id: str = None,
                               params: dict = None) -> dict[str, Any]:
         ...
@@ -71,6 +76,12 @@ class MockCameraClient(CameraClientBase):
                            qr_ids: list = None) -> dict[str, Any]:
         return {"success": True, "message": f"mock: calibrated {point_name}",
                 "data": {"translation": [0.35, -0.12, 0.20],
+                         "rotation": [0.0, 0.0, 0.0, 1.0]}}
+
+    async def calibrate_qr_secondary(self, scene_id: str, source_point: str,
+                                     point_name: str) -> dict[str, Any]:
+        return {"success": True, "message": f"mock: secondary calibrated {point_name}",
+                "data": {"translation": [0.30, -0.10, 0.18],
                          "rotation": [0.0, 0.0, 0.0, 1.0]}}
 
     async def scene_operation(self, action: str, scene_id: str = None,
@@ -161,6 +172,21 @@ class RealCameraClient(CameraClientBase):
             "point_name": point_name,
             "scene_id": scene_id,
             "stream_type": stream_type,
+        })
+
+    async def calibrate_qr_secondary(self, scene_id: str, source_point: str,
+                                     point_name: str) -> dict[str, Any]:
+        """二次标定: 用场景存储的 T_base_qr + 当前末端 TF 计算新点位。
+
+        适用于相机在目标位姿看不到二维码的场景:
+        先在观察位正常标定 (存储场景级 T_base_qr), 移动手臂到目标位姿后
+        调用本接口计算末端到二维码的变换。前提: 主标定后底盘未移动。
+        """
+        return await self._call("/camera/calibrate", {
+            "mode": "secondary",
+            "scene_id": scene_id,
+            "source_point": source_point,
+            "point_name": point_name,
         })
 
     async def scene_operation(self, action: str, scene_id: str = None,

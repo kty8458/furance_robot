@@ -1,0 +1,8 @@
+# 混合执行服务配置
+# 环境变量可覆盖: MIXED_CHASSIS_BASE_URL / MIXED_CHASSIS_TOKEN / MIXED_CONFIG_PATH
+
+chassis:
+  # 底盘调度 HTTP 基地址 (与 robot_control 后端 app/core/config.py 中一致)
+  base_url: "http://192.168.1.102:8888/yhs-robot"
+  token: ""
+  timeout: 30.0

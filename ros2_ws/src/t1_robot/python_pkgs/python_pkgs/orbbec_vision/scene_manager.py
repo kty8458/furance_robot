@@ -37,6 +37,7 @@ def normalize_point(p: Dict[str, Any]) -> Dict[str, Any]:
     """将点位数据规范为新格式 (qr_ids + T_qr_ee_per_id)。
 
     旧字段 qr_id + T_qr_workspace 会被转换为新字段。
+    calib_type 缺省为 primary (正常标定); 二次标定点为 secondary。
     """
     out = dict(p)
     if "qr_ids" not in out:
@@ -46,6 +47,7 @@ def normalize_point(p: Dict[str, Any]) -> Dict[str, Any]:
         T_old = out.get("T_qr_workspace")
         qid = out.get("qr_id")
         out["T_qr_ee_per_id"] = {str(qid): T_old} if (T_old and qid is not None) else {}
+    out.setdefault("calib_type", "primary")
     return out
 
 
@@ -136,7 +138,9 @@ class SceneManager:
                   T_qr_ee_per_id: Optional[Dict[str, Any]] = None,
                   T_qr_workspace: Optional[Dict[str, Any]] = None,
                   qr_id: Optional[int] = None,
-                  stream_type: str = "color") -> bool:
+                  stream_type: str = "color",
+                  calib_type: str = "primary",
+                  source_point: Optional[str] = None) -> bool:
         """添加标定点到场景。
 
         新格式: qr_ids (允许列表, 空=通配) + T_qr_ee_per_id (每个 QR 的 T_qr_ee).
@@ -158,17 +162,21 @@ class SceneManager:
         # 删除同名点
         data.setdefault("qr_transforms", [])
         data["qr_transforms"] = [p for p in data["qr_transforms"] if p.get("name") != name]
-        data["qr_transforms"].append({
+        point = {
             "name": name,
             "arm": arm,
             "marker_size": marker_size,
             "stream_type": stream_type,
             "qr_ids": qr_ids,
             "T_qr_ee_per_id": T_qr_ee_per_id,
-        })
+            "calib_type": calib_type,
+        }
+        if source_point is not None:
+            point["source_point"] = source_point
+        data["qr_transforms"].append(point)
         self._save(scene_id, data)
-        logger.info("add_point: scene=%s point=%s qr_ids=%s arm=%s per_id_count=%d",
-                    scene_id, name, qr_ids, arm, len(T_qr_ee_per_id))
+        logger.info("add_point: scene=%s point=%s qr_ids=%s arm=%s per_id_count=%d calib_type=%s",
+                    scene_id, name, qr_ids, arm, len(T_qr_ee_per_id), calib_type)
         return True
 
     def delete_point(self, scene_id: str, point_name: str) -> bool:
@@ -211,3 +219,28 @@ class SceneManager:
             if p.get("name") == point_name:
                 return normalize_point(p)
         return None
+
+    def set_base_qr_transforms(self, scene_id: str,
+                               T_base_qr_per_id: Dict[str, Any]) -> bool:
+        """存储场景级 baselink->二维码变换 (每次正常标定刷新覆盖)。
+
+        T_base_qr_per_id: {qr_id_str: {"translation": [x,y,z], "rotation": [qx,qy,qz,qw]}}
+        """
+        data = self._load(scene_id)
+        if data is None:
+            logger.warning("set_base_qr_transforms: scene %s not found", scene_id)
+            return False
+        data["T_base_qr_per_id"] = _to_json_safe(T_base_qr_per_id)
+        self._save(scene_id, data)
+        logger.info("set_base_qr_transforms: scene=%s ids=%s", scene_id, list(T_base_qr_per_id.keys()))
+        return True
+
+    def get_base_qr_transforms(self, scene_id: str) -> Optional[Dict[str, Any]]:
+        """读取场景级 baselink->二维码变换, 未标定返回 None。"""
+        data = self._load(scene_id)
+        if data is None:
+            return None
+        T = data.get("T_base_qr_per_id")
+        if not T:
+            return None
+        return T
