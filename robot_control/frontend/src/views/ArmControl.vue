@@ -595,6 +595,7 @@ function currentPose(side) {
 
 // -- Jog control --
 function startJog(mode, index, direction, armOverride) {
+  if (!jogEnabledCheck(armOverride)) return
   stopJog()
   sendJog(mode, index, direction, armOverride)
   jogTimer = setInterval(() => { if (!jogPending) sendJog(mode, index, direction, armOverride) }, JOG_INTERVAL)
@@ -604,7 +605,19 @@ function stopJog() {
   if (jogTimer) { clearInterval(jogTimer); jogTimer = null }
 }
 
+// 点动前校验使能: 未使能时提示并阻止下发 (执行中掉使能也会中断点动)
+function jogEnabledCheck(armOverride) {
+  const side = armOverride || jogForm.value.arm
+  if (!armEnabled(side)) {
+    ElMessage.warning('机械臂未使能，请先通过右下角悬浮按钮使能后再点动')
+    stopJog()
+    return false
+  }
+  return true
+}
+
 async function sendJog(mode, index, direction, armOverride) {
+  if (!jogEnabledCheck(armOverride)) return
   const side = armOverride || jogForm.value.arm
   let step
   if (mode === 'joint' || mode === 'joint_both') {
