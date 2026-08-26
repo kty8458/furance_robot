@@ -26,6 +26,13 @@ class Ros2ServiceClientBase(ABC):
     async def call_service(self, service_name: str, request: dict[str, Any]) -> dict[str, Any]:
         ...
 
+    async def node_alive(self, node_name: str) -> bool:
+        """Check whether a node exists in the live ROS2 graph.
+
+        Default assumes alive (mock mode has no real graph).
+        """
+        return True
+
 
 class MockRos2ServiceClient(Ros2ServiceClientBase):
     async def call_service(self, service_name: str, request: dict[str, Any]) -> dict[str, Any]:
@@ -134,3 +141,17 @@ class RealRos2ServiceClient(Ros2ServiceClientBase):
         except asyncio.TimeoutError:
             logger.error("Service call timed out after %.1fs", self._timeout)
             return {"success": False, "message": f"Service call timed out after {self._timeout}s"}
+
+    async def node_alive(self, node_name: str) -> bool:
+        """查询实时 ROS2 graph (DDS 发现) 判断节点是否存活。
+
+        进程死亡后节点会从 graph 中消失, 不依赖 node manager 记录的状态,
+        避免 "进程已死但状态仍显示运行" 的误判。
+        """
+        try:
+            node = self._runtime.node
+            names = node.get_node_names_and_namespaces()
+            return any(name == node_name for name, _ns in names)
+        except Exception:
+            logger.exception("node_alive check failed for %s", node_name)
+            return False

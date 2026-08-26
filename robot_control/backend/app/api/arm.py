@@ -36,6 +36,32 @@ async def arm_move(robot_id: str, cmd: ArmMoveCommand, request: Request):
     return await _get_arm_service(request).arm_move(robot_id, cmd)
 
 
+# t1_moveit 运动服务链路的关键节点: dual_arm_robot 提供 /move_pose /move_line 服务,
+# move_group 负责规划 (launch 中配置 respawn, 仍一并检测)
+MOVEIT_REQUIRED_NODES = ("dual_arm_robot", "move_group")
+
+
+@router.get("/moveit_alive", response_model=ApiResponse)
+async def arm_moveit_alive(robot_id: str, request: Request):
+    """查询实时 ROS2 graph 判断 t1_moveit 节点是否真实存活。
+
+    不依赖 node manager 记录的进程状态, 进程死亡后节点即从 graph 消失。
+    """
+    client = request.app.state.ros2.service_client
+    nodes = {}
+    for name in MOVEIT_REQUIRED_NODES:
+        try:
+            nodes[name] = await client.node_alive(name)
+        except Exception:
+            logger.exception("moveit_alive check failed for %s", name)
+            nodes[name] = False
+    alive = all(nodes.values())
+    return ApiResponse(
+        message="ok" if alive else "t1_moveit node not running",
+        data={"alive": alive, "nodes": nodes},
+    )
+
+
 @router.post("/teach/save", response_model=ApiResponse)
 async def teach_save(robot_id: str, cmd: TeachSaveCommand, request: Request):
     try:
