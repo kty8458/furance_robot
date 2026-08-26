@@ -594,7 +594,8 @@ function currentPose(side) {
 }
 
 // -- Jog control --
-function startJog(mode, index, direction, armOverride) {
+async function startJog(mode, index, direction, armOverride) {
+  if (!(await jogPrecheck(armOverride))) return
   stopJog()
   sendJog(mode, index, direction, armOverride)
   jogTimer = setInterval(() => { if (!jogPending) sendJog(mode, index, direction, armOverride) }, JOG_INTERVAL)
@@ -604,17 +605,48 @@ function stopJog() {
   if (jogTimer) { clearInterval(jogTimer); jogTimer = null }
 }
 
-async function sendJog(mode, index, direction, armOverride) {
+// 点动前校验使能和 t1_moveit 节点: 不满足时提示并阻止下发 (执行中掉使能/节点也会中断点动)
+async function jogPrecheck(armOverride) {
   const side = armOverride || jogForm.value.arm
-  let step
-  if (mode === 'joint' || mode === 'joint_both') {
-    step = jogForm.value.step * direction
-  } else {
-    const base = index < 3 ? jogForm.value.stepXyz : jogForm.value.stepRpy
-    step = base * direction
+  if (!armEnabled(side)) {
+    ElMessage.warning('机械臂未使能，请先通过右下角悬浮按钮使能后再点动')
+    stopJog()
+    return false
   }
-  jogPending = true
+  if (!(await moveitAlive())) {
+    ElMessage.warning('t1_moveit 节点未运行，请先在 ROS2 节点页启动后再点动')
+    stopJog()
+    return false
+  }
+  return true
+}
+
+// t1_moveit 节点存活 (后端实时查询 ROS graph, 1 秒缓存避免点动高频轮询)
+let moveitAliveCache = { ts: 0, alive: true }
+async function moveitAlive() {
+  if (Date.now() - moveitAliveCache.ts < 1000) return moveitAliveCache.alive
   try {
+    const r = await armApi.moveitAlive()
+    moveitAliveCache = { ts: Date.now(), alive: !!r.data?.alive }
+  } catch {
+    moveitAliveCache = { ts: Date.now(), alive: true }  // 查询失败不额外拦截点动
+  }
+  return moveitAliveCache.alive
+}
+
+async function sendJog(mode, index, direction, armOverride) {
+  if (jogPending) return
+  jogPending = true  // 先占位, 避免预检 await 期间定时器重复下发
+  try {
+    if (!(await jogPrecheck(armOverride))) return
+    const side = armOverride || jogForm.value.arm
+    let step
+    if (mode === 'joint' || mode === 'joint_both') {
+      step = jogForm.value.step * direction
+    } else {
+      const base = index < 3 ? jogForm.value.stepXyz : jogForm.value.stepRpy
+      step = base * direction
+    }
     if (mode === 'joint') {
       const angles = [...currentAngles(side)]
       angles[index] = round4(angles[index] + step)
