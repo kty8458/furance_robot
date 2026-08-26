@@ -6,3 +6,4 @@
 
 # 导入即注册
 from . import demo  # noqa: F401
+from . import test_sample  # noqa: F401

@@ -108,7 +108,7 @@ def main(args=None):
     cfg = _load_config()
     chassis = ChassisHttpClient.from_config(cfg.get("chassis"))
     ros_caller = RosCaller(node)
-    executor = MixedExecutor(chassis=chassis, ros_caller=ros_caller.call)
+    executor = MixedExecutor(chassis=chassis, ros_call=ros_caller.call)
 
     # ---- /mixed/list ----
     def _handle_list(request, response):
