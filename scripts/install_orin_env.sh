@@ -112,7 +112,9 @@ stage_vision() {
 
     log_info "[vision] 安装 Orbbec udev 规则 (需要 sudo, pip 不会自动装)"
     local sdk_dir
-    sdk_dir="$(python3 -c "import pyorbbecsdk, os; print(os.path.dirname(pyorbbecsdk.__file__))")"
+    # pyorbbecsdk2 import 时会往 stdout 打印 "load extensions from ..." 垃圾输出,
+    # 必须只取最后一行, 否则 $sdk_dir 含空格会让 sudo 把 "load" 当命令执行
+    sdk_dir="$(python3 -c "import pyorbbecsdk, os; print(os.path.dirname(pyorbbecsdk.__file__))" 2>/dev/null | tail -1)"
     sudo "$sdk_dir/shared/install_udev_rules.sh"
     [ -f /etc/udev/rules.d/99-obsensor-libusb.rules ] && log_info "[vision] udev 规则已就位" \
         || log_warn "[vision] udev 规则未找到, 手动检查 $sdk_dir/shared/"
