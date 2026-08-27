@@ -10,7 +10,8 @@ pyorbbecsdk2==2.1.1         # 奥比中光SDK, 内置 OrbbecSDK v2.8.6 原生库
                             # 注意: 旧包名 pyorbbecsdk 与本包模块名相同,
                             # 开发机上 1.3.2 已被 2.1.1 覆盖, 以 2.1.1 为准, 勿装错。
                             # 装完还需 sudo 执行包内 shared/install_udev_rules.sh (见 orin_deploy.md 2.1)
-onnxruntime                 # YOLO 推理; aarch64 装 PyPI CPU 版, GPU 方案待定
+onnxruntime==1.19.2        # YOLO 推理。固定版本: 1.23 在 Jetson (Orin) 上 import 时
+                            # cpuid 探测触发 C++ 越界断言直接 core dump, 1.19.2 实测稳定
 
 # --- 可选 ---
 # open3d                   # 仅 test_grasp_single.py 点云测试用; aarch64 无官方轮子, 需源码编译或跳过
