@@ -115,7 +115,8 @@ stage_vision() {
     # pyorbbecsdk2 import 时会往 stdout 打印 "load extensions from ..." 垃圾输出,
     # 必须只取最后一行, 否则 $sdk_dir 含空格会让 sudo 把 "load" 当命令执行
     sdk_dir="$(python3 -c "import pyorbbecsdk, os; print(os.path.dirname(pyorbbecsdk.__file__))" 2>/dev/null | tail -1)"
-    sudo "$sdk_dir/shared/install_udev_rules.sh"
+    # 用 bash 显式执行: pip 安装时脚本不带可执行位, 直接执行会 command not found
+    sudo bash "$sdk_dir/shared/install_udev_rules.sh"
     [ -f /etc/udev/rules.d/99-obsensor-libusb.rules ] && log_info "[vision] udev 规则已就位" \
         || log_warn "[vision] udev 规则未找到, 手动检查 $sdk_dir/shared/"
 
