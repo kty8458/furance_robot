@@ -49,12 +49,14 @@ stage_ros() {
         build-essential cmake
 
     local ok=0
+    # 注意: 必须临时关 -e -u 再 source ROS setup 脚本 (set -u 下其引用的
+    # AMENT_TRACE_SETUP_FILES 等未定义变量会静默终止整个安装脚本, Orin 实测踩坑)
+    set +eu
+    # shellcheck disable=SC1091
+    source /opt/ros/humble/setup.bash 2>/dev/null
+    set -eu
     for pkg in moveit_kinematics moveit_ros_move_group rmw_cyclonedds_cpp; do
-        if ! ros2 pkg list 2>/dev/null | grep -q "^${pkg}$"; then
-            # shellcheck disable=SC1091
-            source /opt/ros/humble/setup.bash 2>/dev/null || true
-            ros2 pkg list | grep -q "^${pkg}$" || { log_error "缺少 $pkg"; ok=1; }
-        fi
+        ros2 pkg list 2>/dev/null | grep -q "^${pkg}$" || { log_error "缺少 $pkg"; ok=1; }
     done
     # 接口包编译必需, 不在任何元包依赖树里 (见 docs/orin_deploy.md 1.1)
     dpkg -s ros-humble-rosidl-generator-dds-idl >/dev/null 2>&1 \
@@ -140,8 +142,11 @@ stage_soem() {
 stage_build() {
     log_info "[build] colcon build 全量工作空间"
     [ -d "$ROS_WS/src" ] || { log_error "找不到 $ROS_WS/src"; exit 1; }
+    # 同 stage_ros: 关 -e -u 再 source (set -u 下 setup.bash 的未定义变量会杀掉脚本)
+    set +eu
     # shellcheck disable=SC1091
     source /opt/ros/humble/setup.bash
+    set -eu
     ( cd "$ROS_WS" && colcon build --symlink-install )
     log_info "[build] 完成。source $ROS_WS/install/setup.bash 后可用"
 }
