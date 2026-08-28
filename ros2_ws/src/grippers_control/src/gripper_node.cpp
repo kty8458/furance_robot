@@ -121,7 +121,9 @@ const char * claw_status_text(uint16_t status)
 
 bool is_ready_status(uint16_t status)
 {
-  return status == 3 || status == 5 || status == 7 || status == 8;
+  // 3(就绪)/5(打开到位)/7(夹持成功)/8(空夹)/9(掉落) 都是可接受新指令的状态:
+  // 8/9 是动作终止态 (空夹/掉落), 发送 open/close 即可脱离, 不算故障也不需清错
+  return status == 3 || status == 5 || status == 7 || status == 8 || status == 9;
 }
 
 double units_to_mm(uint16_t units)

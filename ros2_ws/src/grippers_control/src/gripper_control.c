@@ -929,10 +929,13 @@ static int run_controller(const ControllerConfig *controller,
             goto neutralize;
         }
 
+        // 3(就绪)/5(打开到位)/7(夹持成功)/8(空夹)/9(掉落):
+        // 8/9 是动作终止态, 发送 open/close 即可脱离, 不算故障
         if (tx->claw_status == 3 ||
             tx->claw_status == 5 ||
             tx->claw_status == 7 ||
-            tx->claw_status == 8)
+            tx->claw_status == 8 ||
+            tx->claw_status == 9)
         {
             break;
         }
