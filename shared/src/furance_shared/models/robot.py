@@ -17,6 +17,7 @@ class GripperAction(StrEnum):
     OPEN = "open"
     CLOSE = "close"
     POSITION = "position"
+    CLEAR_ERROR = "clear_error"
 
 
 class GripperState(StrEnum):

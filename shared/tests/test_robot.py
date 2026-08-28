@@ -12,6 +12,7 @@ def test_arm_side_values():
 def test_gripper_action_values():
     assert GripperAction.OPEN == "open"
     assert GripperAction.CLOSE == "close"
+    assert GripperAction.CLEAR_ERROR == "clear_error"
 
 
 def test_gripper_state_values():

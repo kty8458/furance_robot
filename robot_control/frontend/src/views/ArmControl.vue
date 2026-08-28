@@ -135,6 +135,7 @@
                   <el-button type="primary" @click="execGripper('left', 'position', gripperLeft)" :loading="gripperLeft.loading">位置控制</el-button>
                   <el-button @click="execGripper('left', 'open', gripperLeft)" :loading="gripperLeft.loading">全开</el-button>
                   <el-button @click="execGripper('left', 'close', gripperLeft)" :loading="gripperLeft.loading">全闭</el-button>
+                  <el-button type="warning" @click="execGripper('left', 'clear_error', gripperLeft)" :loading="gripperLeft.loading">清错</el-button>
                 </el-form-item>
               </el-form>
             </el-tab-pane>
@@ -150,6 +151,7 @@
                   <el-button type="primary" @click="execGripper('right', 'position', gripperRight)" :loading="gripperRight.loading">位置控制</el-button>
                   <el-button @click="execGripper('right', 'open', gripperRight)" :loading="gripperRight.loading">全开</el-button>
                   <el-button @click="execGripper('right', 'close', gripperRight)" :loading="gripperRight.loading">全闭</el-button>
+                  <el-button type="warning" @click="execGripper('right', 'clear_error', gripperRight)" :loading="gripperRight.loading">清错</el-button>
                 </el-form-item>
               </el-form>
             </el-tab-pane>

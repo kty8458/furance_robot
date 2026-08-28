@@ -6,6 +6,7 @@
  *   sudo ./gripper_control right close
  *   sudo ./gripper_control right move <width_mm>
  *   sudo ./gripper_control right status
+ *   sudo ./gripper_control right clear  (清除故障)
  *
  * Optional config path:
  *   sudo ./gripper_control --config config/gripper.yaml left move 80
@@ -33,6 +34,10 @@
 #define DEFAULT_READY_TIMEOUT_CYCLES  4000
 #define DEFAULT_MOVE_TIMEOUT_CYCLES   6000
 #define DEFAULT_POSITION_TOLERANCE    3     /* 0.3 mm */
+
+/* 说明书第9章 RXPDO Comand: bit7=参数同步(常规置1), bit0~1=3 为清除故障指令 */
+#define CMD_NEUTRAL                   0x0080
+#define CMD_CLEAR_FAULT               0x0083
 
 #pragma pack(push, 1)
 
@@ -620,9 +625,11 @@ static void print_usage(const char *program)
             "  sudo %s [--config config/gripper.yaml] <gripper> close\n"
             "  sudo %s [--config config/gripper.yaml] <gripper> move <width_mm>\n"
             "  sudo %s [--config config/gripper.yaml] <gripper> status\n"
+            "  sudo %s [--config config/gripper.yaml] <gripper> clear\n"
             "\n"
             "Backward-compatible interface override:\n"
             "  sudo %s [--config config/gripper.yaml] <ifname> <gripper> move <width_mm>\n",
+            program,
             program,
             program,
             program,
@@ -700,6 +707,38 @@ static int parse_width_mm(const char *text,
 
     *width_units = (uint16)units;
     return 1;
+}
+
+/* 清除故障 (说明书第9章: Comand bit0~1=3 清除故障, 设备尝试恢复正常,
+ * 故障仍存在则再次进入故障状态; 解除急停后也需清除故障)
+ * 返回 1=故障已清除(或本无故障), 0=故障未清除/超时 */
+static int clear_fault(const ControllerConfig *controller,
+                       GripperRxPDO *rx,
+                       GripperTxPDO *tx,
+                       int expected_wkc)
+{
+    rx->command = CMD_CLEAR_FAULT;
+    for (int cycle = 0; cycle < 20; ++cycle)
+    {
+        exchange_once(expected_wkc);
+        osal_usleep(controller->cycle_us);
+    }
+    rx->command = CMD_NEUTRAL;
+
+    for (int cycle = 0; cycle < controller->ready_timeout_cycles; ++cycle)
+    {
+        exchange_once(expected_wkc);
+
+        if (tx->claw_status != 10 && tx->claw_error == 0 && tx->motor_error == 0)
+        {
+            printf("Fault cleared.\n");
+            return 1;
+        }
+
+        osal_usleep(controller->cycle_us);
+    }
+
+    return 0;
 }
 
 static int run_controller(const ControllerConfig *controller,
@@ -842,6 +881,34 @@ static int run_controller(const ControllerConfig *controller,
     }
 
     printf("OPERATIONAL state reached.\n");
+
+    if (strcmp(action, "clear") == 0)
+    {
+        // 手动清错: 发送清除故障指令并等待故障位消失
+        if (clear_fault(controller, rx, tx, expected_wkc))
+        {
+            int wkc = exchange_once(expected_wkc);
+            print_feedback(tx, wkc);
+            result = 0;
+        }
+        else
+        {
+            fprintf(stderr, "Fault persists after clear.\n");
+            int wkc = exchange_once(expected_wkc);
+            print_feedback(tx, wkc);
+        }
+        goto neutralize;
+    }
+
+    if (strcmp(action, "status") != 0)
+    {
+        // 开合/移动前自动清错 (含急停解除后需清错的场景), 无故障时为空操作
+        if (!clear_fault(controller, rx, tx, expected_wkc))
+        {
+            fprintf(stderr, "Gripper fault persists after clear.\n");
+            goto neutralize;
+        }
+    }
 
     int cycle;
     for (cycle = 0; cycle < controller->ready_timeout_cycles; ++cycle)
@@ -1124,6 +1191,15 @@ int main(int argc, char *argv[])
         }
     }
     else if (strcmp(action, "status") == 0)
+    {
+        if (arg_index != argc)
+        {
+            print_usage(argv[0]);
+            return 1;
+        }
+        target_width = 0;
+    }
+    else if (strcmp(action, "clear") == 0)
     {
         if (arg_index != argc)
         {

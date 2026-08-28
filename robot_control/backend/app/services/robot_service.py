@@ -69,8 +69,9 @@ class RobotService:
         # 映射: arm -> gripper_name, action -> command, position(0-100%) -> width_mm(100-180)
         gripper_name = cmd.arm.value if hasattr(cmd.arm, "value") else str(cmd.arm)
         action_str = cmd.action.value if hasattr(cmd.action, "value") else str(cmd.action)
-        # open/close 直接映射, position -> move
-        command_map = {"open": "open", "close": "close", "position": "move"}
+        # open/close 直接映射, position -> move, clear_error -> 节点端清错指令
+        command_map = {"open": "open", "close": "close", "position": "move",
+                       "clear_error": "clear_error"}
         command = command_map.get(action_str, action_str)
         # position 0-100% -> width_mm 100-180mm (0%=闭合100mm, 100%=张开180mm)
         width_mm = 100.0 + (cmd.position / 100.0) * 80.0 if command == "move" else 0.0

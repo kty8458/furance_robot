@@ -24,6 +24,8 @@ namespace
 constexpr uint16_t kNeutralCommand = 0x0080;
 constexpr uint16_t kOpenCommand = 0x0081;
 constexpr uint16_t kCloseCommand = 0x0082;
+// 说明书第9章 RXPDO Comand: bit7=参数同步(常规置1), bit0~1=3 为清除故障指令
+constexpr uint16_t kClearFaultCommand = 0x0083;
 
 #pragma pack(push, 1)
 
@@ -499,6 +501,36 @@ private:
     }
   }
 
+  // 清除故障 (说明书第9章: Comand bit0~1=3 清除故障, 设备尝试恢复正常,
+  // 故障仍存在则再次进入故障状态; 解除急停后也需清除故障)
+  bool clear_fault_locked(GripperRuntime & gripper, std::string * message)
+  {
+    gripper.rx->command = kClearFaultCommand;
+    for (int cycle = 0; cycle < 20; ++cycle) {
+      exchange_once_locked();
+      std::this_thread::sleep_for(std::chrono::microseconds(cycle_us_));
+    }
+    gripper.rx->command = kNeutralCommand;
+
+    for (int cycle = 0; cycle < ready_timeout_cycles_; ++cycle) {
+      const int wkc = exchange_once_locked();
+
+      if ((cycle % 20) == 0) {
+        publish_status_locked(gripper, wkc);
+      }
+
+      if (!has_fault_locked(gripper, message)) {
+        *message = "fault cleared";
+        return true;
+      }
+
+      std::this_thread::sleep_for(std::chrono::microseconds(cycle_us_));
+    }
+
+    *message = "fault persists after clear: " + *message;
+    return false;
+  }
+
   void ethercat_cycle_once()
   {
     std::lock_guard<std::mutex> lock(ethercat_mutex_);
@@ -548,6 +580,31 @@ private:
       publish_status_locked(*gripper, wkc);
       fill_response_from_state(*gripper, true, "status updated", response);
       return;
+    }
+
+    // 手动清错: 发送清除故障指令并等待故障位消失, 成功后再等待就绪
+    if (command == "clear_error" || command == "clear_fault" || command == "clear") {
+      std::string clear_message;
+      const bool cleared = clear_fault_locked(*gripper, &clear_message);
+      if (cleared) {
+        std::string ready_message;
+        wait_until_ready_locked(*gripper, &ready_message);
+        clear_message += ", " + ready_message;
+      } else {
+        neutralize_locked(*gripper);
+      }
+      fill_response_from_state(*gripper, cleared, clear_message, response);
+      return;
+    }
+
+    // open/close/move 前自动清错 (含急停解除后需清错的场景), 无故障时为空操作
+    {
+      std::string clear_message;
+      if (!clear_fault_locked(*gripper, &clear_message)) {
+        neutralize_locked(*gripper);
+        fill_response_from_state(*gripper, false, clear_message, response);
+        return;
+      }
     }
 
     std::string message;
@@ -606,7 +663,7 @@ private:
     }
 
     if (command != "move") {
-      *message = "Unknown command: " + command + ". Use open, close, move, or status.";
+      *message = "Unknown command: " + command + ". Use open, close, move, status, or clear_error.";
       return false;
     }
 
