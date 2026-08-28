@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     server_port: int = 8000
 
     ros2_domain_id: int = Field(default_factory=lambda: int(os.environ.get("ROS_DOMAIN_ID", "0")))
-    ros2_service_timeout: float = 30.0
+    ros2_service_timeout: float = 60.0
 
     ws_status_interval: int = 30
 
