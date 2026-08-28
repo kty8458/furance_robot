@@ -114,7 +114,7 @@ class RealMoveItServiceClient(MoveItServiceClientBase):
       /execute_trajectory  (control_interfaces/srv/ExecuteTrajectory) -> move_j
     """
 
-    def __init__(self, runtime, timeout: float = 30.0):
+    def __init__(self, runtime, timeout: float = 60.0):
         if not HAS_RCLPY:
             raise RuntimeError("rclpy is not installed")
         self._runtime = runtime
