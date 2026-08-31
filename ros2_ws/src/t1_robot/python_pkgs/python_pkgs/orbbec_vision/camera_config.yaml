@@ -15,14 +15,14 @@ cameras:
     fps: 30
 - id: left_arm
   name: 左臂相机
-  serial: ''
-  usb_port: 2-2
+  serial: CPC93630007P
+  usb_port: 2-2.2.1-8
   uid: ''
   position: left_arm
 - id: right_arm
   name: 右臂相机
   serial: CPC9363000DA
-  usb_port: 2-3
+  usb_port: 2-2.1.1-10
   uid: ''
   position: right_arm
   calibration:

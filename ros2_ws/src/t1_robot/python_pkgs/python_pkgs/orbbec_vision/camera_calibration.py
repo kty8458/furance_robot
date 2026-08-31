@@ -8,6 +8,8 @@
   3. 棋盘格标定: 采集多帧 + solvePnP → camera→chessboard
   4. Tsai AX=XB 求解 camera→target_link 变换
   5. 结果写入 camera_config.yaml
+     (eye-to-hand 额外存 camera_to_base_link 常量, 供跨相机 QR 标定
+      运行时配合 TF 合成 camera->末端 变换)
 
 标定场景 (eye-to-hand, 固定相机):
   - 相机固定在机器人头部 (head_camera_link)
@@ -240,6 +242,7 @@ def _find_device(camera_id: str, serial_override: str = "",
       1. --serial 命令行参数
       2. camera_config.yaml 中的 serial
       3. camera_config.yaml 中的 uid (USB 拓扑路径, 如 6-1.4-13)
+      4. camera_config.yaml 中的 usb_port (USB 口位, 如 2-2, 对应 SDK uid 前缀)
 
     Returns: (device, device_info) 或 (None, None) 如果未找到。
     """
@@ -272,13 +275,14 @@ def _find_device(camera_id: str, serial_override: str = "",
                 print(f"已匹配设备: serial={serial_override} → {info.get_name()} (uid={uid})")
                 return d, info
         print(f"错误: 未找到 serial={serial_override} 的设备")
-        print(f"已连接设备: {', '.join(info.get_serial_number() + ' (uid=' + uid + ')' for _, info, uid in devices)}")
+        print(f"已连接设备: {', '.join(info.get_serial_number() + ' (usb口=' + uid + ')' for _, info, uid in devices)}")
         return None, None
 
     # 2. 从 config 读取
     cfg = _load_camera_config(camera_id, config_path)
     cfg_serial = cfg.get("serial", "")
     cfg_uid = cfg.get("uid", "")
+    cfg_port = cfg.get("usb_port", "")
 
     # 2a. serial 匹配
     if cfg_serial:
@@ -297,15 +301,27 @@ def _find_device(camera_id: str, serial_override: str = "",
                 return d, info
         print(f"警告: 配置中 uid={cfg_uid} 未在已连接设备中找到")
 
+    # 2c. usb_port 匹配 (config 中的 usb_port 对应 SDK uid 的 USB 拓扑路径,
+    #     如 usb_port=2-2 可匹配 uid=2-2 / 2-2.1, 同样支持部分匹配)
+    if cfg_port:
+        for d, info, uid in devices:
+            if uid and cfg_port in uid:
+                print(f"已匹配设备 (config usb_port): usb_port 包含 '{cfg_port}' -> "
+                      f"{info.get_name()} serial={info.get_serial_number()} uid={uid}")
+                return d, info
+        print(f"警告: 配置中 usb_port={cfg_port} 未在已连接设备中找到")
+
     # 3. 无法匹配 — 打印所有设备让用户选择
     print(f"错误: 无法匹配相机 '{camera_id}'")
-    print(f"  配置: serial={cfg_serial or '(无)'}  uid={cfg_uid or '(无)'}")
+    print(f"  配置: serial={cfg_serial or '(无)'}  uid={cfg_uid or '(无)'}  "
+          f"usb_port={cfg_port or '(无)'}")
     print(f"  已连接设备 ({n}个):")
     for _, info, uid in devices:
-        print(f"    serial={info.get_serial_number()}  uid={uid}  name={info.get_name()}")
+        print(f"    serial={info.get_serial_number()}  usb口={uid or '(?)'}  "
+              f"name={info.get_name()}")
     print(f"  解决方法:")
     print(f"    1. 用 --serial {devices[0][1].get_serial_number()} 直接指定")
-    print(f"    2. 更新 camera_config.yaml 中 '{camera_id}' 的 serial 或 uid")
+    print(f"    2. 更新 camera_config.yaml 中 '{camera_id}' 的 serial / uid / usb_port")
     return None, None
 
 
@@ -745,6 +761,23 @@ def calibrate_tsai(
         "translation": [float(T_cam_tgt[0, 3]), float(T_cam_tgt[1, 3]), float(T_cam_tgt[2, 3])],
     }
 
+    if mode != "eye-in-hand":
+        # eye-to-hand 额外输出常量 camera->base_link:
+        #   camera->base = camera->target_link_0 @ inv(base->target_link_0)
+        # 该常量与手臂位姿无关; 运行时配合 TF (base->target_link) 可合成任意
+        # 时刻的 camera->target_link, 供跨相机 (固定相机观察动臂) QR 标定使用。
+        # 注意: rotation 存 Rodrigues 向量, translation 单位为米,
+        # 与 camera_to_* 的运行时读取约定一致 (camera_manager_node._T_from_camera_to)。
+        # bHg[0] 与 cHw_list[0] 的对齐沿用现有快照计算的同一假设。
+        T_cam_base = T_cam_tgt @ np.linalg.inv(bHg[0])
+        rvec_base, _ = cv2.Rodrigues(T_cam_base[:3, :3])
+        result["camera_to_base"] = {
+            "rotation": [float(v) for v in rvec_base.flatten()],
+            "translation": [float(v) for v in T_cam_base[:3, 3]],
+        }
+        print(f"  camera->base_link (常量): "
+              f"t=[{T_cam_base[0, 3]:.4f},{T_cam_base[1, 3]:.4f},{T_cam_base[2, 3]:.4f}]")
+
     print(f"\n相机 → {target_link} 变换:")
     print(f"  rotation (rpy): [{result['rotation'][0]:.4f}, "
           f"{result['rotation'][1]:.4f}, {result['rotation'][2]:.4f}] rad")
@@ -786,12 +819,19 @@ def write_calibration_to_config(camera_id, sdk_params, hand_eye, target_link, co
         target = {"id": camera_id}
         cameras.append(target)
 
+    hand_eye = dict(hand_eye)  # 拷贝, 不污染调用方
+    # eye-to-hand 额外输出的常量, 单独存为 camera_to_base_link
+    # (跨相机 QR 标定的运行时合成依赖此项, 见 camera_manager_node._get_T_camera_ee)
+    cam_to_base = hand_eye.pop("camera_to_base", None)
+
     target["calibration"] = {
         "color_intrinsics": sdk_params["color_intrinsics"],
         "depth_intrinsics": sdk_params["depth_intrinsics"],
         "color_to_depth": sdk_params["color_to_depth"],
         f"camera_to_{target_link}": hand_eye,
     }
+    if cam_to_base is not None:
+        target["calibration"]["camera_to_base_link"] = cam_to_base
     with open(path, "w") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
     print(f"\n标定结果已写入: {path}")

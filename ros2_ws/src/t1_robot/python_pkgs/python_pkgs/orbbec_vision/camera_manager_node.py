@@ -383,6 +383,8 @@ class CameraManager:
         self._threads: dict[str, threading.Thread] = {}
         self._running = True
         self._ws_subscribers: dict[str, set] = {}  # camera_id -> set of ws
+        self._config_path = config_path  # AE 曝光等运行时可写配置
+        self._ae_info: dict[str, dict] = {}  # camera_id -> {min, max, default, saved}
         self._init_cameras(config_path)
 
     def _init_cameras(self, config_path: str):
@@ -473,6 +475,36 @@ class CameraManager:
                 if "width" in cc: info.color_width = cc["width"]
                 if "height" in cc: info.color_height = cc["height"]
                 if "fps" in cc: info.color_fps = cc["fps"]
+
+                # color AE 最大曝光 (低光发光 QR 标定用):
+                # 实测 336L 该属性有两个坑:
+                #   1. SDK 报告的 range.max/default_value 可能大于硬件实际上限
+                #      (一台报 332, 一台报 1999, 但写入 >=332 一律钳到 332)
+                #   2. 节点启动后未写入前, 读回的是垃圾值 (1 或 1999)
+                # 因此初始化时主动写一次 default 并读回实际生效值,
+                # 以读回值同时作为可用上限 (max) 和默认值 (default)
+                try:
+                    from pyorbbecsdk import OBPropertyID, OBPermissionType
+                    pid = OBPropertyID.OB_PROP_COLOR_AE_MAX_EXPOSURE_INT
+                    if device.is_property_supported(pid, OBPermissionType.PERMISSION_READ_WRITE):
+                        rng = device.get_int_property_range(pid)
+                        init_v = min(int(rng.max), int(rng.default_value))
+                        device.set_int_property(pid, init_v)
+                        actual = int(device.get_int_property(pid))
+                        if actual < int(rng.min) or actual > init_v:
+                            actual = init_v  # 读回异常时退回保守值
+                        self._ae_info[cid] = {
+                            "min": int(rng.min),
+                            "max": actual,
+                            "default": actual,
+                            "saved": cfg.get("ae_max_exposure"),
+                        }
+                        logger.info("Camera '%s': AE max exposure min=%d max=%d default=%d "
+                                    "(SDK range=[%d, %d] sdk_default=%d) saved=%s",
+                                    cid, rng.min, actual, actual, rng.min, rng.max,
+                                    rng.default_value, cfg.get("ae_max_exposure"))
+                except Exception:
+                    logger.debug("Camera '%s': AE max exposure property unavailable", cid)
                 dc = cfg.get("depth_stream", {})
                 if "width" in dc: info.depth_width = dc["width"]
                 if "height" in dc: info.depth_height = dc["height"]
@@ -565,6 +597,101 @@ class CameraManager:
             self._ir_frames[camera_id] = None
         logger.info("Stream stopped: %s (pipeline preserved)", camera_id)
         return {"success": True, "message": f"Stopped {camera_id}"}
+
+    # ---- Color AE 最大曝光 (低光发光 QR 标定) ----
+
+    def _set_ae_property(self, camera_id: str, value: int) -> bool:
+        """写 color AE 最大曝光 (钳制到硬件范围)。"""
+        from pyorbbecsdk import OBPropertyID
+        device = self._devices.get(camera_id)
+        info = self._ae_info.get(camera_id)
+        if device is None or info is None:
+            return False
+        v = int(max(info["min"], min(info["max"], value)))
+        try:
+            device.set_int_property(OBPropertyID.OB_PROP_COLOR_AE_MAX_EXPOSURE_INT, v)
+            return True
+        except Exception as e:
+            logger.warning("set AE max exposure failed (%s): %s", camera_id, e)
+            return False
+
+    def get_ae_max_exposure(self, camera_id: str) -> dict:
+        """读取当前 AE 最大曝光 + 范围 + 已保存值 (供前端拉条初始化)。"""
+        from pyorbbecsdk import OBPropertyID
+        info = self._ae_info.get(camera_id)
+        if info is None:
+            return {"success": False, "message": f"AE property unavailable: {camera_id}"}
+        current = None
+        device = self._devices.get(camera_id)
+        if device is not None:
+            try:
+                current = int(device.get_int_property(OBPropertyID.OB_PROP_COLOR_AE_MAX_EXPOSURE_INT))
+            except Exception as e:
+                logger.warning("get AE max exposure failed (%s): %s", camera_id, e)
+        return {"success": True, "camera_id": camera_id, "current": current,
+                "min": info["min"], "max": info["max"], "default": info["default"],
+                "saved": info["saved"]}
+
+    def set_ae_max_exposure(self, camera_id: str, value: int) -> dict:
+        """实时调整 (前端拉条, 立即生效于当前推流画面)。"""
+        ok = self._set_ae_property(camera_id, value)
+        if not ok:
+            return {"success": False, "message": "Failed to set AE max exposure"}
+        # 读回实际生效值 (硬件可能钳制)
+        return self.get_ae_max_exposure(camera_id)
+
+    def save_ae_max_exposure(self, camera_id: str) -> dict:
+        """把设备当前值持久化到 camera_config.yaml (标定/识别时自动应用)。"""
+        import yaml
+        info = self._ae_info.get(camera_id)
+        device = self._devices.get(camera_id)
+        if info is None or device is None:
+            return {"success": False, "message": f"Camera not available: {camera_id}"}
+        from pyorbbecsdk import OBPropertyID
+        try:
+            current = int(device.get_int_property(OBPropertyID.OB_PROP_COLOR_AE_MAX_EXPOSURE_INT))
+        except Exception as e:
+            return {"success": False, "message": f"Read exposure failed: {e}"}
+
+        try:
+            with open(self._config_path) as f:
+                data = yaml.safe_load(f) or {}
+            for c in data.get("cameras", []):
+                if c.get("id") == camera_id:
+                    c["ae_max_exposure"] = current
+                    break
+            else:
+                return {"success": False, "message": f"Camera not in config: {camera_id}"}
+            with open(self._config_path, "w") as f:
+                yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        except Exception as e:
+            return {"success": False, "message": f"Write config failed: {e}"}
+
+        info["saved"] = current
+        logger.info("AE max exposure saved (%s): %d", camera_id, current)
+        return {"success": True, "camera_id": camera_id, "saved": current}
+
+    def reset_ae_max_exposure(self, camera_id: str) -> dict:
+        """恢复出厂默认 (其余非标定场景的推流使用默认值)。"""
+        info = self._ae_info.get(camera_id)
+        if info is None:
+            return {"success": False, "message": f"AE property unavailable: {camera_id}"}
+        ok = self._set_ae_property(camera_id, info["default"])
+        if not ok:
+            return {"success": False, "message": "Failed to reset AE max exposure"}
+        return self.get_ae_max_exposure(camera_id)
+
+    def apply_saved_ae_max_exposure(self, camera_id: str) -> bool:
+        """应用已保存的曝光值 (标定/识别帧采集前调用)。无保存值时不动。"""
+        info = self._ae_info.get(camera_id)
+        if not info or not info.get("saved"):
+            return False
+        return self._set_ae_property(camera_id, int(info["saved"]))
+
+    def reset_ae_if_applied(self, camera_id: str, applied: bool):
+        """采集结束后恢复默认 (仅当之前应用过保存值)。"""
+        if applied:
+            self._set_ae_property(camera_id, self._ae_info[camera_id]["default"])
 
     # ---- 帧获取 ----
 
@@ -906,6 +1033,28 @@ class _WsProtocol:
                         push_task.cancel()
                         push_task = None
                     camera_id = None
+                elif action in ("get_exposure", "set_exposure",
+                                "save_exposure", "reset_exposure"):
+                    # AE 最大曝光调节 (低光发光 QR 标定): 调整作用于设备本身,
+                    # 无需订阅推流 (标定时前端先 subscribe 再拉拉条)
+                    ae_cid = msg.get("camera_id", camera_id or "")
+                    try:
+                        if action == "get_exposure":
+                            await ws.send(json.dumps(
+                                {"type": "exposure",
+                                 **self._manager.get_ae_max_exposure(ae_cid)}))
+                        elif action == "set_exposure":
+                            r = self._manager.set_ae_max_exposure(ae_cid, int(msg.get("value", 0)))
+                            await ws.send(json.dumps({"type": "exposure", **r}))
+                        elif action == "save_exposure":
+                            r = self._manager.save_ae_max_exposure(ae_cid)
+                            await ws.send(json.dumps({"type": "exposure_saved", **r}))
+                        else:
+                            r = self._manager.reset_ae_max_exposure(ae_cid)
+                            await ws.send(json.dumps({"type": "exposure", **r}))
+                    except (TypeError, ValueError) as e:
+                        await ws.send(json.dumps(
+                            {"type": "error", "message": f"Invalid exposure params: {e}"}))
                 else:
                     await ws.send(json.dumps({"type": "error", "message": f"Unknown action: {action}"}))
         except Exception:
@@ -1180,12 +1329,21 @@ def main(args=None):
             return response
 
 
+        # 低光发光 QR 标定: 采集前应用已保存的 color AE 最大曝光
+        ae_applied = False
+        if stream_type == "color":
+            ae_applied = manager.apply_saved_ae_max_exposure(camera_id)
+            if ae_applied:
+                time.sleep(0.3)  # 等待 AE 收敛
+                logger.info("calibrate: applied saved AE max exposure (%s)", camera_id)
+
         # 自动按需启动推流
         was_streaming = manager.is_streaming(camera_id)
         if not was_streaming:
             stream_to_start = "ir" if stream_type == "ir" else "raw"
             result = manager.start_stream(camera_id, stream_to_start)
             if not result["success"]:
+                manager.reset_ae_if_applied(camera_id, ae_applied)
                 response.success = False
                 response.message = f"Failed to start stream: {result['message']}"
                 return response
@@ -1229,6 +1387,15 @@ def main(args=None):
             else:
                 qr_ids_param = [int(x) for x in qr_ids_param]
 
+            # 跨相机支持: 相机不在被标定臂上时用 TF 链合成当前 T_camera_ee
+            # (帧采集已完成, 手臂静止, TF 即采集时刻位姿)
+            T_camera_ee_now = _get_T_camera_ee(camera_id, arm)
+            if T_camera_ee_now is None:
+                response.success = False
+                response.message = (f"Cannot resolve camera '{camera_id}' -> arm '{arm}' "
+                                    f"transform (check position/calibration in camera_config.yaml)")
+                return response
+
             result = _qr_calibrator.calibrate(
                 camera_id=params.get("camera_id", ""),
                 arm=arm,
@@ -1239,6 +1406,7 @@ def main(args=None):
                 stream_type=stream_type,
                 frames=calib_frames if calib_frames else None,
                 T_base_ee=_get_T_base_ee(arm),
+                T_camera_ee=T_camera_ee_now,
             )
             response.success = result["success"]
             response.message = result["message"]
@@ -1250,6 +1418,7 @@ def main(args=None):
                     "T_qr_ee_per_id": result.get("T_qr_ee_per_id", {}),
                 })
         finally:
+            manager.reset_ae_if_applied(camera_id, ae_applied)
             if not was_streaming:
                 manager.stop_stream(camera_id)
         return response
@@ -1371,12 +1540,21 @@ def main(args=None):
             point_stream_type = point.get("stream_type", "color")
             marker_size = point.get("marker_size", 0.058)
 
+            # 低光发光 QR 识别: 采集前应用已保存的 color AE 最大曝光
+            ae_applied = False
+            if point_stream_type == "color":
+                ae_applied = manager.apply_saved_ae_max_exposure(camera_id)
+                if ae_applied:
+                    time.sleep(0.3)  # 等待 AE 收敛
+                    logger.info("compute_pose: applied saved AE max exposure (%s)", camera_id)
+
             # 自动按需启动推流
             was_streaming = manager.is_streaming(camera_id)
             if not was_streaming:
                 stream_to_start = "ir" if point_stream_type == "ir" else "raw"
                 result = manager.start_stream(camera_id, stream_to_start)
                 if not result["success"]:
+                    manager.reset_ae_if_applied(camera_id, ae_applied)
                     response.success = False
                     response.message = f"Failed to start stream: {result['message']}"
                     return response
@@ -1446,6 +1624,7 @@ def main(args=None):
                     response.message = f"No allowed QR detected (allowed={qr_ids_allowed or 'any'})"
                     return response
             finally:
+                manager.reset_ae_if_applied(camera_id, ae_applied)
                 if not was_streaming:
                     manager.stop_stream(camera_id)
 
@@ -1454,21 +1633,17 @@ def main(args=None):
 
             import cv2 as _cv2
 
-            # T_camera_ee from config (公共)
+            # T_camera_ee: 相机在被标定臂上时用 config 常量 (eye-in-hand),
+            # 跨相机 (相机在另一条臂/固定相机) 时用 TF 链合成当前值
             arm = point.get("arm", "right")
             arm_letter = arm[0].upper() if arm else "R"
             ee_link = f"ARM-{arm_letter}-J7_Link"
-            cam_to_ee = calib.get(f"camera_to_{ee_link}", {})
-            if not cam_to_ee.get("translation"):
+            T_cam_ee = _get_T_camera_ee(camera_id, arm)
+            if T_cam_ee is None:
                 response.success = False
-                response.message = f"No camera_to_ee calibration for {ee_link}"
+                response.message = (f"Cannot resolve camera '{camera_id}' -> {ee_link} "
+                                    f"transform (check position/calibration in camera_config.yaml)")
                 return response
-            R_cam_ee, _ = _cv2.Rodrigues(np.array(cam_to_ee["rotation"], dtype=np.float64))
-            T_cam_ee = np.eye(4); T_cam_ee[:3,:3] = R_cam_ee
-            t_raw = cam_to_ee["translation"]
-            T_cam_ee[:3,3] = [float(t_raw[0])/1000.0 if abs(t_raw[0])>10 else float(t_raw[0]),
-                              float(t_raw[1])/1000.0 if abs(t_raw[1])>10 else float(t_raw[1]),
-                              float(t_raw[2])/1000.0 if abs(t_raw[2])>10 else float(t_raw[2])]
 
             # 从 TF 获取当前末端位姿
             T_base_ee_now = _get_T_base_ee(arm)
@@ -1671,6 +1846,111 @@ def main(args=None):
         except Exception as e:
             logger.warning("TF lookup base_link→%s failed: %s", ee_link, e)
             return None
+
+    def _T_from_camera_to(pose: dict):
+        """config 中 camera_to_* 条目 {rotation, translation} -> 4x4 矩阵。
+
+        与现有读取约定一致: rotation 按 Rodrigues 向量解析,
+        translation 分量绝对值 >10 视为 mm, 自动转 m。
+        """
+        import cv2 as _cv2
+        if not pose or not pose.get("translation"):
+            return None
+        try:
+            R, _ = _cv2.Rodrigues(np.array(pose["rotation"], dtype=np.float64))
+        except Exception as e:
+            logger.warning("_T_from_camera_to: bad rotation entry: %s", e)
+            return None
+        t = [float(v) / 1000.0 if abs(float(v)) > 10 else float(v)
+             for v in pose["translation"][:3]]
+        T = np.eye(4)
+        T[:3, :3] = R
+        T[:3, 3] = t
+        return T
+
+    def _get_T_camera_ee(camera_id: str, arm: str):
+        """获取当前时刻的 camera -> 目标臂末端 变换 (4x4)。
+
+        按相机安装位置 (config 的 position 字段) 分三种情况:
+          1. 相机装在被标定臂上 (eye-in-hand):
+             直接用 config 常量 camera_to_{ee_link}
+          2. 相机装在另一条臂上 (跨臂观察):
+             T_cam_tgt = T_cam_mount(config) @ inv(T_base_mount(TF)) @ T_base_tgt(TF)
+          3. 固定相机 (position=head, 须有 camera_to_base_link 常量):
+             T_cam_tgt = T_cam_base(config) @ T_base_tgt(TF)
+
+        2/3 为跨相机分支: 存储的常量只是快照, 运行时必须用 TF 合成当前值。
+        调用时机须与图像采集时刻一致 (采集时手臂静止, 采集后立即调用)。
+        返回 None 表示无法获取, 原因见日志。
+        """
+        cfg = _cam_configs.get(camera_id, {})
+        calib = cfg.get("calibration", {})
+        position = str(cfg.get("position", ""))
+        if arm in ("left", "left_arm"):
+            arm = "left"
+        elif arm in ("right", "right_arm"):
+            arm = "right"
+        else:
+            arm = "right"
+        ee_link = f"ARM-{arm[0].upper()}-J7_Link"
+
+        # position -> 挂载臂 ("left"/"right"), 空串表示未知/固定
+        mount_arm = ""
+        if position in ("left", "left_arm"):
+            mount_arm = "left"
+        elif position in ("right", "right_arm"):
+            mount_arm = "right"
+
+        # 1. 相机在被标定臂上: eye-in-hand 常量
+        if mount_arm and mount_arm == arm:
+            T = _T_from_camera_to(calib.get(f"camera_to_{ee_link}"))
+            if T is None:
+                logger.error("_get_T_camera_ee: camera '%s' on arm '%s' but no camera_to_%s in config",
+                             camera_id, arm, ee_link)
+            return T
+
+        # 2. 相机在另一条臂上: TF 链合成
+        if mount_arm:
+            mount_ee_link = f"ARM-{mount_arm[0].upper()}-J7_Link"
+            T_cam_mount = _T_from_camera_to(calib.get(f"camera_to_{mount_ee_link}"))
+            if T_cam_mount is None:
+                logger.error("_get_T_camera_ee: camera '%s' on arm '%s' but no camera_to_%s "
+                             "(先完成该相机的 eye-in-hand 手眼标定)",
+                             camera_id, mount_arm, mount_ee_link)
+                return None
+            T_base_mount = _get_T_base_ee(mount_arm)
+            T_base_tgt = _get_T_base_ee(arm)
+            if T_base_mount is None or T_base_tgt is None:
+                logger.error("_get_T_camera_ee: TF unavailable for cross-arm synthesis "
+                             "(mount=%s target=%s)", mount_ee_link, ee_link)
+                return None
+            logger.info("_get_T_camera_ee: cross-arm synthesis '%s'(%s) -> %s",
+                        camera_id, mount_ee_link, ee_link)
+            return T_cam_mount @ np.linalg.inv(T_base_mount) @ T_base_tgt
+
+        # 3. 固定相机 (position=head 或配置了 camera_to_base_link)
+        if position == "head" or calib.get("camera_to_base_link"):
+            T_cam_base = _T_from_camera_to(calib.get("camera_to_base_link"))
+            if T_cam_base is None:
+                logger.error("_get_T_camera_ee: camera '%s' is fixed (position=%s) but no valid "
+                             "camera_to_base_link (先完成 eye-to-hand 手眼标定)",
+                             camera_id, position)
+                return None
+            T_base_tgt = _get_T_base_ee(arm)
+            if T_base_tgt is None:
+                logger.error("_get_T_camera_ee: TF unavailable for fixed-camera synthesis (%s)",
+                             ee_link)
+                return None
+            logger.info("_get_T_camera_ee: fixed-camera synthesis '%s' -> %s via camera_to_base_link",
+                        camera_id, ee_link)
+            return T_cam_base @ T_base_tgt
+
+        # 4. 旧数据兼容: position 缺失时退回直接读 camera_to_{ee_link} 常量
+        T = _T_from_camera_to(calib.get(f"camera_to_{ee_link}"))
+        if T is None:
+            logger.error("_get_T_camera_ee: cannot resolve camera '%s' -> %s "
+                         "(position=%s, 无可用标定)", camera_id, ee_link, position or "缺失")
+        return T
 
     def _publish_calibration_tfs():
         """读取 config 中的 camera_to_<ee_link> 并发布 TF。

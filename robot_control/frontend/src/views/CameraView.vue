@@ -41,6 +41,28 @@
           <div v-if="streaming" style="margin-top: 8px; font-size: 11px; color: #00ff88">
             {{ cameraId }} / {{ streamTypeLabel }} — 推流中
           </div>
+          <!-- AE 最大曝光调节: 低光发光 QR 标定场景 -->
+          <div v-if="streaming && isColorStream && aeExposure.current != null" style="margin-top: 10px">
+            <div class="field-label" style="display: flex; justify-content: space-between">
+              <span>AE最大曝光 (低光QR标定)</span>
+              <span style="font-family: Consolas, monospace">
+                {{ aeExposure.current ?? '--' }}<span v-if="aeExposure.saved" style="color: #e6a23c"> (存:{{ aeExposure.saved }})</span>
+              </span>
+            </div>
+            <el-slider v-model="aeSliderValue" :min="aeExposure.min ?? 1" :max="aeExposure.max ?? 332"
+              :step="1" size="small" :disabled="aeBusy" @input="onAeSliderInput" />
+            <el-row :gutter="8" style="margin-top: 2px">
+              <el-col :span="12">
+                <el-button size="small" style="width: 100%" :loading="aeBusy" @click="saveAeExposure">保存当前值</el-button>
+              </el-col>
+              <el-col :span="12">
+                <el-button size="small" style="width: 100%" :disabled="aeBusy" @click="resetAeExposure">恢复默认</el-button>
+              </el-col>
+            </el-row>
+            <div style="font-size: 10px; color: #6b7b8d; margin-top: 4px">
+              保存后标定/识别自动应用该值; 其余推流用默认值
+            </div>
+          </div>
         </el-card>
       </el-col>
 
@@ -393,6 +415,60 @@ let ws = null
 const frameData = ref('')
 const latestFrameB64 = ref('')  // 最新一帧彩色原始 base64 (供拍照使用, 响应式驱动 canCapture)
 
+// ---- AE 最大曝光调节 (低光发光 QR 标定) ----
+const isColorStream = computed(() =>
+  ['raw', 'annotated', 'mask'].includes(streamType.value))
+const aeExposure = ref({ current: null, min: 1, max: 332, default: null, saved: null })
+const aeSliderValue = ref(0)
+const aeBusy = ref(false)
+let aeDebounceTimer = null
+
+function sendWs(obj) {
+  try { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)) } catch (e) { /* ignore */ }
+}
+
+function fetchAeExposure() {
+  sendWs({ action: 'get_exposure', camera_id: cameraId.value })
+}
+
+function onAeSliderInput(value) {
+  // 守卫: 当前值未拉取到之前 (滑条 clamp 触发的 input) 不下发, 避免误设为 min
+  if (aeExposure.value.current == null) return
+  // 防抖: 拉条拖动过程中 300ms 内只发最后一次
+  if (aeDebounceTimer) clearTimeout(aeDebounceTimer)
+  aeDebounceTimer = setTimeout(() => {
+    sendWs({ action: 'set_exposure', camera_id: cameraId.value, value: Math.round(Number(value)) })
+  }, 300)
+}
+
+async function saveAeExposure() {
+  aeBusy.value = true
+  try {
+    sendWs({ action: 'save_exposure', camera_id: cameraId.value })
+  } finally {
+    // 响应在 onmessage 中处理 (exposure_saved), 这里只短暂锁定按钮
+    setTimeout(() => { aeBusy.value = false }, 800)
+  }
+}
+
+function resetAeExposure() {
+  sendWs({ action: 'reset_exposure', camera_id: cameraId.value })
+}
+
+function handleAeMessage(msg) {
+  if (msg.type === 'exposure' && msg.camera_id === cameraId.value) {
+    aeExposure.value = { current: msg.current, min: msg.min, max: msg.max, default: msg.default, saved: msg.saved }
+    if (msg.current != null) aeSliderValue.value = msg.current
+  } else if (msg.type === 'exposure_saved') {
+    if (msg.success) {
+      aeExposure.value.saved = msg.saved
+      ElMessage.success(`AE最大曝光已保存: ${msg.saved}`)
+    } else {
+      ElMessage.error(msg.message || '保存失败')
+    }
+  }
+}
+
 const streamTypeLabel = computed(() => {
   const labels = { raw: '原始画面', depth: '深度图', ir: '红外图', annotated: '带框标注', ir_annotated: '红外标注' }
   return labels[streamType.value] || streamType.value
@@ -537,6 +613,8 @@ async function connectStream() {
       ws.send(JSON.stringify({ action: 'subscribe', camera_id: cameraId.value, stream_type: streamType.value }))
       streaming.value = true; connecting.value = false
       ElMessage.success(`已连接 ${cameraId.value}`)
+      // 拉取 AE 曝光当前值/范围, 初始化拉条
+      fetchAeExposure()
     }
     ws.onmessage = (event) => {
       try {
@@ -548,6 +626,7 @@ async function connectStream() {
             latestFrameB64.value = msg.data
           }
         } else if (msg.type === 'error') ElMessage.error(msg.message)
+        else handleAeMessage(msg)
       } catch (e) { /* ignore */ }
     }
     ws.onerror = () => { ElMessage.error('WebSocket 错误'); disconnectStream() }
