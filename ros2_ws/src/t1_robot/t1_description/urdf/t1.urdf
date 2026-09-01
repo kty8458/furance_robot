@@ -45,25 +45,25 @@
     </collision>
     <!-- 外壳碰撞块1 (左侧, 可视化用半透明红, 调整 xyz/size 后可删除 visual) -->
     <visual>
-      <origin xyz="0.27 0.21 0.3" rpy="0 0 0" />
+      <origin xyz="0.07 0.21 0.3" rpy="0 0 0" />
       <geometry>
-        <box size="0.35 0.1 0.3" />
+        <box size="0.75 0.1 0.3" />
       </geometry>
       <material name="shell_left">
         <color rgba="1 0 0 0.3" />
       </material>
     </visual>
     <collision>
-      <origin xyz="0.27 0.21 0.3" rpy="0 0 0" />
+      <origin xyz="0.07 0.21 0.3" rpy="0 0 0" />
       <geometry>
-        <box size="0.35 0.1 0.3" />
+        <box size="0.75 0.1 0.3" />
       </geometry>
     </collision>
     <!-- 外壳碰撞块2 (右侧, 可视化用半透明蓝, 调整 xyz/size 后可删除 visual) -->
     <visual>
-      <origin xyz="0.27 -0.21 0.3" rpy="0 0 0" />
+      <origin xyz="0.07 -0.21 0.3" rpy="0 0 0" />
       <geometry>
-        <box size="0.5 0.1 0.3" />
+        <box size="0.75 0.1 0.3" />
       </geometry>
       <material name="shell_right">
         <color rgba="0 0 1 0.3" />
@@ -72,7 +72,23 @@
     <collision>
       <origin xyz="0.27 -0.21 0.3" rpy="0 0 0" />
       <geometry>
-        <box size="0.5 0.1 0.3" />
+        <box size="0.75 0.1 0.3" />
+      </geometry>
+    </collision>
+    <!-- 地面碰撞板 (模拟地面, 防止规划路径撞地; 轮子底面约在 z=-0.10, 调整 xyz/size 后可删除 visual) -->
+    <visual>
+      <origin xyz="0 0 -0.11" rpy="0 0 0" />
+      <geometry>
+        <box size="3 3 0.02" />
+      </geometry>
+      <material name="ground_plane">
+        <color rgba="0 1 0 0.3" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.11" rpy="0 0 0" />
+      <geometry>
+        <box size="3 3 0.02" />
       </geometry>
     </collision>
   </link>
@@ -941,7 +957,7 @@
         xyz="0.18 -0.05 0"
         rpy="0 0 0" />
       <geometry>
-        <box size="0.15 0.24 0.24" />
+        <box size="0.3 0.24 0.24" />
       </geometry>
       <material
         name="">
@@ -963,7 +979,7 @@
         xyz="0.18 -0.05 0"
         rpy="0 0 0" />
       <geometry>
-        <box size="0.15 0.24 0.24" />
+        <box size="0.3 0.24 0.24" />
       </geometry>
     </collision>
   </link>
@@ -1368,7 +1384,7 @@
         xyz="0.18 -0.05 0"
         rpy="0 0 0" />
       <geometry>
-        <box size="0.15 0.24 0.24" />
+        <box size="0.3 0.24 0.24" />
       </geometry>
       <material
         name="">
@@ -1390,7 +1406,7 @@
         xyz="0.18 -0.05 0"
         rpy="0 0 0" />
       <geometry>
-        <box size="0.15 0.24 0.24" />
+        <box size="0.3 0.24 0.24" />
       </geometry>
     </collision>
   </link>
