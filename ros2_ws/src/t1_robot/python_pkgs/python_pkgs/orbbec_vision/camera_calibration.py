@@ -766,10 +766,15 @@ def calibrate_tsai(
     else:
         # eye-to-hand: camera→target_link = camera→chessboard_0 * inv(X)
         T_cam_tgt = cHw_list[0] @ np.linalg.inv(X)
-    rpy = rotmat_to_rpy(T_cam_tgt[:3, :3])
+    # rotation 存 Rodrigues 向量 — 与运行时读取约定一致
+    # (camera_manager_node._T_from_camera_to / _publish_calibration_tfs 均按 Rodrigues 解析)。
+    # 历史版本此处存 RPY(rad), 近单位旋转时两种表示几乎相同未暴露;
+    # 大旋转 (如头部相机) 两者差可达 100°+, 且 RPY 大分量构成的向量 |rvec|>pi 时
+    # 作为 Rodrigues 解析本身非法。
+    rvec_tgt, _ = cv2.Rodrigues(T_cam_tgt[:3, :3])
 
     result = {
-        "rotation": [float(rpy[0]), float(rpy[1]), float(rpy[2])],
+        "rotation": [float(v) for v in rvec_tgt.flatten()],
         "translation": [float(T_cam_tgt[0, 3]), float(T_cam_tgt[1, 3]), float(T_cam_tgt[2, 3])],
     }
 
@@ -791,8 +796,10 @@ def calibrate_tsai(
               f"t=[{T_cam_base[0, 3]:.4f},{T_cam_base[1, 3]:.4f},{T_cam_base[2, 3]:.4f}]")
 
     print(f"\n相机 → {target_link} 变换:")
-    print(f"  rotation (rpy): [{result['rotation'][0]:.4f}, "
-          f"{result['rotation'][1]:.4f}, {result['rotation'][2]:.4f}] rad")
+    print(f"  rotation (rodrigues): [{result['rotation'][0]:.4f}, "
+          f"{result['rotation'][1]:.4f}, {result['rotation'][2]:.4f}]")
+    rpy_dbg = rotmat_to_rpy(T_cam_tgt[:3, :3])
+    print(f"  rotation (rpy, 仅显示): [{rpy_dbg[0]:.4f}, {rpy_dbg[1]:.4f}, {rpy_dbg[2]:.4f}] rad")
     print(f"  translation (m): [{result['translation'][0]:.4f}, "
           f"{result['translation'][1]:.4f}, {result['translation'][2]:.4f}]")
 

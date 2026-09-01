@@ -1421,7 +1421,7 @@ def main(args=None):
                 response.success = False
                 response.message = (f"Cannot resolve camera '{camera_id}' -> arm '{arm}' "
                                     f"transform (check position/calibration in camera_config.yaml; "
-                                    f"TF 缺失或时间戳陈旧也会被拒绝, 详见节点日志)")
+                                    f"TF 链路缺失也会失败, 详见节点日志)")
                 return response
 
             result = _qr_calibrator.calibrate(
@@ -1719,7 +1719,7 @@ def main(args=None):
                 response.success = False
                 response.message = (f"Cannot resolve camera '{camera_id}' -> {ee_link} "
                                     f"transform (check position/calibration in camera_config.yaml; "
-                                    f"TF 缺失或时间戳陈旧也会被拒绝, 详见节点日志)")
+                                    f"TF 链路缺失也会失败, 详见节点日志)")
                 return response
 
             # 从 TF 获取当前末端位姿
@@ -1937,9 +1937,12 @@ def main(args=None):
     _tf_timer = None
 
     # 帮助函数: TF lookup + 时间戳验证, 返回 4x4 变换; 陈旧/失败返回 None (原因见日志)。
-    # lookup_transform(Time()) 返回"最新可用"缓存 — 机器人停止发布 TF 后会
-    # 静默返回过期位姿 (跨相机识别两次结果大幅偏差的常见根因), 必须显式拒绝。
-    def _lookup_T(target: str, source: str, max_age: float = 1.0):
+    # lookup_transform(Time()) 返回"最新可用"缓存。
+    # 注意: robot_state_publisher 只在关节值变化时发布 TF — 机器人静止时
+    # 缓存位姿的 stamp 会持续变旧, 但位姿依然正确 (没动就不重发)。
+    # 因此 stamp 年龄只做日志记录用于诊断 (识别两次偏差大时可对比 age 判断
+    # 是否真有发布延迟), 不作为拒绝条件。
+    def _lookup_T(target: str, source: str):
         from rclpy.duration import Duration
         try:
             tf_msg = _tf_buffer.lookup_transform(target, source,
@@ -1949,7 +1952,7 @@ def main(args=None):
             logger.warning("TF lookup %s→%s failed: %s", target, source, e)
             return None
 
-        # ---- 时间戳验证: stamp 距现在的年龄 ----
+        # ---- 时间戳诊断: stamp 距现在的年龄 (仅记录, 不拒绝) ----
         age = None
         try:
             stamp = tf_msg.header.stamp
@@ -1960,13 +1963,12 @@ def main(args=None):
         except Exception:
             age = None
         if age is None:
-            logger.warning("TF %s→%s stamp 为 0/不可读 (发布方未打时间戳), 跳过时效验证",
+            logger.warning("TF %s→%s stamp 为 0/不可读 (发布方未打时间戳)",
                            target, source)
-        elif age > max_age:
-            logger.error("TF %s→%s 数据陈旧: stamp age=%.3fs > %.3fs — 用的是 %.1f 秒前的旧位姿, 拒绝 "
-                         "(检查 robot_state_publisher / 关节状态是否在发布)",
-                         target, source, age, max_age, age)
-            return None
+        elif age > 5.0:
+            # 静止关节的正常现象; 但若刚运动过 age 仍很大, 说明发布链路有延迟
+            logger.info("TF %s→%s stamp age=%.3fs (关节静止时属正常; 若刚运动过则为发布延迟)",
+                        target, source, age)
         elif age < -0.5:
             logger.warning("TF %s→%s stamp 在未来 (age=%.3fs, 时钟偏差?), 继续使用",
                            target, source, age)
@@ -2082,12 +2084,31 @@ def main(args=None):
             T_mount_tgt = _lookup_T(mount_ee_link, ee_link)
             if T_mount_tgt is None:
                 logger.error("_get_T_camera_ee: TF unavailable for cross-arm synthesis "
-                             "(mount=%s target=%s, 含时间戳陈旧拒绝, 见日志)",
+                             "(mount=%s target=%s, 见节点日志)",
                              mount_ee_link, ee_link)
                 return None
             logger.info("_get_T_camera_ee: cross-arm synthesis '%s'(%s) -> %s",
                         camera_id, mount_ee_link, ee_link)
             return T_cam_mount @ T_mount_tgt
+
+        # 2.5 头部云台相机 (position=head 且有 camera_to_tou2_Link):
+        #     相机随 pan/tilt 运动, camera→base 非常量, 不能用 camera_to_base_link;
+        #     T_cam_tgt = T_cam_tou2(config) @ TF(tou2_Link→目标臂末端)。
+        #     与跨臂分支同理, 单次相对 lookup 保证两帧同一时刻。
+        if position == "head" and calib.get("camera_to_tou2_Link"):
+            T_cam_tou2 = _T_from_camera_to(calib.get("camera_to_tou2_Link"))
+            if T_cam_tou2 is None:
+                logger.error("_get_T_camera_ee: head camera '%s' has invalid "
+                             "camera_to_tou2_Link entry", camera_id)
+                return None
+            T_tou2_tgt = _lookup_T("tou2_Link", ee_link)
+            if T_tou2_tgt is None:
+                logger.error("_get_T_camera_ee: TF unavailable for head-camera synthesis "
+                             "(tou2_Link -> %s, 见节点日志)", ee_link)
+                return None
+            logger.info("_get_T_camera_ee: head-camera synthesis '%s' via tou2_Link -> %s",
+                        camera_id, ee_link)
+            return T_cam_tou2 @ T_tou2_tgt
 
         # 3. 固定相机 (position=head 或配置了 camera_to_base_link)
         if position == "head" or calib.get("camera_to_base_link"):
