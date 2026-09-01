@@ -22,6 +22,10 @@ export ROS_DOMAIN_ID=45
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export CYCLONEDDS_URI="file://$HOME/.ros/cyclonedds_profile.xml"
 
+# 相机标定数据 (内参/手眼/场景) 与示教/工作流数据同路径存储
+# camera_manager_node 与 camera_calibration.py 均读取此变量
+export CAMERA_CONFIG_PATH="$PROJECT_ROOT/robot_control/backend/data/camera/robot_001/camera_config.yaml"
+
 # Source ROS2 install
 if [ -f "/opt/ros/humble/setup.bash" ]; then
     set +u

@@ -32,7 +32,8 @@ class CameraClientBase(ABC):
 
     @abstractmethod
     async def calibrate_qr_secondary(self, scene_id: str, source_point: str,
-                                     point_name: str) -> dict[str, Any]:
+                                     point_name: str,
+                                     arm: str = None) -> dict[str, Any]:
         ...
 
     @abstractmethod
@@ -79,9 +80,11 @@ class MockCameraClient(CameraClientBase):
                          "rotation": [0.0, 0.0, 0.0, 1.0]}}
 
     async def calibrate_qr_secondary(self, scene_id: str, source_point: str,
-                                     point_name: str) -> dict[str, Any]:
+                                     point_name: str,
+                                     arm: str = None) -> dict[str, Any]:
         return {"success": True, "message": f"mock: secondary calibrated {point_name}",
-                "data": {"translation": [0.30, -0.10, 0.18],
+                "data": {"arm": arm or "right",
+                         "translation": [0.30, -0.10, 0.18],
                          "rotation": [0.0, 0.0, 0.0, 1.0]}}
 
     async def scene_operation(self, action: str, scene_id: str = None,
@@ -95,7 +98,7 @@ class MockCameraClient(CameraClientBase):
     async def compute_target_pose(self, camera_id: str, function: str,
                                   scene_id: str, point_name: str) -> dict[str, Any]:
         return {"success": True, "message": f"mock: computed {point_name}",
-                "data": {"x": 350.0, "y": -120.0, "z": 200.0,
+                "data": {"arm": "right", "x": 350.0, "y": -120.0, "z": 200.0,
                          "roll": 180.0, "pitch": 0.0, "yaw": 90.0}}
 
 
@@ -175,19 +178,26 @@ class RealCameraClient(CameraClientBase):
         })
 
     async def calibrate_qr_secondary(self, scene_id: str, source_point: str,
-                                     point_name: str) -> dict[str, Any]:
+                                     point_name: str,
+                                     arm: str = None) -> dict[str, Any]:
         """二次标定: 用场景存储的 T_base_qr + 当前末端 TF 计算新点位。
 
         适用于相机在目标位姿看不到二维码的场景:
         先在观察位正常标定 (存储场景级 T_base_qr), 移动手臂到目标位姿后
         调用本接口计算末端到二维码的变换。前提: 主标定后底盘未移动。
+
+        arm: 目标手臂覆盖 ("left"/"right"), None 时继承 source_point。
+        头部/对侧相机观察二维码时, 可为另一只臂生成新点位。
         """
-        return await self._call("/camera/calibrate", {
+        params = {
             "mode": "secondary",
             "scene_id": scene_id,
             "source_point": source_point,
             "point_name": point_name,
-        })
+        }
+        if arm:
+            params["arm"] = arm
+        return await self._call("/camera/calibrate", params)
 
     async def scene_operation(self, action: str, scene_id: str = None,
                               params: dict = None) -> dict[str, Any]:

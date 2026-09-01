@@ -676,23 +676,47 @@ class WorkflowService:
                 logger.info("upper_limb pose: arm=%s current_ee=%s", config.arm, base_pose)
             elif pose_mode == "vision":
                 vlabel = getattr(config, "vision_step_label", None) or ""
-                # 在 context 中按 label 查找前序 vision 步骤的 target_pose
-                vision_pose = None
-                for sid, sdata in context.items():
-                    if not isinstance(sdata, dict):
-                        continue
-                    if sdata.get("_label") == vlabel and "target_pose" in sdata:
-                        vision_pose = sdata["target_pose"]
-                        break
-                if vision_pose is None:
-                    # 回退: 直接按 step_id 查
-                    for sid, sdata in context.items():
-                        if isinstance(sdata, dict) and "target_pose" in sdata:
-                            vision_pose = sdata["target_pose"]
-                            break
-                if vision_pose is None:
-                    return StepResult(step_id=step.id, success=False,
-                                      message=f"vision_step_label '{vlabel}' not found in context")
+                # 收集前序 vision 步骤结果 (context 中带 target_pose 的 dict)
+                vision_results = [
+                    (sid, sdata) for sid, sdata in context.items()
+                    if isinstance(sdata, dict) and "target_pose" in sdata
+                ]
+                if vlabel:
+                    # 按 step label 精确匹配
+                    matched = [(sid, sdata) for sid, sdata in vision_results
+                               if sdata.get("_label") == vlabel]
+                    if not matched:
+                        available = [sdata.get("_label", sid) for _, sdata in vision_results]
+                        return StepResult(
+                            step_id=step.id, success=False,
+                            message=f"vision_step_label '{vlabel}' not found; "
+                                    f"available vision steps: {available or 'none'}")
+                    sid, sdata = matched[0]
+                else:
+                    # 未指定 label: 仅允许唯一 vision 结果, 否则要求显式指定
+                    if len(vision_results) == 0:
+                        return StepResult(step_id=step.id, success=False,
+                                          message="No vision step result in context")
+                    if len(vision_results) > 1:
+                        available = [sdata.get("_label", sid) for sid, sdata in vision_results]
+                        return StepResult(
+                            step_id=step.id, success=False,
+                            message=f"Multiple vision step results {available}; "
+                                    f"specify vision_step_label for upper_limb step")
+                    sid, sdata = vision_results[0]
+
+                vision_pose = sdata["target_pose"]
+                vision_arm = sdata.get("arm", "") or ""
+                # 两臂匹配校验: vision 点位的手臂必须与本步骤的手臂一致
+                if vision_arm and vision_arm != config.arm:
+                    return StepResult(
+                        step_id=step.id, success=False,
+                        message=f"Vision step '{sdata.get('_label', sid)}' targets arm "
+                                f"'{vision_arm}' but this upper_limb step uses arm "
+                                f"'{config.arm}'; use a matching vision point or change arm")
+                if not vision_arm:
+                    logger.warning("upper_limb vision: arm metadata missing in vision result "
+                                   "(older camera node?), skipping arm validation")
                 base_pose = vision_pose
                 logger.info("upper_limb pose: arm=%s vision=%s pose=%s", config.arm, vlabel, base_pose)
             else:  # manual
@@ -774,11 +798,14 @@ class WorkflowService:
             "x": data.get("x", 0.0), "y": data.get("y", 0.0), "z": data.get("z", 0.0),
             "roll": data.get("roll", 0.0), "pitch": data.get("pitch", 0.0), "yaw": data.get("yaw", 0.0),
         }
+        # arm: 点位所属手臂 (camera_manager_node 返回), 供上肢步骤校验两臂匹配
+        vision_arm = data.get("arm", "") or ""
         pose_msg = (f"target_pose x={target_pose['x']:.4f} y={target_pose['y']:.4f} z={target_pose['z']:.4f} "
                     f"roll={target_pose['roll']:.4f} pitch={target_pose['pitch']:.4f} yaw={target_pose['yaw']:.4f}")
-        context[step.id] = {"target_pose": target_pose}
-        logger.info("Vision detection completed: %s", pose_msg)
-        return StepResult(step_id=step.id, success=True, message=pose_msg, data={"target_pose": target_pose})
+        context[step.id] = {"target_pose": target_pose, "arm": vision_arm, "_label": step.label}
+        logger.info("Vision detection completed (arm=%s): %s", vision_arm or "unknown", pose_msg)
+        return StepResult(step_id=step.id, success=True, message=pose_msg,
+                          data={"target_pose": target_pose, "arm": vision_arm})
 
     async def _execute_mixed(self, step, nav_lookup, context, robot_id) -> StepResult:
         """混合功能步骤: 调用 /mixed/execute 异步启动 + 轮询 /mixed/status。

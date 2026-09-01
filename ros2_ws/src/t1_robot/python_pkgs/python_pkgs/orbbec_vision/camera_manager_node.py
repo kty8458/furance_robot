@@ -31,12 +31,15 @@ if os.path.isdir(_SDK_LIB_DIR):
         os.environ["LD_LIBRARY_PATH"] = f"{_SDK_LIB_DIR}:{_ld}" if _ld else _SDK_LIB_DIR
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
 
 logger = logging.getLogger("orbbec_vision.camera_manager")
+
+_MODULE_DIR = Path(__file__).resolve().parent
 # 配置 orbbec_vision 命名空间下所有 logger 输出到 stderr
 _ov = logging.getLogger("orbbec_vision")
 if not _ov.handlers:
@@ -1309,18 +1312,31 @@ def main(args=None):
                 response.success = False
                 response.message = f"Source point '{source_point}' not found in scene '{scene_id}'"
                 return response
+            # arm 覆盖: 头部/对侧相机观察二维码时, 可为另一只臂生成二次标定点位
+            arm_override = params.get("arm", "")
             arm = src_point.get("arm", "right")
+            if arm_override in ("left", "right"):
+                if arm_override != arm:
+                    logger.info("secondary calib: arm override %s -> %s", arm, arm_override)
+                arm = arm_override
+            elif arm_override:
+                response.success = False
+                response.message = f"Invalid arm '{arm_override}' (expected left/right)"
+                return response
             T_base_ee_now = _get_T_base_ee(arm)
             result = _qr_calibrator.calibrate_secondary(
                 scene_id=scene_id,
                 source_point=source_point,
                 point_name=point_name,
                 T_base_ee_now=T_base_ee_now,
+                arm=arm,
             )
+            result["arm"] = arm
             response.success = result["success"]
             response.message = result["message"]
             if result["success"]:
                 response.result_json = json.dumps({
+                    "arm": arm,
                     "translation": result.get("translation", []),
                     "rotation": result.get("rotation", []),
                     "qr_ids_calibrated": result.get("qr_ids_calibrated", []),
@@ -1365,6 +1381,11 @@ def main(args=None):
                 time.sleep(0.01)
             last_ts = manager.get_frame_timestamp(camera_id)
 
+            # 调试日志: 保存标定用照片 (现场排查)
+            _calib_debug_dir = _MODULE_DIR / "data" / camera_id / "debug_calib" / datetime.now().strftime("%Y%m%d_%H%M%S")
+            _calib_debug_dir.mkdir(parents=True, exist_ok=True)
+            _calib_frames_saved = 0
+
             for _ in range(20):
                 wait_t0 = time.time()
                 while True:
@@ -1379,6 +1400,12 @@ def main(args=None):
                 frame = cf if stream_type == "color" else irf
                 if frame is not None:
                     calib_frames.append(frame)
+                    if _calib_frames_saved < 3:
+                        try:
+                            cv2.imwrite(str(_calib_debug_dir / f"frame_{_calib_frames_saved + 1:04d}_raw.png"), frame)
+                            _calib_frames_saved += 1
+                        except Exception:
+                            logger.exception("calib debug frame save failed")
             # 兼容: 优先用 qr_ids 列表; 否则用单个 qr_id
             qr_ids_param = params.get("qr_ids")
             if qr_ids_param is None:
@@ -1393,7 +1420,8 @@ def main(args=None):
             if T_camera_ee_now is None:
                 response.success = False
                 response.message = (f"Cannot resolve camera '{camera_id}' -> arm '{arm}' "
-                                    f"transform (check position/calibration in camera_config.yaml)")
+                                    f"transform (check position/calibration in camera_config.yaml; "
+                                    f"TF 缺失或时间戳陈旧也会被拒绝, 详见节点日志)")
                 return response
 
             result = _qr_calibrator.calibrate(
@@ -1417,6 +1445,27 @@ def main(args=None):
                     "qr_ids_calibrated": result.get("qr_ids_calibrated", []),
                     "T_qr_ee_per_id": result.get("T_qr_ee_per_id", {}),
                 })
+
+            # 调试日志: 标定结果 summary (成功/失败均记录)
+            try:
+                with open(_calib_debug_dir / "summary.txt", "w", encoding="utf-8") as f:
+                    f.write(f"calibrate 调试记录\n")
+                    f.write(f"时间: {datetime.now().isoformat()}\n")
+                    f.write(f"相机: {camera_id}  流: {stream_type}  手臂: {arm}\n")
+                    f.write(f"场景/点位: {params.get('scene_id', '')}/{params.get('point_name', '')}\n")
+                    f.write(f"QR 允许列表: {qr_ids_param or 'any'}  "
+                            f"marker_size={params.get('marker_size', 0.058)}\n")
+                    f.write(f"采集帧数: {len(calib_frames)}  保存原始帧: {_calib_frames_saved}\n")
+                    f.write(f"AE 曝光已应用: {ae_applied}\n")
+                    f.write(f"结果: success={result.get('success')}\n")
+                    f.write(f"消息: {result.get('message', '')}\n")
+                    if result.get("success"):
+                        for qid, pose in (result.get("T_qr_ee_per_id") or {}).items():
+                            t = pose.get("translation", [0, 0, 0])
+                            f.write(f"  qr_id={qid}: T_qr_ee t=[{t[0]:.4f},{t[1]:.4f},{t[2]:.4f}]\n")
+                logger.info("calibrate: debug logs saved to %s", _calib_debug_dir)
+            except Exception:
+                logger.exception("calibrate: debug summary write failed")
         finally:
             manager.reset_ae_if_applied(camera_id, ae_applied)
             if not was_streaming:
@@ -1585,6 +1634,11 @@ def main(args=None):
                     time.sleep(0.01)
                 last_ts = manager.get_frame_timestamp(camera_id)
 
+                # 调试日志: 保存识别用照片 (工作流视觉步骤排查)
+                _debug_dir = _MODULE_DIR / "data" / camera_id / "debug_pose" / datetime.now().strftime("%Y%m%d_%H%M%S")
+                _debug_dir.mkdir(parents=True, exist_ok=True)
+                _debug_frames_saved = 0
+
                 frames_used = 0
                 for _attempt in range(max_attempts):
                     wait_t0 = time.time()
@@ -1604,6 +1658,15 @@ def main(args=None):
                         frame = color_frame if color_frame is not None else ir_frame
                     if frame is None:
                         continue
+
+                    # 保存前 3 帧原始图 (调试日志)
+                    if _debug_frames_saved < 3:
+                        try:
+                            cv2.imwrite(str(_debug_dir / f"frame_{_debug_frames_saved + 1:04d}_raw.png"), frame)
+                            _debug_frames_saved += 1
+                        except Exception:
+                            logger.exception("debug frame save failed")
+
                     results = detector.detect(frame, marker_size)
                     for r in results:
                         # 允许列表为空 = 通配; 且 QR 必须有标定数据
@@ -1622,6 +1685,19 @@ def main(args=None):
                 if not per_id_obs:
                     response.success = False
                     response.message = f"No allowed QR detected (allowed={qr_ids_allowed or 'any'})"
+                    # 调试日志: 失败时也记录 (最常需要排查的场景)
+                    try:
+                        with open(_debug_dir / "summary.txt", "w", encoding="utf-8") as f:
+                            f.write(f"compute_pose 调试记录 (FAILED)\n")
+                            f.write(f"时间: {datetime.now().isoformat()}\n")
+                            f.write(f"相机: {camera_id}  流: {point_stream_type}\n")
+                            f.write(f"场景/点位: {scene_id}/{point_name}\n")
+                            f.write(f"QR 允许列表: {qr_ids_allowed or 'any'}  marker_size={marker_size}\n")
+                            f.write(f"采集帧数: {frames_used}  保存原始帧: {_debug_frames_saved}\n")
+                            f.write(f"失败原因: {response.message}\n")
+                        logger.info("compute_pose: failure debug logs saved to %s", _debug_dir)
+                    except Exception:
+                        logger.exception("compute_pose: failure debug summary write failed")
                     return response
             finally:
                 manager.reset_ae_if_applied(camera_id, ae_applied)
@@ -1642,14 +1718,15 @@ def main(args=None):
             if T_cam_ee is None:
                 response.success = False
                 response.message = (f"Cannot resolve camera '{camera_id}' -> {ee_link} "
-                                    f"transform (check position/calibration in camera_config.yaml)")
+                                    f"transform (check position/calibration in camera_config.yaml; "
+                                    f"TF 缺失或时间戳陈旧也会被拒绝, 详见节点日志)")
                 return response
 
             # 从 TF 获取当前末端位姿
             T_base_ee_now = _get_T_base_ee(arm)
             if T_base_ee_now is None:
                 response.success = False
-                response.message = f"TF not available for arm={arm}"
+                response.message = f"TF not available or stale for arm={arm} (见节点日志)"
                 return response
 
             # 对每个 QR 各自算 T_base_ee_target_i
@@ -1660,6 +1737,11 @@ def main(args=None):
                 [ 0, -1,  0],
             ], dtype=np.float64)
             T_link_optical = np.eye(4); T_link_optical[:3, :3] = R_link_optical
+
+            # 场景存储的 T_base_qr (漂移诊断用): QR 固定时, 当前观察算出的
+            # T_base_qr 应与标定时存的值一致; 偏差 = 观察链路 (手眼⊕URDF⊕TF)
+            # 在当前位姿下的系统性不一致度 (TF 陈旧已被时间戳验证拒绝)
+            stored_base_qr = _scene_manager.get_base_qr_transforms(scene_id) or {}
 
             candidates: list[dict] = []  # [{qr_id, t (3,), q (4,) xyzw, weight}]
             for qid, obs in per_id_obs.items():
@@ -1693,6 +1775,27 @@ def main(args=None):
                 T_ee_qr_i = np.linalg.inv(T_cam_ee) @ T_cam_qr_i
                 T_base_qr_i = T_base_ee_now @ T_ee_qr_i
                 T_target_i = T_base_qr_i @ T_qr_ee_mat
+
+                # 漂移诊断: 当前算出的 T_base_qr vs 标定时存储值 (QR 固定时
+                # 理论上应一致)。旋转角/平移直接量化观察链路的不一致度,
+                # 用于区分系统性误差 (手眼/URDF) 与偶发 TF 问题。
+                sbq = stored_base_qr.get(str(qid))
+                if sbq:
+                    try:
+                        qx_s, qy_s, qz_s, qw_s = sbq.get("rotation", [0,0,0,1])
+                        R_s = np.array([
+                            [1-2*(qy_s*qy_s+qz_s*qz_s), 2*(qx_s*qy_s-qz_s*qw_s), 2*(qx_s*qz_s+qy_s*qw_s)],
+                            [2*(qx_s*qy_s+qz_s*qw_s), 1-2*(qx_s*qx_s+qz_s*qz_s), 2*(qy_s*qz_s-qx_s*qw_s)],
+                            [2*(qx_s*qz_s-qy_s*qw_s), 2*(qy_s*qz_s+qx_s*qw_s), 1-2*(qx_s*qx_s+qy_s*qy_s)]])
+                        T_s = np.eye(4); T_s[:3,:3] = R_s; T_s[:3,3] = sbq.get("translation", [0,0,0])
+                        D_drift = np.linalg.inv(T_s) @ T_base_qr_i
+                        rot_d = np.degrees(np.arccos(np.clip((np.trace(D_drift[:3,:3])-1)/2, -1.0, 1.0)))
+                        trans_d = float(np.linalg.norm(D_drift[:3, 3]) * 1000)
+                        logger.info("compute_pose: QR id=%d T_base_qr drift vs stored: "
+                                    "rot=%.3fdeg trans=%.1fmm (QR固定时应≈0; 偏差大=观察链路系统性误差)",
+                                    qid, rot_d, trans_d)
+                    except Exception:
+                        logger.exception("compute_pose: T_base_qr drift calc failed (qr=%s)", qid)
 
                 # 提取 translation + quaternion (xyzw)
                 t_i = T_target_i[:3, 3].copy()
@@ -1784,11 +1887,36 @@ def main(args=None):
             response.success = True
             response.message = "Computed"
             response.result_json = json.dumps({
+                # arm: 点位所属手臂, 供 workflow 上肢步骤校验两臂匹配
+                "arm": point.get("arm", ""),
                 "x": x_mm, "y": y_mm, "z": z_mm,
                 "roll": roll_deg, "pitch": pitch_deg, "yaw": yaw_deg,
             })
             logger.info("compute_pose: fused %d QRs (weights=%s)",
                         len(candidates), [f"{w:.2f}" for w in ws_arr])
+
+            # 调试日志: summary (每次识别的参数 + 每帧检测结果 + 融合输出)
+            try:
+                with open(_debug_dir / "summary.txt", "w", encoding="utf-8") as f:
+                    f.write(f"compute_pose 调试记录\n")
+                    f.write(f"时间: {datetime.now().isoformat()}\n")
+                    f.write(f"相机: {camera_id}  流: {point_stream_type}\n")
+                    f.write(f"场景/点位: {scene_id}/{point_name}\n")
+                    f.write(f"QR 允许列表: {qr_ids_allowed or 'any'}  marker_size={marker_size}\n")
+                    f.write(f"采集帧数: {frames_used}  保存原始帧: {_debug_frames_saved}\n")
+                    f.write(f"各 QR 观测:\n")
+                    for qid, obs in per_id_obs.items():
+                        f.write(f"  qr_id={qid}: {len(obs)} 次观测, 平均面积="
+                                f"{np.mean([o[2] for o in obs]):.0f}\n")
+                    f.write(f"融合候选 ({len(candidates)} 个):\n")
+                    for c in candidates:
+                        f.write(f"  qr_id={c['qr_id']}: t=[{c['t'][0]:.4f},{c['t'][1]:.4f},{c['t'][2]:.4f}] "
+                                f"weight={c['weight']:.0f}\n")
+                    f.write(f"输出 (mm/deg): x={x_mm:.2f} y={y_mm:.2f} z={z_mm:.2f} "
+                            f"roll={roll_deg:.2f} pitch={pitch_deg:.2f} yaw={yaw_deg:.2f}\n")
+                logger.info("compute_pose: debug logs saved to %s", _debug_dir)
+            except Exception:
+                logger.exception("compute_pose: debug summary write failed")
             logger.info("compute_pose: result T_base_ee_target → xyz(m)=[%.4f,%.4f,%.4f] rpy(rad)=[%.4f,%.4f,%.4f]",
                         x, y, z, roll, pitch, yaw)
             logger.info("compute_pose: output (mm+deg) → xyz=[%.2f,%.2f,%.2f] rpy=[%.2f,%.2f,%.2f]",
@@ -1808,44 +1936,74 @@ def main(args=None):
     _tf_listener = tf2_ros.TransformListener(_tf_buffer, node)
     _tf_timer = None
 
-    # 帮助函数: 从 TF 获取 base_link → ee_link 的 4x4 变换
-    def _get_T_base_ee(arm: str):
-        import numpy as np
+    # 帮助函数: TF lookup + 时间戳验证, 返回 4x4 变换; 陈旧/失败返回 None (原因见日志)。
+    # lookup_transform(Time()) 返回"最新可用"缓存 — 机器人停止发布 TF 后会
+    # 静默返回过期位姿 (跨相机识别两次结果大幅偏差的常见根因), 必须显式拒绝。
+    def _lookup_T(target: str, source: str, max_age: float = 1.0):
         from rclpy.duration import Duration
-        arm_letter = arm[0].upper() if arm else "R"
-        ee_link = f"ARM-{arm_letter}-J7_Link"
         try:
-            tf_msg = _tf_buffer.lookup_transform("base_link", ee_link,
+            tf_msg = _tf_buffer.lookup_transform(target, source,
                                                  rclpy.time.Time(),
                                                  timeout=Duration(seconds=1.0))
-            t = tf_msg.transform.translation
-            q = tf_msg.transform.rotation
-            qx, qy, qz, qw = q.x, q.y, q.z, q.w
-            R = np.array([
-                [1-2*qy*qy-2*qz*qz, 2*qx*qy-2*qz*qw, 2*qx*qz+2*qy*qw],
-                [2*qx*qy+2*qz*qw, 1-2*qx*qx-2*qz*qz, 2*qy*qz-2*qx*qw],
-                [2*qx*qz-2*qy*qw, 2*qy*qz+2*qx*qw, 1-2*qx*qx-2*qy*qy],
-            ])
-            T = np.eye(4)
-            T[:3, :3] = R
-            T[:3, 3] = [t.x, t.y, t.z]
-            # 旋转矩阵 → xyz 欧拉角 (deg)
-            sy = np.sqrt(R[0, 0] ** 2 + R[1, 0] ** 2)
-            singular = sy < 1e-6
-            if not singular:
-                roll = float(np.degrees(np.arctan2(R[2, 1], R[2, 2])))
-                pitch = float(np.degrees(np.arctan2(-R[2, 0], sy)))
-                yaw = float(np.degrees(np.arctan2(R[1, 0], R[0, 0])))
-            else:
-                roll = float(np.degrees(np.arctan2(-R[1, 2], R[1, 1])))
-                pitch = float(np.degrees(np.arctan2(-R[2, 0], sy)))
-                yaw = 0.0
-            logger.info("TF lookup base_link→%s: trans=[%.4f, %.4f, %.4f] rpy(deg)=[%.2f, %.2f, %.2f] quat(xyzw)=[%.4f, %.4f, %.4f, %.4f]",
-                        ee_link, t.x, t.y, t.z, roll, pitch, yaw, qx, qy, qz, qw)
-            return T
         except Exception as e:
-            logger.warning("TF lookup base_link→%s failed: %s", ee_link, e)
+            logger.warning("TF lookup %s→%s failed: %s", target, source, e)
             return None
+
+        # ---- 时间戳验证: stamp 距现在的年龄 ----
+        age = None
+        try:
+            stamp = tf_msg.header.stamp
+            sec = stamp.sec + stamp.nanosec * 1e-9
+            now = node.get_clock().now().nanoseconds * 1e-9
+            if sec > 0:
+                age = now - sec
+        except Exception:
+            age = None
+        if age is None:
+            logger.warning("TF %s→%s stamp 为 0/不可读 (发布方未打时间戳), 跳过时效验证",
+                           target, source)
+        elif age > max_age:
+            logger.error("TF %s→%s 数据陈旧: stamp age=%.3fs > %.3fs — 用的是 %.1f 秒前的旧位姿, 拒绝 "
+                         "(检查 robot_state_publisher / 关节状态是否在发布)",
+                         target, source, age, max_age, age)
+            return None
+        elif age < -0.5:
+            logger.warning("TF %s→%s stamp 在未来 (age=%.3fs, 时钟偏差?), 继续使用",
+                           target, source, age)
+
+        t = tf_msg.transform.translation
+        q = tf_msg.transform.rotation
+        qx, qy, qz, qw = q.x, q.y, q.z, q.w
+        R = np.array([
+            [1-2*qy*qy-2*qz*qz, 2*qx*qy-2*qz*qw, 2*qx*qz+2*qy*qw],
+            [2*qx*qy+2*qz*qw, 1-2*qx*qx-2*qz*qz, 2*qy*qz-2*qx*qw],
+            [2*qx*qz-2*qy*qw, 2*qy*qz+2*qx*qw, 1-2*qx*qx-2*qy*qy],
+        ])
+        T = np.eye(4)
+        T[:3, :3] = R
+        T[:3, 3] = [t.x, t.y, t.z]
+        # 旋转矩阵 → xyz 欧拉角 (deg)
+        sy = np.sqrt(R[0, 0] ** 2 + R[1, 0] ** 2)
+        singular = sy < 1e-6
+        if not singular:
+            roll = float(np.degrees(np.arctan2(R[2, 1], R[2, 2])))
+            pitch = float(np.degrees(np.arctan2(-R[2, 0], sy)))
+            yaw = float(np.degrees(np.arctan2(R[1, 0], R[0, 0])))
+        else:
+            roll = float(np.degrees(np.arctan2(-R[1, 2], R[1, 1])))
+            pitch = float(np.degrees(np.arctan2(-R[2, 0], sy)))
+            yaw = 0.0
+        logger.info("TF %s→%s (age=%s): trans=[%.4f, %.4f, %.4f] rpy(deg)=[%.2f, %.2f, %.2f] quat(xyzw)=[%.4f, %.4f, %.4f, %.4f]",
+                    target, source,
+                    f"{age:.3f}s" if age is not None else "n/a",
+                    t.x, t.y, t.z, roll, pitch, yaw, qx, qy, qz, qw)
+        return T
+
+    # 帮助函数: 从 TF 获取 base_link → ee_link 的 4x4 变换
+    def _get_T_base_ee(arm: str):
+        arm_letter = arm[0].upper() if arm else "R"
+        ee_link = f"ARM-{arm_letter}-J7_Link"
+        return _lookup_T("base_link", ee_link)
 
     def _T_from_camera_to(pose: dict):
         """config 中 camera_to_* 条目 {rotation, translation} -> 4x4 矩阵。
@@ -1918,15 +2076,18 @@ def main(args=None):
                              "(先完成该相机的 eye-in-hand 手眼标定)",
                              camera_id, mount_arm, mount_ee_link)
                 return None
-            T_base_mount = _get_T_base_ee(mount_arm)
-            T_base_tgt = _get_T_base_ee(arm)
-            if T_base_mount is None or T_base_tgt is None:
+            # 单次相对 lookup (mount_ee → target_ee): tf2 按链上公共时刻求值,
+            # 两臂位姿保证同一时刻。分开查 base→mount / base→target 会各取
+            # latest, 手臂运动中两者时刻不一致会给合成引入误差。
+            T_mount_tgt = _lookup_T(mount_ee_link, ee_link)
+            if T_mount_tgt is None:
                 logger.error("_get_T_camera_ee: TF unavailable for cross-arm synthesis "
-                             "(mount=%s target=%s)", mount_ee_link, ee_link)
+                             "(mount=%s target=%s, 含时间戳陈旧拒绝, 见日志)",
+                             mount_ee_link, ee_link)
                 return None
             logger.info("_get_T_camera_ee: cross-arm synthesis '%s'(%s) -> %s",
                         camera_id, mount_ee_link, ee_link)
-            return T_cam_mount @ np.linalg.inv(T_base_mount) @ T_base_tgt
+            return T_cam_mount @ T_mount_tgt
 
         # 3. 固定相机 (position=head 或配置了 camera_to_base_link)
         if position == "head" or calib.get("camera_to_base_link"):

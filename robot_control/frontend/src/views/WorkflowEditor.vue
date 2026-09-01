@@ -424,13 +424,15 @@
                           @visible-change="v => v && step.config.scene && loadScenePoints(step.config.scene)">
                           <el-option v-for="p in (scenePoints[step.config.scene] || [])"
                             :key="p.name || p"
-                            :label="p.calib_type === 'secondary' ? `${p.name || p} (二次)` : (p.name || p)"
+                            :label="pointOptionLabel(p)"
                             :value="p.name || p" />
                         </el-select>
                       </el-col>
                     </el-row>
                     <div style="font-size: 10px; color: #6b7b8d; margin-top: 4px">
-                      输出: target_pose — 后续坐标模式用「关联视觉」引用
+                      输出: target_pose — 后续坐标模式用「关联视觉」引用<template v-if="visionPointArm(step)">
+                        | 点位手臂: {{ visionPointArm(step) === 'left' ? '左臂' : '右臂' }} (上肢步骤需匹配)
+                      </template>
                     </div>
                   </template>
 
@@ -798,6 +800,20 @@ async function loadScenePoints(sceneId) {
       calib_type: p.calib_type || 'primary',
     }))
   } catch { scenePoints.value[sceneId] = [] }
+}
+
+// 点位下拉选项文案: 名称 + 二次标定/手臂标记
+function pointOptionLabel(p) {
+  let label = p.name || p
+  if (p.calib_type === 'secondary') label += ' (二次)'
+  if (p.arm) label += p.arm === 'left' ? ' [左]' : ' [右]'
+  return label
+}
+
+// 视觉步骤当前选中点位的手臂 ('' 表示未知/未选)
+function visionPointArm(step) {
+  const p = (scenePoints.value[step.config.scene] || []).find(pp => (pp.name || pp) === step.config.point_name)
+  return p?.arm || ''
 }
 
 async function refreshSceneList() {

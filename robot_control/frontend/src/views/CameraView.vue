@@ -248,7 +248,7 @@
 
             <el-row :gutter="8">
               <el-col :span="12">
-                <div class="field-label" style="font-size: 10px">手臂</div>
+                <div class="field-label" style="font-size: 10px">目标手臂</div>
                 <el-select v-model="calibArm" size="small" style="width: 100%">
                   <el-option label="左臂" value="left" />
                   <el-option label="右臂" value="right" />
@@ -305,7 +305,17 @@
             <div style="font-size: 10px; color: #6b7b8d; margin: 4px 0 6px">
               前提: 该场景已在观察位完成正常标定且底盘未移动。将手臂移动到目标位姿后,
               以当前选中点位为来源, 用已存储的 baselink->QR 变换和当前末端位姿计算新点位。
+              更改目标手臂可跨臂生成点位 (如头部相机观察二维码时标定另一只臂)。
             </div>
+            <el-row :gutter="8" style="margin-bottom: 6px">
+              <el-col :span="12">
+                <div class="field-label" style="font-size: 10px">目标手臂</div>
+                <el-select v-model="secArm" size="small" style="width: 100%">
+                  <el-option label="左臂" value="left" />
+                  <el-option label="右臂" value="right" />
+                </el-select>
+              </el-col>
+            </el-row>
             <el-row :gutter="8">
               <el-col :span="14">
                 <el-input v-model="secNewPointName" placeholder="新点位名称" size="small" />
@@ -318,7 +328,7 @@
               </el-col>
             </el-row>
             <div v-if="secCalibResult" class="detect-result" style="margin-top: 10px">
-              <div class="detect-title">二次标定结果 - {{ secCalibResult.point_name }}</div>
+              <div class="detect-title">二次标定结果 - {{ secCalibResult.point_name }}{{ secCalibResult.arm ? ` (${secCalibResult.arm === 'left' ? '左臂' : '右臂'})` : '' }}</div>
               <el-row :gutter="4" style="margin-bottom: 4px">
                 <el-col :span="4" v-for="f in ['x','y','z','roll','pitch','yaw']" :key="'scr_'+f">
                   <div class="field-label" style="font-size: 9px; text-align: center">{{ f }}</div>
@@ -513,6 +523,8 @@ const calibResult = ref(null)
 const secNewPointName = ref('')
 const secCalibrating = ref(false)
 const secCalibResult = ref(null)
+// 二次标定目标手臂: 默认随来源点位, 可切换为另一只臂 (跨相机场景)
+const secArm = ref('right')
 
 // ---- 拍照 & 照片集 ----
 // 场景/照片集选择 (从全局缓存恢复)
@@ -801,6 +813,7 @@ function onCalibPointChange(pointName) {
   if (p) {
     calibCameraId.value = p.camera_id || cameras.value.find(c => c.connected)?.id || ''
     calibArm.value = p.arm || 'right'
+    secArm.value = p.arm || 'right'
     calibQrIds.value = (p.qr_ids || []).join(',')
     calibMarkerSize.value = p.marker_size || 0.058
     calibStreamType.value = p.stream_type || 'color'
@@ -866,6 +879,7 @@ async function runSecondaryCalibration() {
       scene_id: calibSceneId.value,
       source_point: calibPointName.value,
       point_name: secNewPointName.value,
+      arm: secArm.value,
     })
     secCalibResult.value = res.data || res
     secCalibResult.value.point_name = secNewPointName.value

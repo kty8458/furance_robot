@@ -2,7 +2,8 @@
 
 流程:
   1. QRDetector 检测所有 QR (允许列表过滤)
-  2. config 读取 T_camera_ee
+  2. 获取 T_camera_ee: 调用方传入 TF 合成的当前值 (跨相机场景),
+     或从 config 读取 eye-in-hand 常量
   3. 对每个检测到的 QR 多帧平均 → T_camera_qr_i
   4. T_qr_i_ee = inv(T_camera_qr_i) * T_camera_ee
   5. 存储 {qr_ids, T_qr_ee_per_id: {qr_id: T_qr_ee}}
@@ -129,7 +130,8 @@ class QRCalibrator:
                   marker_size: float, point_name: str, scene_id: str,
                   stream_type: str = "color",
                   frames: Optional[list[np.ndarray]] = None,
-                  T_base_ee: Optional[np.ndarray] = None) -> dict:
+                  T_base_ee: Optional[np.ndarray] = None,
+                  T_camera_ee: Optional[np.ndarray] = None) -> dict:
         """
         多 QR 标定：为每个允许的 QR 独立计算 T_qr_ee 并存入字典。
 
@@ -142,6 +144,11 @@ class QRCalibrator:
             scene_id: 场景 ID
             stream_type: "color" / "ir"
             frames: 帧列表 (BGR 或灰度)
+            T_base_ee: 采集时刻的 base->ee (由调用方从 TF 获取)
+            T_camera_ee: 采集时刻的 camera->ee 4x4 变换。跨相机标定
+                (相机不在被标定臂上) 时由调用方用 TF 链合成传入;
+                None 时退回从 config 读取常量 (仅适用于相机装在
+                被标定臂上的 eye-in-hand 场景)。
 
         Returns:
             {success, message, T_qr_ee_per_id, qr_ids_calibrated}
@@ -175,21 +182,26 @@ class QRCalibrator:
             return {"success": False,
                     "message": f"No allowed QR detected. allowed={qr_ids or 'any'} actually_detected={detected_str}"}
 
-        # 2. 获取 T_camera_ee
-        cfg = self._camera_configs.get(camera_id, {})
-        calib = cfg.get("calibration", {})
-        arm_letter = arm[0].upper() if arm else "R"
-        ee_link = f"ARM-{arm_letter}-J7_Link"
-        cam_to_ee = calib.get(f"camera_to_{ee_link}", {})
-        if not cam_to_ee.get("translation"):
-            return {"success": False, "message": f"No camera_to_ee calibration for {camera_id} → {ee_link}"}
-        R_cam_ee, _ = cv2.Rodrigues(np.array(cam_to_ee["rotation"], dtype=np.float64))
-        trans_m = np.array(cam_to_ee["translation"], dtype=np.float64)
-        for i in range(3):
-            if abs(trans_m[i]) > 10:
-                trans_m[i] /= 1000.0
-        T_camera_ee = _make_transform(R_cam_ee, trans_m)
-        logger.info("calibrate: T_camera_ee (from config)=\n%s", T_camera_ee)
+        # 2. 获取 T_camera_ee: 优先用调用方 TF 合成的当前值 (跨相机场景),
+        #    否则从 config 读取 eye-in-hand 常量
+        if T_camera_ee is not None:
+            T_camera_ee_mat = T_camera_ee
+            logger.info("calibrate: T_camera_ee (caller-provided, cross-camera)=\n%s", T_camera_ee_mat)
+        else:
+            cfg = self._camera_configs.get(camera_id, {})
+            calib = cfg.get("calibration", {})
+            arm_letter = arm[0].upper() if arm else "R"
+            ee_link = f"ARM-{arm_letter}-J7_Link"
+            cam_to_ee = calib.get(f"camera_to_{ee_link}", {})
+            if not cam_to_ee.get("translation"):
+                return {"success": False, "message": f"No camera_to_ee calibration for {camera_id} → {ee_link}"}
+            R_cam_ee, _ = cv2.Rodrigues(np.array(cam_to_ee["rotation"], dtype=np.float64))
+            trans_m = np.array(cam_to_ee["translation"], dtype=np.float64)
+            for i in range(3):
+                if abs(trans_m[i]) > 10:
+                    trans_m[i] /= 1000.0
+            T_camera_ee_mat = _make_transform(R_cam_ee, trans_m)
+            logger.info("calibrate: T_camera_ee (from config)=\n%s", T_camera_ee_mat)
 
         # 3. 每个 QR 独立平均 → T_qr_ee_i
         # OpenCV 光学系(X右/Y下/Z前) → ROS link 约定(X前/Y左/Z上)
@@ -212,12 +224,12 @@ class QRCalibrator:
             T_camera_qr_optical = _make_transform(R_cam_qr, avg_tvec)
             # 光学系 → link 约定
             T_camera_qr = T_link_optical @ T_camera_qr_optical
-            T_qr_ee = np.linalg.inv(T_camera_qr) @ T_camera_ee
+            T_qr_ee = np.linalg.inv(T_camera_qr) @ T_camera_ee_mat
             t, r = _matrix_to_pose(T_qr_ee)
             T_qr_ee_per_id[str(qid)] = {"translation": t, "rotation": r}
             # 场景级 baselink->QR 变换 (供二次标定): T_base_qr = T_base_ee @ inv(T_camera_ee) @ T_camera_qr
             if T_base_ee is not None:
-                T_base_qr = T_base_ee @ np.linalg.inv(T_camera_ee) @ T_camera_qr
+                T_base_qr = T_base_ee @ np.linalg.inv(T_camera_ee_mat) @ T_camera_qr
                 tb, rb = _matrix_to_pose(T_base_qr)
                 T_base_qr_per_id[str(qid)] = {"translation": tb, "rotation": rb}
             logger.info("calibrate: QR id=%d (%d frames) → T_qr_ee t=%s r=%s",
@@ -265,21 +277,24 @@ class QRCalibrator:
         }
 
     def calibrate_secondary(self, scene_id: str, source_point: str, point_name: str,
-                            T_base_ee_now: np.ndarray) -> dict:
+                            T_base_ee_now: np.ndarray,
+                            arm: Optional[str] = None) -> dict:
         """二次标定: 在相机看不到二维码的位置, 用已存储的 T_base_qr 计算新点位。
 
         前提: 该场景已完成一次正常标定 (存储了场景级 T_base_qr_per_id),
         且主标定后底盘未移动 (T_base_qr 依赖底盘位置)。
 
         数学: T_qr_ee_new = inv(T_base_qr_stored) @ T_base_ee_now
-        新点位参数 (arm/marker_size/stream_type/qr_ids) 继承自 source_point。
+        marker_size/stream_type/qr_ids 继承自 source_point;
+        arm 默认继承 source_point, 传入 "left"/"right" 时覆盖 —
+        用于头部/对侧相机观察二维码时为另一只臂生成新点位。
 
         Returns:
             {success, message, translation, rotation, qr_ids_calibrated, T_qr_ee_per_id}
         """
         t0 = time.time()
-        logger.info("calibrate_secondary: scene=%s source=%s point=%s",
-                    scene_id, source_point, point_name)
+        logger.info("calibrate_secondary: scene=%s source=%s point=%s arm_override=%s",
+                    scene_id, source_point, point_name, arm)
 
         if T_base_ee_now is None:
             return {"success": False, "message": "TF lookup failed: base_link to ee_link"}
@@ -313,12 +328,17 @@ class QRCalibrator:
         if not T_qr_ee_per_id:
             return {"success": False, "message": "No valid stored T_base_qr to compute from"}
 
-        # 4. 存储 (calib_type=secondary, 继承源点位参数)
+        # 4. 存储 (calib_type=secondary, 继承源点位参数; arm 可被调用方覆盖)
+        stored_arm = src_point.get("arm", "right")
+        if arm in ("left", "right"):
+            if arm != stored_arm:
+                logger.info("calibrate_secondary: arm override %s -> %s", stored_arm, arm)
+            stored_arm = arm
         calibrated_ids = [int(k) for k in T_qr_ee_per_id.keys()]
         ok = self._scene.add_point(
             scene_id=scene_id,
             name=point_name,
-            arm=src_point.get("arm", "right"),
+            arm=stored_arm,
             marker_size=src_point.get("marker_size", 0.058),
             stream_type=src_point.get("stream_type", "color"),
             qr_ids=src_point.get("qr_ids", calibrated_ids),

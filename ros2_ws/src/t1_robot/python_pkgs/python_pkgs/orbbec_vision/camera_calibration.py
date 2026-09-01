@@ -524,6 +524,7 @@ def _collect_frames_with_tf(pipeline, chessboard_size, square_size, num_frames,
         f.write(f"# TF: {base_link} → {target_link}\n")
         f.write(f"# 格式: frame_index | timestamp | "
                 f"tf_tx tf_ty tf_tz tf_qx tf_qy tf_qz tf_qw | "
+                f"pose6d_tx ty tz rpy_deg_rx ry rz | tf_stamp | "
                 f"joint_name1=pos1 joint_name2=pos2 ...\n")
         f.write(f"{'=' * 80}\n")
 
@@ -648,13 +649,23 @@ def _collect_frames_with_tf(pipeline, chessboard_size, square_size, num_frames,
             cv2.imwrite(str(raw_path), img)
             cv2.imwrite(str(anno_path), display)
 
-            # 写入 records.txt
+            # 写入 records.txt (四元数 + 6D pose + TF 时间戳)
             ts = datetime.now().isoformat()
             tf_line = (f"{t_t.x:.6f} {t_t.y:.6f} {t_t.z:.6f} "
                        f"{t_r.x:.6f} {t_r.y:.6f} {t_r.z:.6f} {t_r.w:.6f}")
+            rpy_save = rotmat_to_rpy(tf_pose[:3, :3])
+            pose6d_line = (f"{t_t.x:.6f} {t_t.y:.6f} {t_t.z:.6f} "
+                           f"{np.degrees(rpy_save[0]):.3f} "
+                           f"{np.degrees(rpy_save[1]):.3f} "
+                           f"{np.degrees(rpy_save[2]):.3f}")
+            stamp = t_stamped.header.stamp
+            stamp_line = f"{stamp.sec}.{stamp.nanosec:09d}"
+            tf_age = node.get_clock().now().nanoseconds / 1e9 - (stamp.sec + stamp.nanosec / 1e9)
+            if tf_age > 1.0:
+                print(f"  警告: TF 时间戳滞后 {tf_age:.2f}s (可能为旧位姿, 建议等臂静止后再保存)")
             joint_line = " ".join(f"{k}={v:.6f}" for k, v in sorted(_joint_state.items()))
             with open(records_path, "a") as f:
-                f.write(f"{idx_str} | {ts} | {tf_line} | {joint_line}\n")
+                f.write(f"{idx_str} | {ts} | {tf_line} | {pose6d_line} | {stamp_line} | {joint_line}\n")
 
             obj_points.append(objp)
             img_points.append(corners2)
@@ -665,6 +676,7 @@ def _collect_frames_with_tf(pipeline, chessboard_size, square_size, num_frames,
             print(f"  [{captured}/{num_frames}] "
                   f"t=[{tf_pose[0,3]:.3f},{tf_pose[1,3]:.3f},{tf_pose[2,3]:.3f}] "
                   f"rpy=[{np.degrees(rpy[0]):.1f},{np.degrees(rpy[1]):.1f},{np.degrees(rpy[2]):.1f}]deg "
+                  f"tf_age={tf_age:.2f}s "
                   f"-> {raw_path.name}")
         elif key == ord("s") and ret and tf_pose is None:
             print(f"  skip: TF unavailable ({base_link}->{target_link})")
@@ -853,20 +865,23 @@ def main():
                         help="eye-to-hand: 固定相机棋盘格在臂上; "
                              "eye-in-hand: 相机在臂上棋盘格固定在世界")
     parser.add_argument("--frames", type=int, default=20)
-    parser.add_argument("--config", default=str(_DEFAULT_CONFIG))
+    parser.add_argument("--config",
+                        default=os.environ.get("CAMERA_CONFIG_PATH", str(_DEFAULT_CONFIG)),
+                        help="camera_config.yaml 路径 (默认: CAMERA_CONFIG_PATH 环境变量, "
+                             "未设置时用脚本同目录)")
     args = parser.parse_args()
 
     w, h = map(int, args.chessboard.split("x"))
     chessboard_size = (w, h)
 
-    # ---- 匹配设备 (serial > config serial > config uid) ----
-    device, device_info = _find_device(args.camera, args.serial)
+    # ---- 匹配设备 (serial > config serial > config uid > config usb_port) ----
+    device, device_info = _find_device(args.camera, args.serial, config_path=Path(args.config))
     if device is None:
         sys.exit(1)
 
     # 自动回写 serial 到 config (如果之前只配了 uid 没有 serial)
     actual_serial = device_info.get_serial_number()
-    cfg = _load_camera_config(args.camera)
+    cfg = _load_camera_config(args.camera, config_path=Path(args.config))
     if not cfg.get("serial") and actual_serial:
         _update_config_serial(args.camera, actual_serial, args.config)
         print(f"已自动记录 serial: {actual_serial}")
