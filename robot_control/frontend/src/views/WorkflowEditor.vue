@@ -390,7 +390,10 @@
                     <el-row :gutter="8" style="margin-bottom: 6px">
                       <el-col :span="12">
                         <div style="font-size: 11px; color: #6b7b8d">相机</div>
-                        <el-select v-model="step.config.camera_id" size="small" style="width: 100%">
+                        <el-select v-model="step.config.camera_id" size="small" style="width: 100%"
+                          @visible-change="v => v && loadCameraList()">
+                          <el-option v-if="cameraList.length === 0" disabled
+                            label="无可用相机 (节点可能未就绪，关闭再打开重试)" value="" />
                           <el-option
                             v-for="cam in cameraList"
                             :key="cam.id"
@@ -778,6 +781,7 @@ async function loadCameraList() {
     cameraList.value = res.data || []
   } catch {
     cameraList.value = []
+    ElMessage.warning('获取相机列表失败 (相机节点可能未就绪)，重新打开下拉框可重试')
   }
 }
 
