@@ -101,11 +101,11 @@ class RealArmController(Node):
             return list(self._left_current), list(self._right_current)
 
     def _send_move(self, left_rad, right_rad):
-        """阻塞调用 /move_joint_positions."""
-        if not self._move_client.service_is_ready():
-            if not self._move_client.wait_for_service(timeout_sec=2.0):
-                self.get_logger().warn("/move_joint_positions service unavailable")
-                return False
+        # """阻塞调用 /move_joint_positions."""
+        # if not self._move_client.service_is_ready():
+        #     if not self._move_client.wait_for_service(timeout_sec=2.0):
+        #         self.get_logger().warn("/move_joint_positions service unavailable")
+        #         return False
 
         req = MoveToJointPositions.Request()
         req.left_joints = [float(math.degrees(a)) for a in left_rad]
@@ -190,24 +190,24 @@ class RealArmController(Node):
                 f"Waypoint {point_idx + 1}/{len(trajectory.points)}")
             self._send_move(left_target, right_target)
 
-            # 等待机械臂实际到位（最后一帧也等待，确保最终位姿准确）
-            if not self._wait_for_position(left_target, right_target):
-                if self._cancelled:
-                    result.error_code = FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
-                    goal_handle.canceled()
-                    self.get_logger().warn(f"{arm_side} arm canceled while waiting for position.")
-                    return result
-                # 超时未到位 — 必须 abort，否则 MoveIt 会立即发下一条 trajectory
-                # 导致起始点偏离过大而 ABORTED。
-                left_now, right_now = self._snapshot_current()
-                self.get_logger().error(
-                    f"{arm_side} arm waypoint {point_idx + 1} timeout, aborting goal. "
-                    f"target_R={[f'{v:.3f}' for v in right_target]} "
-                    f"current_R={[f'{v:.3f}' for v in right_now]}"
-                )
-                result.error_code = FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
-                goal_handle.abort()
-                return result
+            # # 等待机械臂实际到位（最后一帧也等待，确保最终位姿准确）
+            # if not self._wait_for_position(left_target, right_target):
+            #     if self._cancelled:
+            #         result.error_code = FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
+            #         goal_handle.canceled()
+            #         self.get_logger().warn(f"{arm_side} arm canceled while waiting for position.")
+            #         return result
+            #     # 超时未到位 — 必须 abort，否则 MoveIt 会立即发下一条 trajectory
+            #     # 导致起始点偏离过大而 ABORTED。
+            #     left_now, right_now = self._snapshot_current()
+            #     self.get_logger().error(
+            #         f"{arm_side} arm waypoint {point_idx + 1} timeout, aborting goal. "
+            #         f"target_R={[f'{v:.3f}' for v in right_target]} "
+            #         f"current_R={[f'{v:.3f}' for v in right_now]}"
+            #     )
+            #     result.error_code = FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
+            #     goal_handle.abort()
+            #     return result
 
         if self._cancelled:
             result.error_code = FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
