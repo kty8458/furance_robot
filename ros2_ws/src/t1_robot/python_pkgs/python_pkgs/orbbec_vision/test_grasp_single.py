@@ -18,6 +18,7 @@
 import argparse
 import os
 import sys
+import time
 
 # ---- pyorbbecsdk 原生库路径修复 (须在 import 前) ----
 _SDK_LIB_DIR = os.path.join(
@@ -44,7 +45,14 @@ import yaml
 DEFAULT_MODEL = os.path.join(_here, "models", "train", "weights", "best.onnx")
 DEFAULT_NAMES = ["gan 1"]
 DEFAULT_CFG = os.path.join(_here, "camera_config.yaml")
-DEFAULT_OUT = os.path.join(_here, "grasp_test_out.jpg")
+
+
+def new_out_path() -> str:
+    """默认输出图: data/grasp/<时间戳>/grasp_test_out.jpg, 每次运行新目录不覆盖。"""
+    out_dir = os.path.join(_here, "data", "grasp", time.strftime("%Y%m%d_%H%M%S"))
+    os.makedirs(out_dir, exist_ok=True)
+    print(f"[输出] 本次可视化目录: {out_dir}")
+    return os.path.join(out_dir, "grasp_test_out.jpg")
 
 # ---- 算法参数 ----
 MIN_DEPTH_M = 0.3
@@ -64,7 +72,8 @@ def parse_args():
     p.add_argument("--names", default=",".join(DEFAULT_NAMES))
     p.add_argument("--config", default=DEFAULT_CFG, help="camera_config.yaml 路径")
     p.add_argument("--conf", type=float, default=0.5)
-    p.add_argument("--out", default=DEFAULT_OUT)
+    p.add_argument("--out", default=None,
+                   help="输出图路径 (默认 data/grasp/<时间戳>/)")
     p.add_argument("--depth", default=None, help="直接用本地 depth(毫米 uint16) + --color, 跳过相机")
     p.add_argument("--color", default=None, help="本地 color 图 (配合 --depth)")
     return p.parse_args()
@@ -770,6 +779,8 @@ def draw_axis_and_grasp(img, grasp_pt, axis, center, K, diameter_m, seg_type, ju
 
 def main():
     args = parse_args()
+    if args.out is None:
+        args.out = new_out_path()
     Ks, ci, di = load_intrinsics(args.config, args.camera)
     K_color = Ks["color"]
     K_depth = Ks["depth"]

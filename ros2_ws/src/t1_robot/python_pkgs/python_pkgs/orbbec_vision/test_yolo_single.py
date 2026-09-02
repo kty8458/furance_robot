@@ -22,6 +22,7 @@ YOLO 分割单帧测试 - 连相机取一帧彩色图, 跑分割检测, 输出�
 import argparse
 import os
 import sys
+import time
 
 # ---- pyorbbecsdk 原生库路径修复 (须在 import pyorbbecsdk 前) ----
 _SDK_LIB_DIR = os.path.join(
@@ -52,6 +53,14 @@ DEFAULT_IMGSZ = 640
 DEFAULT_OUT = os.path.join(_here, "yolo_test_out.jpg")
 
 
+def new_out_path() -> str:
+    """默认输出图: data/yolo/<时间戳>/yolo_test_out.jpg, 每次运行新目录不覆盖。"""
+    out_dir = os.path.join(_here, "data", "yolo", time.strftime("%Y%m%d_%H%M%S"))
+    os.makedirs(out_dir, exist_ok=True)
+    print(f"[输出] 本次输出目录: {out_dir}")
+    return os.path.join(out_dir, "yolo_test_out.jpg")
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="YOLO 分割单帧测试: 取一帧 -> 分割 -> 输出标注图")
     p.add_argument("--camera", default="head", help="相机 id (head/left_arm/right_arm), 仅相机模式")
@@ -61,7 +70,7 @@ def parse_args():
     p.add_argument("--iou", type=float, default=DEFAULT_IOU)
     p.add_argument("--imgsz", type=int, default=DEFAULT_IMGSZ)
     p.add_argument("--image", default=None, help="直接用本地图片 (跳过相机采集)")
-    p.add_argument("--out", default=DEFAULT_OUT, help="输出标注图路径")
+    p.add_argument("--out", default=None, help="输出标注图路径 (默认 data/yolo/<时间戳>/)")
     p.add_argument("--show", action="store_true", help="弹窗显示 (无头环境慎用)")
     return p.parse_args()
 
@@ -139,6 +148,8 @@ def grab_one_frame_from_camera(camera_id: str) -> np.ndarray:
 
 def main():
     args = parse_args()
+    if args.out is None:
+        args.out = new_out_path()
 
     names = [n.strip() for n in args.names.split(",") if n.strip()]
     if not os.path.isfile(args.model):
