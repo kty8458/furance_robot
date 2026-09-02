@@ -1,0 +1,217 @@
+{
+  "name": "抓取测试",
+  "description": "",
+  "steps": [
+    {
+      "id": "step_1",
+      "type": "upper_body",
+      "label": "初始化",
+      "config": {
+        "waist_angle": 200,
+        "waist_speed": 20,
+        "ascend_speed": 20,
+        "head_speed": 10
+      }
+    },
+    {
+      "id": "step_2",
+      "type": "upper_limb",
+      "label": "观察位",
+      "config": {
+        "mode": "preset",
+        "arm": "right",
+        "method": "moveJ",
+        "preset_name": "右手相机扫描位",
+        "left_preset_name": "",
+        "right_preset_name": "",
+        "use_combined": true,
+        "use_composed_preset": false,
+        "reference_frame": "base_link",
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "position": {},
+        "left_vision_source": "",
+        "right_vision_source": "",
+        "pose_mode": "manual",
+        "vision_step_label": "",
+        "enable_offset": false,
+        "offset_ref_base": true,
+        "offset_ref_tool": false,
+        "offset": {}
+      }
+    },
+    {
+      "id": "step_3",
+      "type": "vision",
+      "label": "识别",
+      "config": {
+        "camera_id": "right_arm",
+        "function": "qr_detect",
+        "scene": "test",
+        "point_name": "grasp1"
+      }
+    },
+    {
+      "id": "step_4",
+      "type": "upper_limb",
+      "label": "预抓取位",
+      "config": {
+        "mode": "pose",
+        "arm": "right",
+        "method": "movep",
+        "preset_name": "",
+        "left_preset_name": "",
+        "right_preset_name": "",
+        "use_combined": true,
+        "use_composed_preset": false,
+        "reference_frame": "base_link",
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "position": {},
+        "left_vision_source": "",
+        "right_vision_source": "",
+        "pose_mode": "vision",
+        "vision_step_label": "识别",
+        "enable_offset": false,
+        "offset_ref_base": true,
+        "offset_ref_tool": false,
+        "offset": {}
+      }
+    },
+    {
+      "id": "step_5",
+      "type": "sleep",
+      "label": "sleep",
+      "config": {
+        "duration": 0.5
+      }
+    },
+    {
+      "id": "step_6",
+      "type": "upper_limb",
+      "label": "伸手",
+      "config": {
+        "mode": "pose",
+        "arm": "right",
+        "method": "moveJ",
+        "preset_name": "",
+        "left_preset_name": "",
+        "right_preset_name": "",
+        "use_combined": true,
+        "use_composed_preset": false,
+        "reference_frame": "base_link",
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "position": {},
+        "left_vision_source": "",
+        "right_vision_source": "",
+        "pose_mode": "current_ee",
+        "vision_step_label": "",
+        "enable_offset": true,
+        "offset_ref_base": false,
+        "offset_ref_tool": true,
+        "offset": {
+          "x": "280"
+        }
+      }
+    },
+    {
+      "id": "step_7",
+      "type": "gripper",
+      "label": "夹",
+      "config": {
+        "arm": "right",
+        "action": "close",
+        "force": 50,
+        "position": 0
+      }
+    },
+    {
+      "id": "step_8",
+      "type": "upper_body",
+      "label": "升高",
+      "config": {
+        "waist_angle": 400,
+        "waist_speed": 20,
+        "ascend_speed": 20,
+        "head_speed": 10
+      }
+    },
+    {
+      "id": "step_9",
+      "type": "sleep",
+      "label": "sleep",
+      "config": {
+        "duration": 0.5
+      }
+    },
+    {
+      "id": "step_10",
+      "type": "upper_limb",
+      "label": "收手",
+      "config": {
+        "mode": "pose",
+        "arm": "right",
+        "method": "movep",
+        "preset_name": "",
+        "left_preset_name": "",
+        "right_preset_name": "",
+        "use_combined": true,
+        "use_composed_preset": false,
+        "reference_frame": "base_link",
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "position": {},
+        "left_vision_source": "",
+        "right_vision_source": "",
+        "pose_mode": "current_ee",
+        "vision_step_label": "",
+        "enable_offset": true,
+        "offset_ref_base": false,
+        "offset_ref_tool": true,
+        "offset": {
+          "x": "-280"
+        }
+      }
+    },
+    {
+      "id": "step_11",
+      "type": "upper_body",
+      "label": "下降",
+      "config": {
+        "waist_angle": 0,
+        "waist_speed": 20,
+        "ascend_speed": 20,
+        "head_speed": 10
+      }
+    },
+    {
+      "id": "step_12",
+      "type": "upper_limb",
+      "label": "归位",
+      "config": {
+        "mode": "preset",
+        "arm": "right",
+        "method": "moveJ",
+        "preset_name": "高相机扫描位",
+        "left_preset_name": "",
+        "right_preset_name": "",
+        "use_combined": true,
+        "use_composed_preset": false,
+        "reference_frame": "base_link",
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "position": {},
+        "left_vision_source": "",
+        "right_vision_source": "",
+        "pose_mode": "manual",
+        "vision_step_label": "",
+        "enable_offset": false,
+        "offset_ref_base": true,
+        "offset_ref_tool": false,
+        "offset": {}
+      }
+    }
+  ],
+  "version": 1
+}

@@ -1,0 +1,164 @@
+cameras:
+- id: head
+  name: 头部相机
+  serial: CP0E163000FP
+  usb_port: 2-1
+  uid: ''
+  position: head
+  color_stream:
+    width: 1280
+    height: 720
+    fps: 30
+  depth_stream:
+    width: 848
+    height: 480
+    fps: 30
+  calibration:
+    color_intrinsics:
+      fx: 685.9113159179688
+      fy: 685.9674072265625
+      cx: 641.8734130859375
+      cy: 363.655029296875
+      width: 1280
+      height: 720
+      distortion:
+      - 0.008914501406252384
+      - -0.04031655564904213
+      - -0.00019865085778292269
+      - -0.00037473809788934886
+      - 0.027556827291846275
+    depth_intrinsics:
+      fx: 410.75372314453125
+      fy: 410.75372314453125
+      cx: 423.66876220703125
+      cy: 241.65625
+      width: 848
+      height: 480
+      distortion:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+    color_to_depth:
+      rotation:
+      - 0
+      - 0
+      - 0
+      translation:
+      - 0
+      - 0
+      - 0
+    camera_to_tou2_Link:
+      rotation:
+      - 1.3657958938864103
+      - 1.3517346365303418
+      - -1.14569885514791
+      translation:
+      - 0.034675890500974645
+      - 0.09352988432870539
+      - -0.09631340930409177
+  ae_max_exposure: 1
+- id: left_arm
+  name: 左臂相机
+  serial: CPC93630007P
+  usb_port: 2-2.2.1-8
+  uid: ''
+  position: left_arm
+  calibration:
+    color_intrinsics:
+      fx: 612.0982055664062
+      fy: 612.0908813476562
+      cx: 644.9488525390625
+      cy: 364.3468933105469
+      width: 1280
+      height: 720
+      distortion:
+      - -0.029817886650562286
+      - 0.03336402028799057
+      - 0.00023553031496703625
+      - 0.00018145362264476717
+      - -0.012158377096056938
+    depth_intrinsics:
+      fx: 412.3153381347656
+      fy: 412.3153381347656
+      cx: 421.6812744140625
+      cy: 241.32501220703125
+      width: 848
+      height: 480
+      distortion:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+    color_to_depth:
+      rotation:
+      - 0
+      - 0
+      - 0
+      translation:
+      - 0
+      - 0
+      - 0
+    camera_to_ARM-L-J7_Link:
+      rotation:
+      - 0.0021919689821879532
+      - -0.001176961670357061
+      - 0.0012507982184735966
+      translation:
+      - -72.58205642776579
+      - 91.51272168340225
+      - -12.746880683940805
+- id: right_arm
+  name: 右臂相机
+  serial: CPC9363000DA
+  usb_port: 2-2.1.1-10
+  uid: ''
+  position: right_arm
+  calibration:
+    color_intrinsics:
+      fx: 608.3646240234375
+      fy: 608.3131103515625
+      cx: 643.3547973632812
+      cy: 362.1398620605469
+      width: 1280
+      height: 720
+      distortion:
+      - -0.029381293803453445
+      - 0.03324543312191963
+      - -0.00043941542389802635
+      - 2.6655088731786236e-05
+      - -0.01179406139999628
+    depth_intrinsics:
+      fx: 409.60418701171875
+      fy: 409.60418701171875
+      cx: 422.01251220703125
+      cy: 241.98751831054688
+      width: 848
+      height: 480
+      distortion:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+    color_to_depth:
+      rotation:
+      - 0
+      - 0
+      - 0
+      translation:
+      - 0
+      - 0
+      - 0
+    camera_to_ARM-R-J7_Link:
+      rotation:
+      - 0.0021919689821879532
+      - -0.001176961670357061
+      - 0.0012507982184735966
+      translation:
+      - -72.58205642776579
+      - 91.51272168340225
+      - -12.746880683940805
+  ae_max_exposure: 1

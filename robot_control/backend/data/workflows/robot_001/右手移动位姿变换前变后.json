@@ -1,0 +1,209 @@
+{
+  "name": "右手移动位姿变换前变后",
+  "description": "",
+  "steps": [
+    {
+      "id": "step_1",
+      "type": "upper_limb",
+      "label": "1",
+      "config": {
+        "mode": "preset",
+        "arm": "right",
+        "method": "moveJ",
+        "preset_name": "右手相机扫描位",
+        "left_preset_name": "",
+        "right_preset_name": "",
+        "use_combined": true,
+        "use_composed_preset": false,
+        "reference_frame": "base_link",
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "position": {},
+        "left_vision_source": "",
+        "right_vision_source": "",
+        "pose_mode": "manual",
+        "vision_step_label": "",
+        "enable_offset": false,
+        "offset_ref_base": true,
+        "offset_ref_tool": false,
+        "offset": {}
+      }
+    },
+    {
+      "id": "step_2",
+      "type": "sleep",
+      "label": "sleep",
+      "config": {
+        "duration": 0.1
+      }
+    },
+    {
+      "id": "step_3",
+      "type": "upper_limb",
+      "label": "2",
+      "config": {
+        "mode": "preset",
+        "arm": "right",
+        "method": "moveJ",
+        "preset_name": "移动抓取中位1",
+        "left_preset_name": "",
+        "right_preset_name": "",
+        "use_combined": true,
+        "use_composed_preset": false,
+        "reference_frame": "base_link",
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "position": {},
+        "left_vision_source": "",
+        "right_vision_source": "",
+        "pose_mode": "manual",
+        "vision_step_label": "",
+        "enable_offset": false,
+        "offset_ref_base": true,
+        "offset_ref_tool": false,
+        "offset": {}
+      }
+    },
+    {
+      "id": "step_4",
+      "type": "sleep",
+      "label": "sleep",
+      "config": {
+        "duration": 0.1
+      }
+    },
+    {
+      "id": "step_5",
+      "type": "upper_limb",
+      "label": "3",
+      "config": {
+        "mode": "preset",
+        "arm": "right",
+        "method": "moveJ",
+        "preset_name": "移动抓取中间位2",
+        "left_preset_name": "",
+        "right_preset_name": "",
+        "use_combined": true,
+        "use_composed_preset": false,
+        "reference_frame": "base_link",
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "position": {},
+        "left_vision_source": "",
+        "right_vision_source": "",
+        "pose_mode": "manual",
+        "vision_step_label": "",
+        "enable_offset": false,
+        "offset_ref_base": true,
+        "offset_ref_tool": false,
+        "offset": {}
+      }
+    },
+    {
+      "id": "step_6",
+      "type": "sleep",
+      "label": "sleep",
+      "config": {
+        "duration": 0.1
+      }
+    },
+    {
+      "id": "step_7",
+      "type": "upper_limb",
+      "label": "4",
+      "config": {
+        "mode": "preset",
+        "arm": "right",
+        "method": "moveJ",
+        "preset_name": "移动抓取中间位3",
+        "left_preset_name": "",
+        "right_preset_name": "",
+        "use_combined": true,
+        "use_composed_preset": false,
+        "reference_frame": "base_link",
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "position": {},
+        "left_vision_source": "",
+        "right_vision_source": "",
+        "pose_mode": "manual",
+        "vision_step_label": "",
+        "enable_offset": false,
+        "offset_ref_base": true,
+        "offset_ref_tool": false,
+        "offset": {}
+      }
+    },
+    {
+      "id": "step_8",
+      "type": "sleep",
+      "label": "sleep",
+      "config": {
+        "duration": 0.1
+      }
+    },
+    {
+      "id": "step_9",
+      "type": "upper_limb",
+      "label": "5",
+      "config": {
+        "mode": "preset",
+        "arm": "right",
+        "method": "moveJ",
+        "preset_name": "移动抓取中间位4",
+        "left_preset_name": "",
+        "right_preset_name": "",
+        "use_combined": true,
+        "use_composed_preset": false,
+        "reference_frame": "base_link",
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "position": {},
+        "left_vision_source": "",
+        "right_vision_source": "",
+        "pose_mode": "manual",
+        "vision_step_label": "",
+        "enable_offset": false,
+        "offset_ref_base": true,
+        "offset_ref_tool": false,
+        "offset": {}
+      }
+    },
+    {
+      "id": "step_10",
+      "type": "sleep",
+      "label": "sleep",
+      "config": {
+        "duration": 0.1
+      }
+    },
+    {
+      "id": "step_11",
+      "type": "upper_limb",
+      "label": "6",
+      "config": {
+        "mode": "preset",
+        "arm": "right",
+        "method": "moveJ",
+        "preset_name": "移动抓取位",
+        "left_preset_name": "",
+        "right_preset_name": "",
+        "use_combined": true,
+        "use_composed_preset": false,
+        "reference_frame": "base_link",
+        "left_reference_frame": "base_link",
+        "right_reference_frame": "base_link",
+        "position": {},
+        "left_vision_source": "",
+        "right_vision_source": "",
+        "pose_mode": "manual",
+        "vision_step_label": "",
+        "enable_offset": false,
+        "offset_ref_base": true,
+        "offset_ref_tool": false,
+        "offset": {}
+      }
+    }
+  ],
+  "version": 1
+}

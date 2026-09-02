@@ -1,11 +1,22 @@
 {
-  "name": "单步测试",
+  "name": "抓取单步测试",
   "description": "",
   "steps": [
     {
       "id": "step_1",
-      "type": "upper_limb",
+      "type": "vision",
       "label": "1",
+      "config": {
+        "camera_id": "head",
+        "function": "qr_detect",
+        "scene": "test",
+        "point_name": "head"
+      }
+    },
+    {
+      "id": "step_2",
+      "type": "upper_limb",
+      "label": "2",
       "config": {
         "mode": "pose",
         "arm": "right",
@@ -21,14 +32,12 @@
         "position": {},
         "left_vision_source": "",
         "right_vision_source": "",
-        "pose_mode": "current_ee",
-        "vision_step_label": "",
-        "enable_offset": true,
-        "offset_ref_base": false,
-        "offset_ref_tool": true,
-        "offset": {
-          "x": "500"
-        }
+        "pose_mode": "vision",
+        "vision_step_label": "1",
+        "enable_offset": false,
+        "offset_ref_base": true,
+        "offset_ref_tool": false,
+        "offset": {}
       }
     }
   ],

@@ -20,3 +20,8 @@ node_modules/
 Log/
 xjbd
 data
+!robot_control/backend/data/
+robot_control/backend/data/*
+!robot_control/backend/data/camera
+!robot_control/backend/data/teach
+!robot_control/backend/data/workflows
