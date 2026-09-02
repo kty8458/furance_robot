@@ -139,12 +139,15 @@ class SceneManager:
                   T_qr_workspace: Optional[Dict[str, Any]] = None,
                   qr_id: Optional[int] = None,
                   stream_type: str = "color",
+                  ae_max_exposure: Optional[int] = None,
                   calib_type: str = "primary",
                   source_point: Optional[str] = None) -> bool:
         """添加标定点到场景。
 
         新格式: qr_ids (允许列表, 空=通配) + T_qr_ee_per_id (每个 QR 的 T_qr_ee).
         旧格式: qr_id (单个) + T_qr_workspace 仍兼容, 内部转新格式存储.
+        ae_max_exposure: 低光发光 QR 场景的 color AE 最大曝光, 随点位存储,
+            识别 (compute_pose) 时自动应用; None = 不使用.
         """
         data = self._load(scene_id)
         if data is None:
@@ -167,6 +170,7 @@ class SceneManager:
             "arm": arm,
             "marker_size": marker_size,
             "stream_type": stream_type,
+            "ae_max_exposure": ae_max_exposure,
             "qr_ids": qr_ids,
             "T_qr_ee_per_id": T_qr_ee_per_id,
             "calib_type": calib_type,

@@ -27,7 +27,8 @@ class CameraClientBase(ABC):
     async def calibrate_qr(self, camera_id: str, arm: str,
                            marker_size: float, point_name: str,
                            scene_id: str, stream_type: str = "color",
-                           qr_ids: list = None) -> dict[str, Any]:
+                           qr_ids: list = None,
+                           ae_max_exposure: int = None) -> dict[str, Any]:
         ...
 
     @abstractmethod
@@ -74,7 +75,8 @@ class MockCameraClient(CameraClientBase):
     async def calibrate_qr(self, camera_id: str, arm: str,
                            marker_size: float, point_name: str,
                            scene_id: str, stream_type: str = "color",
-                           qr_ids: list = None) -> dict[str, Any]:
+                           qr_ids: list = None,
+                           ae_max_exposure: int = None) -> dict[str, Any]:
         return {"success": True, "message": f"mock: calibrated {point_name}",
                 "data": {"translation": [0.35, -0.12, 0.20],
                          "rotation": [0.0, 0.0, 0.0, 1.0]}}
@@ -165,8 +167,13 @@ class RealCameraClient(CameraClientBase):
     async def calibrate_qr(self, camera_id: str, arm: str,
                            marker_size: float, point_name: str,
                            scene_id: str, stream_type: str = "color",
-                           qr_ids: list = None) -> dict[str, Any]:
-        """现场标定: 多 QR 模式, qr_ids 为空列表/None 表示通配。"""
+                           qr_ids: list = None,
+                           ae_max_exposure: int = None) -> dict[str, Any]:
+        """现场标定: 多 QR 模式, qr_ids 为空列表/None 表示通配。
+
+        ae_max_exposure: 低光发光 QR 场景的 color AE 最大曝光,
+        随点位存储, 识别时自动应用; None = 不使用。
+        """
         return await self._call("/camera/calibrate", {
             "camera_id": camera_id,
             "arm": arm,
@@ -175,6 +182,7 @@ class RealCameraClient(CameraClientBase):
             "point_name": point_name,
             "scene_id": scene_id,
             "stream_type": stream_type,
+            "ae_max_exposure": ae_max_exposure,
         })
 
     async def calibrate_qr_secondary(self, scene_id: str, source_point: str,

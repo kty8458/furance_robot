@@ -643,37 +643,6 @@ class CameraManager:
         # 读回实际生效值 (硬件可能钳制)
         return self.get_ae_max_exposure(camera_id)
 
-    def save_ae_max_exposure(self, camera_id: str) -> dict:
-        """把设备当前值持久化到 camera_config.yaml (标定/识别时自动应用)。"""
-        import yaml
-        info = self._ae_info.get(camera_id)
-        device = self._devices.get(camera_id)
-        if info is None or device is None:
-            return {"success": False, "message": f"Camera not available: {camera_id}"}
-        from pyorbbecsdk import OBPropertyID
-        try:
-            current = int(device.get_int_property(OBPropertyID.OB_PROP_COLOR_AE_MAX_EXPOSURE_INT))
-        except Exception as e:
-            return {"success": False, "message": f"Read exposure failed: {e}"}
-
-        try:
-            with open(self._config_path) as f:
-                data = yaml.safe_load(f) or {}
-            for c in data.get("cameras", []):
-                if c.get("id") == camera_id:
-                    c["ae_max_exposure"] = current
-                    break
-            else:
-                return {"success": False, "message": f"Camera not in config: {camera_id}"}
-            with open(self._config_path, "w") as f:
-                yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-        except Exception as e:
-            return {"success": False, "message": f"Write config failed: {e}"}
-
-        info["saved"] = current
-        logger.info("AE max exposure saved (%s): %d", camera_id, current)
-        return {"success": True, "camera_id": camera_id, "saved": current}
-
     def reset_ae_max_exposure(self, camera_id: str) -> dict:
         """恢复出厂默认 (其余非标定场景的推流使用默认值)。"""
         info = self._ae_info.get(camera_id)
@@ -684,8 +653,23 @@ class CameraManager:
             return {"success": False, "message": "Failed to reset AE max exposure"}
         return self.get_ae_max_exposure(camera_id)
 
+    def apply_ae_max_exposure(self, camera_id: str, value) -> bool:
+        """应用指定 AE 最大曝光值 (标定/识别帧采集前调用)。
+
+        value 为 None/无效时不动作 (由调用方决定是否回退)。
+        AE 值随标定点存储, 不再按相机持久化。
+        """
+        if value is None:
+            return False
+        try:
+            v = int(value)
+        except (TypeError, ValueError):
+            logger.warning("apply_ae_max_exposure: invalid value %r (%s)", value, camera_id)
+            return False
+        return self._set_ae_property(camera_id, v)
+
     def apply_saved_ae_max_exposure(self, camera_id: str) -> bool:
-        """应用已保存的曝光值 (标定/识别帧采集前调用)。无保存值时不动。"""
+        """应用相机级旧配置的曝光值 (兼容历史点位: 点位未存 AE 时回退)。"""
         info = self._ae_info.get(camera_id)
         if not info or not info.get("saved"):
             return False
@@ -1036,10 +1020,10 @@ class _WsProtocol:
                         push_task.cancel()
                         push_task = None
                     camera_id = None
-                elif action in ("get_exposure", "set_exposure",
-                                "save_exposure", "reset_exposure"):
-                    # AE 最大曝光调节 (低光发光 QR 标定): 调整作用于设备本身,
-                    # 无需订阅推流 (标定时前端先 subscribe 再拉拉条)
+                elif action in ("get_exposure", "set_exposure", "reset_exposure"):
+                    # AE 最大曝光实时调节 (仅作用于当前设备, 不持久化):
+                    # AE 值已改为随标定点存储, 持久化走 /camera/calibrate 的
+                    # ae_max_exposure 参数
                     ae_cid = msg.get("camera_id", camera_id or "")
                     try:
                         if action == "get_exposure":
@@ -1049,9 +1033,6 @@ class _WsProtocol:
                         elif action == "set_exposure":
                             r = self._manager.set_ae_max_exposure(ae_cid, int(msg.get("value", 0)))
                             await ws.send(json.dumps({"type": "exposure", **r}))
-                        elif action == "save_exposure":
-                            r = self._manager.save_ae_max_exposure(ae_cid)
-                            await ws.send(json.dumps({"type": "exposure_saved", **r}))
                         else:
                             r = self._manager.reset_ae_max_exposure(ae_cid)
                             await ws.send(json.dumps({"type": "exposure", **r}))
@@ -1345,13 +1326,15 @@ def main(args=None):
             return response
 
 
-        # 低光发光 QR 标定: 采集前应用已保存的 color AE 最大曝光
+        # 低光发光 QR 标定: 采集前应用调用方传入的 color AE 最大曝光
+        # (随标定点存储, 现场标定/视觉标定界面作为参数输入)
+        ae_param = params.get("ae_max_exposure")
         ae_applied = False
         if stream_type == "color":
-            ae_applied = manager.apply_saved_ae_max_exposure(camera_id)
+            ae_applied = manager.apply_ae_max_exposure(camera_id, ae_param)
             if ae_applied:
                 time.sleep(0.3)  # 等待 AE 收敛
-                logger.info("calibrate: applied saved AE max exposure (%s)", camera_id)
+                logger.info("calibrate: applied AE max exposure %s (%s)", ae_param, camera_id)
 
         # 自动按需启动推流
         was_streaming = manager.is_streaming(camera_id)
@@ -1432,6 +1415,7 @@ def main(args=None):
                 point_name=params.get("point_name", ""),
                 scene_id=params.get("scene_id", ""),
                 stream_type=stream_type,
+                ae_max_exposure=ae_param,
                 frames=calib_frames if calib_frames else None,
                 T_base_ee=_get_T_base_ee(arm),
                 T_camera_ee=T_camera_ee_now,
@@ -1456,7 +1440,7 @@ def main(args=None):
                     f.write(f"QR 允许列表: {qr_ids_param or 'any'}  "
                             f"marker_size={params.get('marker_size', 0.058)}\n")
                     f.write(f"采集帧数: {len(calib_frames)}  保存原始帧: {_calib_frames_saved}\n")
-                    f.write(f"AE 曝光已应用: {ae_applied}\n")
+                    f.write(f"AE 曝光已应用: {ae_applied} (参数值: {ae_param})\n")
                     f.write(f"结果: success={result.get('success')}\n")
                     f.write(f"消息: {result.get('message', '')}\n")
                     if result.get("success"):
@@ -1589,13 +1573,19 @@ def main(args=None):
             point_stream_type = point.get("stream_type", "color")
             marker_size = point.get("marker_size", 0.058)
 
-            # 低光发光 QR 识别: 采集前应用已保存的 color AE 最大曝光
+            # 低光发光 QR 识别: 采集前应用该标定点存储的 color AE 最大曝光
+            # (标定时随点位保存; 旧点位未存时回退到相机级旧配置值)
             ae_applied = False
             if point_stream_type == "color":
-                ae_applied = manager.apply_saved_ae_max_exposure(camera_id)
+                ae_applied = manager.apply_ae_max_exposure(camera_id, point.get("ae_max_exposure"))
+                if not ae_applied:
+                    ae_applied = manager.apply_saved_ae_max_exposure(camera_id)
+                    if ae_applied:
+                        logger.info("compute_pose: point has no AE, fallback to camera-level (%s)", camera_id)
                 if ae_applied:
                     time.sleep(0.3)  # 等待 AE 收敛
-                    logger.info("compute_pose: applied saved AE max exposure (%s)", camera_id)
+                    logger.info("compute_pose: applied AE max exposure %s (%s)",
+                                point.get("ae_max_exposure"), camera_id)
 
             # 自动按需启动推流
             was_streaming = manager.is_streaming(camera_id)

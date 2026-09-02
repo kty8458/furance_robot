@@ -129,6 +129,7 @@ class QRCalibrator:
                   qr_ids: list[int],
                   marker_size: float, point_name: str, scene_id: str,
                   stream_type: str = "color",
+                  ae_max_exposure: Optional[int] = None,
                   frames: Optional[list[np.ndarray]] = None,
                   T_base_ee: Optional[np.ndarray] = None,
                   T_camera_ee: Optional[np.ndarray] = None) -> dict:
@@ -143,6 +144,8 @@ class QRCalibrator:
             point_name: 标定点名称
             scene_id: 场景 ID
             stream_type: "color" / "ir"
+            ae_max_exposure: 低光发光 QR 场景的 color AE 最大曝光,
+                随点位存储, 识别 (compute_pose) 时自动应用; None = 不存储
             frames: 帧列表 (BGR 或灰度)
             T_base_ee: 采集时刻的 base->ee (由调用方从 TF 获取)
             T_camera_ee: 采集时刻的 camera->ee 4x4 变换。跨相机标定
@@ -246,6 +249,7 @@ class QRCalibrator:
             arm=arm,
             marker_size=marker_size,
             stream_type=stream_type,
+            ae_max_exposure=ae_max_exposure,
             qr_ids=calibrated_ids,
             T_qr_ee_per_id=T_qr_ee_per_id,
             calib_type="primary",
@@ -285,7 +289,7 @@ class QRCalibrator:
         且主标定后底盘未移动 (T_base_qr 依赖底盘位置)。
 
         数学: T_qr_ee_new = inv(T_base_qr_stored) @ T_base_ee_now
-        marker_size/stream_type/qr_ids 继承自 source_point;
+        marker_size/stream_type/qr_ids/ae_max_exposure 继承自 source_point;
         arm 默认继承 source_point, 传入 "left"/"right" 时覆盖 —
         用于头部/对侧相机观察二维码时为另一只臂生成新点位。
 
@@ -341,6 +345,7 @@ class QRCalibrator:
             arm=stored_arm,
             marker_size=src_point.get("marker_size", 0.058),
             stream_type=src_point.get("stream_type", "color"),
+            ae_max_exposure=src_point.get("ae_max_exposure"),
             qr_ids=src_point.get("qr_ids", calibrated_ids),
             T_qr_ee_per_id=T_qr_ee_per_id,
             calib_type="secondary",

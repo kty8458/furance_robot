@@ -54,7 +54,8 @@ async def calibrate_qr(robot_id: str, req: dict, request: Request):
     """现场标定: 计算 QR 到工作位置的变换并存入场景。
 
     Body: {
-        camera_id, arm, qr_ids (list, []=通配), marker_size, point_name, scene_id
+        camera_id, arm, qr_ids (list, []=通配), marker_size, point_name, scene_id,
+        ae_max_exposure (int, 可选: 低光QR场景随点位存储的AE最大曝光)
     }
     """
     result = await _get_client(request).calibrate_qr(
@@ -65,6 +66,7 @@ async def calibrate_qr(robot_id: str, req: dict, request: Request):
         point_name=req.get("point_name", ""),
         scene_id=req.get("scene_id", ""),
         stream_type=req.get("stream_type", "color"),
+        ae_max_exposure=req.get("ae_max_exposure"),
     )
     if not result.get("success"):
         return ApiResponse(code=3001, message=result.get("message", "Calibration failed"))

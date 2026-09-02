@@ -9,8 +9,13 @@ ultralytics 加载 .onnx 时用 onnxruntime, 不依赖 torch (仅 .pt 才需 tor
 """
 
 import logging
+import os
 import time
 from dataclasses import dataclass
+
+# 禁止 ultralytics 运行时 AutoUpdate (缺依赖时偷偷 pip install,
+# 曾把 numpy 拉到 2.x 破坏视觉栈)。必须在 import ultralytics 前设置。
+os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 
 import cv2
 import numpy as np
