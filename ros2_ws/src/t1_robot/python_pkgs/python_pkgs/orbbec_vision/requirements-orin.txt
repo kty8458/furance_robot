@@ -1,6 +1,11 @@
 # Orin 部署机视觉栈依赖 (系统 python3, 与 ROS2 Humble 共用)
 # 安装: pip3 install -r requirements-orin.txt
 # 版本以工控机开发环境 (2026-08-25) 实测为准
+#
+# !! 功耗模式必须 25W (sudo nvpmodel -m 3) !!
+# 15W/10W 模式会下线 CPU 4-7, onnxruntime 按 8 核建线程池绑核失败,
+# InferenceSession 创建时 vector 越界断言直接 core dump (2026-09-02 实测)。
+# 25W = 8 核 @1.498GHz, 功耗封顶, 重启保持。
 
 numpy
 opencv-python>=4.7          # 需含 cv2.aruco (二维码/棋盘格标定)
@@ -12,6 +17,17 @@ pyorbbecsdk2==2.1.1         # 奥比中光SDK, 内置 OrbbecSDK v2.8.6 原生库
                             # 装完还需 sudo 执行包内 shared/install_udev_rules.sh (见 orin_deploy.md 2.1)
 onnxruntime==1.19.2        # YOLO 推理。固定版本: 1.23 在 Jetson (Orin) 上 import 时
                             # cpuid 探测触发 C++ 越界断言直接 core dump, 1.19.2 实测稳定
+onnx==1.16.2               # ultralytics 加载 .onnx 时强制要求 (实际推理只用 onnxruntime)。
+                            # 固定 1.16.2: 1.20+ 会强制 numpy>=2, 破坏 numpy 1.26 兼容栈
+                            # (2026-09-02 实测: AutoUpdate 装了 1.22, 把 numpy 拉到 2.2.6 出过事故)
+protobuf==4.25.3           # onnx 依赖; 随 onnx 1.16.2 实测稳定
+torch==2.13.0+cpu          # ultralytics 硬依赖。必须 CPU 版 (cu130 构建与 JetPack 6 的
+torchvision==0.28.0+cpu    # CUDA 12.6 驱动不匹配, torch.cuda 不可用且启动刷警告)。
+                            # 安装: pip3 install torch==2.13.0+cpu torchvision==0.28.0+cpu \
+                            #   --index-url https://download.pytorch.org/whl/cpu
+                            # (PyPI 默认源的 aarch64 torch 是 cu130 构建, 不能直接装)
+ultralytics==8.4.135       # YOLODetector 后端; 已在代码中禁用其运行时 AutoUpdate
+ultralytics-thop==2.1.6    # ultralytics 依赖
 
 # --- 可选 ---
 # open3d                   # 仅 test_grasp_single.py 点云测试用; aarch64 无官方轮子, 需源码编译或跳过

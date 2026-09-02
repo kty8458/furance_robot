@@ -41,26 +41,23 @@
           <div v-if="streaming" style="margin-top: 8px; font-size: 11px; color: #00ff88">
             {{ cameraId }} / {{ streamTypeLabel }} — 推流中
           </div>
-          <!-- AE 最大曝光调节: 低光发光 QR 标定场景 -->
+          <!-- AE 最大曝光实时调节: 仅预览用, 持久化走视觉标定的点位参数 -->
           <div v-if="streaming && isColorStream && aeExposure.current != null" style="margin-top: 10px">
             <div class="field-label" style="display: flex; justify-content: space-between">
-              <span>AE最大曝光 (低光QR标定)</span>
+              <span>AE最大曝光 (实时预览)</span>
               <span style="font-family: Consolas, monospace">
-                {{ aeExposure.current ?? '--' }}<span v-if="aeExposure.saved" style="color: #e6a23c"> (存:{{ aeExposure.saved }})</span>
+                {{ aeExposure.current ?? '--' }}
               </span>
             </div>
             <el-slider v-model="aeSliderValue" :min="aeExposure.min ?? 1" :max="aeExposure.max ?? 332"
               :step="1" size="small" :disabled="aeBusy" @input="onAeSliderInput" />
             <el-row :gutter="8" style="margin-top: 2px">
-              <el-col :span="12">
-                <el-button size="small" style="width: 100%" :loading="aeBusy" @click="saveAeExposure">保存当前值</el-button>
-              </el-col>
-              <el-col :span="12">
+              <el-col :span="24">
                 <el-button size="small" style="width: 100%" :disabled="aeBusy" @click="resetAeExposure">恢复默认</el-button>
               </el-col>
             </el-row>
             <div style="font-size: 10px; color: #6b7b8d; margin-top: 4px">
-              保存后标定/识别自动应用该值; 其余推流用默认值
+              此处仅实时预览调节, 找到合适值后填入视觉标定的"AE最大曝光"参数随点位保存
             </div>
           </div>
         </el-card>
@@ -283,6 +280,12 @@
               </el-col>
             </el-row>
 
+            <div v-if="calibStreamType === 'color'" style="margin-top: 8px">
+              <div class="field-label" style="font-size: 10px">AE最大曝光 (低光QR, 留空=不存储)</div>
+              <el-input-number v-model="calibAeExposure" :min="1" :step="1"
+                size="small" controls-position="right" placeholder="留空=不存储" style="width: 100%" />
+            </div>
+
             <el-button size="small" type="success" style="width: 100%; margin-top: 10px" @click="runCalibration" :loading="calibrating">
               执行标定
             </el-button>
@@ -376,6 +379,10 @@
         <el-form-item label="QR 尺寸 (m)">
           <el-input-number v-model="editForm.marker_size" :min="0.01" :step="0.001" :precision="3" controls-position="right" style="width: 100%" />
         </el-form-item>
+        <el-form-item v-if="editForm.stream_type === 'color'" label="AE最大曝光">
+          <el-input-number v-model="editForm.ae_max_exposure" :min="1" :step="1"
+            controls-position="right" placeholder="留空=不存储" style="width: 100%" />
+        </el-form-item>
         <el-form-item label="平移 xyz">
           <el-row :gutter="6">
             <el-col :span="8" v-for="f in ['x','y','z']" :key="'t_'+f">
@@ -451,16 +458,6 @@ function onAeSliderInput(value) {
   }, 300)
 }
 
-async function saveAeExposure() {
-  aeBusy.value = true
-  try {
-    sendWs({ action: 'save_exposure', camera_id: cameraId.value })
-  } finally {
-    // 响应在 onmessage 中处理 (exposure_saved), 这里只短暂锁定按钮
-    setTimeout(() => { aeBusy.value = false }, 800)
-  }
-}
-
 function resetAeExposure() {
   sendWs({ action: 'reset_exposure', camera_id: cameraId.value })
 }
@@ -469,13 +466,6 @@ function handleAeMessage(msg) {
   if (msg.type === 'exposure' && msg.camera_id === cameraId.value) {
     aeExposure.value = { current: msg.current, min: msg.min, max: msg.max, default: msg.default, saved: msg.saved }
     if (msg.current != null) aeSliderValue.value = msg.current
-  } else if (msg.type === 'exposure_saved') {
-    if (msg.success) {
-      aeExposure.value.saved = msg.saved
-      ElMessage.success(`AE最大曝光已保存: ${msg.saved}`)
-    } else {
-      ElMessage.error(msg.message || '保存失败')
-    }
   }
 }
 
@@ -505,7 +495,7 @@ const editForm = ref(initEditForm())
 function initEditForm() {
   return {
     name: '', arm: 'right', camera_id: '', stream_type: 'color',
-    qr_ids: '', marker_size: 0.058,
+    qr_ids: '', marker_size: 0.058, ae_max_exposure: null,
     xyzrpy: { x: 0, y: 0, z: 0, roll: 0, pitch: 0, yaw: 0 },
   }
 }
@@ -518,6 +508,7 @@ const calibArm = ref('right')
 const calibStreamType = ref('color')
 const calibQrIds = ref('')  // 逗号分隔字符串，空=通配
 const calibMarkerSize = ref(0.058)
+const calibAeExposure = ref(null)  // 低光QR的AE最大曝光, 随点位存储, null=不存储
 const calibrating = ref(false)
 const calibResult = ref(null)
 const secNewPointName = ref('')
@@ -760,6 +751,7 @@ function openEditPointDialog(row) {
     stream_type: row.stream_type || 'color',
     qr_ids: (row.qr_ids || []).join(','),
     marker_size: row.marker_size || 0.058,
+    ae_max_exposure: row.ae_max_exposure ?? null,
     xyzrpy: { x: t[0], y: t[1], z: t[2], roll: euler.roll, pitch: euler.pitch, yaw: euler.yaw },
   }
   editDialogVisible.value = true
@@ -774,6 +766,7 @@ async function saveEditPoint() {
   const pointData = {
     name: f.name, arm: f.arm, camera_id: f.camera_id,
     stream_type: f.stream_type, qr_ids: qr_ids_arr, marker_size: f.marker_size,
+    ae_max_exposure: f.ae_max_exposure,
     T_qr_workspace: { translation: [d.x, d.y, d.z], rotation: quat },
   }
   try {
@@ -816,6 +809,7 @@ function onCalibPointChange(pointName) {
     secArm.value = p.arm || 'right'
     calibQrIds.value = (p.qr_ids || []).join(',')
     calibMarkerSize.value = p.marker_size || 0.058
+    calibAeExposure.value = p.ae_max_exposure ?? null
     calibStreamType.value = p.stream_type || 'color'
   }
 }
@@ -838,6 +832,7 @@ async function runCalibration() {
       point_name: calibPointName.value,
       scene_id: calibSceneId.value,
       stream_type: calibStreamType.value,
+      ae_max_exposure: calibAeExposure.value,
     })
     calibResult.value = res.data || res
     // 将四元数转换为 xyzrpy 显示
@@ -860,6 +855,7 @@ async function runCalibration() {
       stream_type: calibStreamType.value,
       qr_ids: qr_ids_arr,
       marker_size: calibMarkerSize.value,
+      ae_max_exposure: calibAeExposure.value,
     })
     await reloadScenePoints()
   } catch (e) {
