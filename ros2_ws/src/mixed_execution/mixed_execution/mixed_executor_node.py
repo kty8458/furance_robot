@@ -19,6 +19,7 @@ import os
 import threading
 import time
 
+import numpy as np
 import rclpy
 from rclpy.node import Node
 
@@ -99,6 +100,34 @@ class RosCaller:
                 data = {}
         return {"success": bool(resp.success), "message": resp.message, "data": data}
 
+    def call_typed(self, service_name: str, srv_type, request,
+                   timeout: float = SERVICE_TIMEOUT):
+        """调用任意类型 ROS2 服务 (如 control_interfaces/srv/MoveP)。
+
+        request 为已构建的 srv.Request, 返回原生 response;
+        服务不可用/超时/异常返回 None (原因见日志)。
+        """
+        with self._lock:
+            client = self._clients.get(service_name)
+            if client is None:
+                client = self._node.create_client(srv_type, service_name)
+                self._clients[service_name] = client
+        if not client.wait_for_service(timeout_sec=2.0):
+            logger.warning("Service not available: %s", service_name)
+            return None
+        future = client.call_async(request)
+        deadline = time.time() + timeout
+        while not future.done() and time.time() < deadline:
+            time.sleep(0.02)
+        if not future.done():
+            logger.warning("Service call timeout: %s", service_name)
+            return None
+        try:
+            return future.result()
+        except Exception as e:
+            logger.warning("Service call failed: %s: %s", service_name, e)
+            return None
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -107,8 +136,33 @@ def main(args=None):
 
     cfg = _load_config()
     chassis = ChassisHttpClient.from_config(cfg.get("chassis"))
+
+    import tf2_ros
+    _tf_buffer = tf2_ros.Buffer()
+    tf2_ros.TransformListener(_tf_buffer, node)
+
+    def _tf_lookup(parent: str, child: str, timeout: float = 2.0):
+        """查 TF parent->child, 返回 (t_xyz(3,), q_xyzw(4,)) 或 None。
+
+        工作线程调用; 主线程 spin 处理 TF 回调。位姿数学 (转 4x4) 由功能脚本
+        自己完成, 这里只给原始平移+四元数。
+        """
+        from rclpy.duration import Duration
+        try:
+            msg = _tf_buffer.lookup_transform(parent, child, rclpy.time.Time(),
+                                              timeout=Duration(seconds=timeout))
+        except Exception as e:
+            logger.warning("TF lookup %s->%s failed: %s", parent, child, e)
+            return None
+        t = msg.transform.translation
+        q = msg.transform.rotation
+        return (np.array([t.x, t.y, t.z]),
+                np.array([q.x, q.y, q.z, q.w]))
+
     ros_caller = RosCaller(node)
-    executor = MixedExecutor(chassis=chassis, ros_call=ros_caller.call)
+    executor = MixedExecutor(chassis=chassis, ros_call=ros_caller.call,
+                             ros_call_typed=ros_caller.call_typed,
+                             tf_lookup=_tf_lookup)
 
     # ---- /mixed/list ----
     def _handle_list(request, response):

@@ -30,12 +30,16 @@ class ExecutionContext:
       ctx.check_cancel()              检查取消 (被取消时抛 MixedCancelled)
       ctx.chassis                     底盘 HTTP 客户端 (可选)
       ctx.ros_call(service, params)   调用 ROS2 GenericCommand 服务 (可选)
+      ctx.ros_call_typed(srv, type, req) 调用任意类型 ROS2 服务 (可选)
+      ctx.tf_lookup(parent, child)      TF 查询, 返回 (t, q) 或 None (可选)
     """
 
     def __init__(self, execution_id: str, params: dict,
                  cancel_event: threading.Event,
                  chassis: Optional[ChassisHttpClient] = None,
-                 ros_call: Optional[Callable] = None):
+                 ros_call: Optional[Callable] = None,
+                 ros_call_typed: Optional[Callable] = None,
+                 tf_lookup: Optional[Callable] = None):
         self.execution_id = execution_id
         self.params = params
         self._cancel_event = cancel_event
@@ -43,6 +47,8 @@ class ExecutionContext:
         self._message = ""
         self.chassis = chassis
         self.ros_call = ros_call
+        self.ros_call_typed = ros_call_typed
+        self.tf_lookup = tf_lookup
 
     def set_progress(self, pct: float, message: str = "") -> None:
         self._progress = max(0.0, min(100.0, float(pct)))
@@ -76,9 +82,13 @@ class MixedExecutor:
 
     def __init__(self, chassis: Optional[ChassisHttpClient] = None,
                  ros_call: Optional[Callable] = None,
+                 ros_call_typed: Optional[Callable] = None,
+                 tf_lookup: Optional[Callable] = None,
                  max_finished: int = 50):
         self._chassis = chassis
         self._ros_call = ros_call
+        self._ros_call_typed = ros_call_typed
+        self._tf_lookup = tf_lookup
         self._executions: dict[str, dict] = {}
         self._lock = threading.Lock()
         self._max_finished = max_finished
@@ -98,7 +108,9 @@ class MixedExecutor:
         execution_id = uuid.uuid4().hex[:12]
         cancel_event = threading.Event()
         ctx = ExecutionContext(execution_id, params, cancel_event,
-                               chassis=self._chassis, ros_call=self._ros_call)
+                               chassis=self._chassis, ros_call=self._ros_call,
+                               ros_call_typed=self._ros_call_typed,
+                               tf_lookup=self._tf_lookup)
         state = {
             "execution_id": execution_id,
             "function": function_name,
