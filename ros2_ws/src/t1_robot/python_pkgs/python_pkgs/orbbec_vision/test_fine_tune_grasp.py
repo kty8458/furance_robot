@@ -45,6 +45,9 @@ if _here not in sys.path:
     sys.path.insert(0, _here)
 from yolo_detector import YOLODetector
 from test_grasp_single import (MIN_DEPTH_M, MAX_DEPTH_M, load_intrinsics)
+from fine_tune_measure import (
+    MAX_ROLL_ERR_DEG, mask_axis, measure, draw_viz, load_fine_tune_cfg,
+)
 
 DEFAULT_MODEL = os.path.join(_here, "models", "train", "weights", "best.onnx")
 DEFAULT_NAMES = ["gan 1"]
@@ -57,13 +60,6 @@ def new_out_prefix() -> str:
     os.makedirs(out_dir, exist_ok=True)
     print(f"[输出] 本次可视化目录: {out_dir}")
     return os.path.join(out_dir, "fine_tune")
-
-# ---- 算法参数 ----
-DEPTH_SAMPLES = 21          # 沿杆轴深度采样点数
-DEPTH_SAMPLE_WIN = 5        # 每个采样点的邻域边长 (px)
-MIN_DEPTH_SAMPLES = 8       # 深度采样最少有效点数
-MAX_ROLL_ERR_DEG = 30.0     # 杆轴与竖直夹角超过此值视为误识别, 中止
-
 
 def parse_args():
     p = argparse.ArgumentParser(description="取样杆闭环微调抓取单帧测试 (仅微调段)")
@@ -210,124 +206,6 @@ class CameraGrabber:
             self._pipe.stop()
         except Exception:
             pass
-
-
-# ============ 视觉: mask 中轴线 + 深度 ============
-
-def mask_axis(mask: np.ndarray):
-    """mask 像素 PCA 求杆中轴线。
-
-    返回 (axis(2,) [a_u, a_v] 且 a_v>0, center(2,) [cu, cv]) 或 None。
-    """
-    ys, xs = np.where(mask)
-    if len(xs) < 50:
-        return None
-    pts = np.stack([xs, ys], axis=1).astype(np.float64)
-    center = pts.mean(axis=0)
-    cov = np.cov(pts.T)
-    _, vecs = np.linalg.eigh(cov)
-    axis = vecs[:, -1]
-    if axis[1] < 0:  # 统一朝下 (+v), 与"竖直向下"参考方向一致
-        axis = -axis
-    return axis, center
-
-
-def measure(color: np.ndarray, depth_m: np.ndarray, mask: np.ndarray, K: np.ndarray):
-    """从一帧计算微调所需的全部观测量。
-
-    返回 dict:
-      roll_err_deg: 杆轴与图像竖直方向的带符号夹角 (正=轴向下偏右, 即杆顶偏左)
-      dy_px: 杆轴线在图像中线行 (v=H/2) 的 u 偏差 (正=杆在中线右侧)
-      dy_mm: dy_px * depth_med / fx
-      depth_med: 沿杆轴采样深度的中位数 (米)
-    """
-    h, w = depth_m.shape
-    res = mask_axis(mask)
-    if res is None:
-        return None
-    axis, center = res
-    a_u, a_v = axis
-    roll_err_deg = math.degrees(math.atan2(a_u, a_v))
-
-    # 杆轴线在图像中线行的 u 位置
-    if abs(a_v) < 1e-6:
-        return None
-    u_axis = center[0] + (h / 2.0 - center[1]) * (a_u / a_v)
-    dy_px = u_axis - w / 2.0
-
-    # 沿杆轴采样深度 (两端各去 10%, 避开边缘)
-    ys, xs = np.where(mask)
-    proj = (np.stack([xs, ys], axis=1) - center) @ axis
-    pmin, pmax = np.percentile(proj, 10), np.percentile(proj, 90)
-    fx = K[0, 0]
-    d_vals = []
-    half = DEPTH_SAMPLE_WIN // 2
-    for t in np.linspace(pmin, pmax, DEPTH_SAMPLES):
-        pu = int(round(center[0] + t * a_u))
-        pv = int(round(center[1] + t * a_v))
-        for dy in range(-half, half + 1):
-            for dx in range(-half, half + 1):
-                yy, xx = pv + dy, pu + dx
-                if 0 <= yy < h and 0 <= xx < w:
-                    dv = depth_m[yy, xx]
-                    if MIN_DEPTH_M < dv < MAX_DEPTH_M:
-                        d_vals.append(dv)
-    if len(d_vals) < MIN_DEPTH_SAMPLES:
-        return None
-    depth_med = float(np.median(d_vals))
-
-    dy_mm = dy_px * depth_med / fx * 1000.0
-    return {
-        "roll_err_deg": roll_err_deg,
-        "dy_px": float(dy_px),
-        "dy_mm": float(dy_mm),
-        "depth_med": depth_med,
-        "axis": axis,
-        "center": center,
-        "u_axis_mid": float(u_axis),
-    }
-
-
-def draw_viz(color, depth_m, mask, m, out_path, title=""):
-    """叠加: mask + 中轴线 + 图像对称线 + 观测量标注。"""
-    out = color.copy()
-    h, w = out.shape[:2]
-    # depth 伪彩弱叠加
-    valid = (depth_m > MIN_DEPTH_M) & (depth_m < MAX_DEPTH_M)
-    d = np.clip(depth_m, MIN_DEPTH_M, MAX_DEPTH_M)
-    norm = ((d - MIN_DEPTH_M) / (MAX_DEPTH_M - MIN_DEPTH_M + 1e-6) * 255).astype(np.uint8)
-    colored = cv2.applyColorMap(norm, cv2.COLORMAP_JET)
-    colored[~valid] = 0
-    out = cv2.addWeighted(out, 0.65, colored, 0.35, 0)
-    # mask
-    overlay = out.copy()
-    overlay[mask] = (0, 255, 0)
-    out = cv2.addWeighted(overlay, 0.3, out, 0.7, 0)
-    # 图像竖直对称线 (黄)
-    cv2.line(out, (w // 2, 0), (w // 2, h), (0, 255, 255), 1)
-    # 杆中轴线 (红): 延长到全图
-    a_u, a_v = m["axis"]
-    cu, cv = m["center"]
-    if abs(a_v) > 1e-6:
-        p_top = (int(cu + (0 - cv) * a_u / a_v), 0)
-        p_bot = (int(cu + (h - cv) * a_u / a_v), h)
-        cv2.line(out, p_top, p_bot, (0, 0, 255), 2)
-    # 中线行交点
-    cv2.drawMarker(out, (int(m["u_axis_mid"]), h // 2), (255, 0, 255),
-                   cv2.MARKER_CROSS, 20, 2)
-    # 标注
-    lines = [
-        f"roll_err={m['roll_err_deg']:+.2f}deg",
-        f"dy={m['dy_mm']:+.1f}mm ({m['dy_px']:+.1f}px)",
-        f"depth_med={m['depth_med']*1000:.0f}mm",
-    ]
-    if title:
-        lines.insert(0, title)
-    for i, line in enumerate(lines):
-        cv2.putText(out, line, (10, 28 + i * 26), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7, (0, 255, 0), 2)
-    cv2.imwrite(out_path, out)
-    print(f"[输出] 可视化: {out_path}")
 
 
 # ============ 位姿数学 (与工作流 _apply_pose_offset 同一约定) ============
@@ -515,22 +393,6 @@ class ArmInterface:
 
 
 # ============ 主流程 ============
-
-def load_fine_tune_cfg(config_path: str, camera_id: str) -> dict:
-    """读 camera_config.yaml 中该相机的 fine_tune 偏移/符号配置 (缺省 0/1)。"""
-    import yaml
-    with open(config_path) as f:
-        cfg = yaml.safe_load(f)
-    cam = next(c for c in cfg["cameras"] if c["id"] == camera_id)
-    ft = cam.get("fine_tune") or {}
-    return {
-        "cam_y_offset_mm": float(ft.get("cam_y_offset_mm", 0.0)),
-        "depth_offset_mm": float(ft.get("depth_offset_mm", 0.0)),
-        "roll_sign": float(ft.get("roll_sign", 1.0)),
-        "y_sign": float(ft.get("y_sign", 1.0)),
-        "z_sign": float(ft.get("z_sign", 1.0)),
-    }
-
 
 def measure_once(grabber, detector, K, args, it, phase):
     """取一帧并完成检测/测量。返回 (color, depth, best, m) 或 None (致命错误)。"""
