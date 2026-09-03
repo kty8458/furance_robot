@@ -673,6 +673,11 @@ class WorkflowService:
                     return StepResult(step_id=step.id, success=False,
                                       message="JointStateListener not available; cannot read current EE pose")
                 base_pose = self._joint_state_listener.lookup_ee_pose(config.arm)
+                # TF 查询失败时 lookup_ee_pose 静默返回全零位姿; 以全零为基准算偏移
+                # 会得到错误目标 (基座原点附近), 直接拒绝执行
+                if abs(base_pose["x"]) + abs(base_pose["y"]) + abs(base_pose["z"]) < 1e-6:
+                    return StepResult(step_id=step.id, success=False,
+                                      message="Current EE pose unavailable (TF returned zeros)")
                 logger.info("upper_limb pose: arm=%s current_ee=%s", config.arm, base_pose)
             elif pose_mode == "vision":
                 vlabel = getattr(config, "vision_step_label", None) or ""
@@ -733,10 +738,17 @@ class WorkflowService:
                         config.arm, target_pose, getattr(config, "enable_offset", False))
 
             to_frame = f"ARM-{'L' if config.arm == 'left' else 'R'}-J7_Link"
-            result = await self._moveit.move_p(
-                config.arm, target_pose,
-                to_frame, config.reference_frame or "base_link", "ompl",
-            )
+            if config.method == "moveL":
+                # 直线运动: 单路径点 = computeCartesianPath 从当前位姿到目标位姿的直线。
+                # 注意 move_l 的位姿参考系固定为 base_link, 目标 link 为 ARM-{L,R}-J7_Link,
+                # 与 current_ee/offset 的参考系一致。
+                result = await self._moveit.move_l(config.arm, [target_pose])
+                logger.info("upper_limb moveL: arm=%s target=%s", config.arm, target_pose)
+            else:
+                result = await self._moveit.move_p(
+                    config.arm, target_pose,
+                    to_frame, config.reference_frame or "base_link", "ompl",
+                )
 
         if result.get("success") is False:
             return StepResult(step_id=step.id, success=False, message=result.get("message", "Upper limb move failed"))

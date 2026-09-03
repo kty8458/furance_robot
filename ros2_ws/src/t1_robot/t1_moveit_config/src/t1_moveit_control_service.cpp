@@ -201,7 +201,10 @@ bool DualArmRobot::move_l(
       constexpr double INITIAL_EEF_STEP = 0.01;
       constexpr double STEP_DECAY_FACTOR = 0.5;
       double current_eef_step = INITIAL_EEF_STEP;
-      double jump_threshold = 0.01;
+      // 0 = 禁用关节跳变检测。computeCartesianPath 逐点 IK 以前一点的解为种子,
+      // 构型天然连续; 此前 0.01 的相对阈值(任一步关节增量 > 0.01×平均增量即截断)
+      // 会把几乎每条路径立刻截断, 导致 MoveL 全局失效。
+      double jump_threshold = 0.0;
       double max_vel_scaling = 0.25;
       double max_accel_scaling = 0.25;
       bool success = false;
@@ -218,7 +221,10 @@ bool DualArmRobot::move_l(
               nullptr
           );
 
-          if(fraction >= 0.85) {
+          // 直线必须完整: 部分路径意味着中途 IK/碰撞失败, 执行会不到位
+          if(fraction >= 0.999) {
+              RCLCPP_INFO(get_logger(), "Cartesian path achieved %.1f%% (eef_step=%.3f)",
+                          fraction * 100.0, current_eef_step);
               success = true;
               break;
           } else {
