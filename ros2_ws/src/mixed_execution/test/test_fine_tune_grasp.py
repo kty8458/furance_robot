@@ -154,3 +154,8 @@ def test_dry_run_no_move():
 def test_ref_depth_required():
     with pytest.raises(FineTuneError, match="ref_depth"):
         fine_tune_grasp(FakeCtx([]))
+
+
+def test_max_iter_invalid():
+    with pytest.raises(FineTuneError, match="max_iter"):
+        fine_tune_grasp(FakeCtx([]), ref_depth=0.50, max_iter=0)

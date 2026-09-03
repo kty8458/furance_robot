@@ -195,6 +195,8 @@ def fine_tune_grasp(ctx, camera: str = "right_arm", arm: str = "right",
         raise FineTuneError("参数 ref_depth 必填 (参考深度, 米, 与预抓取位绑定)")
     if arm not in EE_LINK:
         raise FineTuneError(f"未知手臂: {arm} (可选 {list(EE_LINK)})")
+    if max_iter is None or int(max_iter) < 1:
+        raise FineTuneError(f"max_iter 必须为 >= 1 的整数 (当前: {max_iter})")
     ee_link = EE_LINK[arm]
     viz_paths: list[str] = []
     iters = {"roll": 0, "y": 0}
