@@ -388,6 +388,7 @@ class CameraManager:
         self._ws_subscribers: dict[str, set] = {}  # camera_id -> set of ws
         self._config_path = config_path  # AE 曝光等运行时可写配置
         self._ae_info: dict[str, dict] = {}  # camera_id -> {min, max, default, saved}
+        self._measure_locks: dict[str, threading.RLock] = {}  # 测量接管 pipeline 期间阻塞该相机推流启停
         self._init_cameras(config_path)
 
     def _init_cameras(self, config_path: str):
@@ -525,6 +526,7 @@ class CameraManager:
             self._ir_frames[cid] = None
             self._frame_timestamps[cid] = 0.0
             self._ws_subscribers[cid] = set()
+            self._measure_locks[cid] = threading.RLock()
 
     # ---- 公共 API ----
 
@@ -537,69 +539,164 @@ class CameraManager:
             return {"success": False, "message": f"Unknown camera: {camera_id}"}
         if not self._cameras[camera_id].connected:
             return {"success": False, "message": f"Not connected: {camera_id}"}
-        if self._streaming[camera_id]:
-            return {"success": True, "message": f"Already streaming: {camera_id}"}
+        with self._measure_locks[camera_id]:
+            if self._streaming[camera_id]:
+                return {"success": True, "message": f"Already streaming: {camera_id}"}
 
-        pipeline = self._pipelines.get(camera_id)
-        if pipeline is None:
-            return {"success": False, "message": f"No pipeline: {camera_id}"}
+            pipeline = self._pipelines.get(camera_id)
+            if pipeline is None:
+                return {"success": False, "message": f"No pipeline: {camera_id}"}
 
-        from pyorbbecsdk import Config, OBSensorType, OBError
-        config = Config()
-        need_color = stream_type in ("raw", "annotated", "mask")
-        need_depth = stream_type == "depth"
-        need_ir = stream_type in ("ir", "ir_annotated")
+            from pyorbbecsdk import Config, OBSensorType, OBError
+            config = Config()
+            need_color = stream_type in ("raw", "annotated", "mask")
+            need_depth = stream_type == "depth"
+            need_ir = stream_type in ("ir", "ir_annotated")
 
-        if need_color:
-            try:
-                config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.COLOR_SENSOR).get_default_video_stream_profile())
-            except OBError:
-                pass
-        if need_depth:
-            try:
-                config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR).get_default_video_stream_profile())
-            except OBError:
-                pass
-        if need_ir:
-            try:
-                config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.IR_SENSOR).get_default_video_stream_profile())
-            except OBError:
+            if need_color:
                 try:
-                    config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.LEFT_IR_SENSOR).get_default_video_stream_profile())
+                    config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.COLOR_SENSOR).get_default_video_stream_profile())
                 except OBError:
                     pass
-        try:
-            pipeline.start(config)
-        except OBError as e:
-            return {"success": False, "message": f"Pipeline start failed: {e}"}
+            if need_depth:
+                try:
+                    config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR).get_default_video_stream_profile())
+                except OBError:
+                    pass
+            if need_ir:
+                try:
+                    config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.IR_SENSOR).get_default_video_stream_profile())
+                except OBError:
+                    try:
+                        config.enable_stream(pipeline.get_stream_profile_list(OBSensorType.LEFT_IR_SENSOR).get_default_video_stream_profile())
+                    except OBError:
+                        pass
+            try:
+                pipeline.start(config)
+            except OBError as e:
+                return {"success": False, "message": f"Pipeline start failed: {e}"}
 
-        self._streaming[camera_id] = True
-        self._stream_types[camera_id] = stream_type
-        t = threading.Thread(target=self._capture_loop, args=(camera_id,), daemon=True)
-        self._threads[camera_id] = t
-        t.start()
-        logger.info("Stream started: %s type=%s need_color=%s need_depth=%s need_ir=%s",
-                    camera_id, stream_type, need_color, need_depth, need_ir)
-        return {"success": True, "message": f"Streaming {camera_id}"}
+            self._streaming[camera_id] = True
+            self._stream_types[camera_id] = stream_type
+            t = threading.Thread(target=self._capture_loop, args=(camera_id,), daemon=True)
+            self._threads[camera_id] = t
+            t.start()
+            logger.info("Stream started: %s type=%s need_color=%s need_depth=%s need_ir=%s",
+                        camera_id, stream_type, need_color, need_depth, need_ir)
+            return {"success": True, "message": f"Streaming {camera_id}"}
 
     def stop_stream(self, camera_id: str) -> dict:
         if camera_id not in self._cameras:
             return {"success": False, "message": f"Unknown camera: {camera_id}"}
-        self._streaming[camera_id] = False
-        t = self._threads.pop(camera_id, None)
-        if t and t.is_alive():
-            t.join(timeout=2.0)
-        # 只停止视频流，不销毁 Pipeline
-        p = self._pipelines.get(camera_id)
-        if p:
-            try: p.stop()
-            except Exception: pass
-        with self._lock:
-            self._color_frames[camera_id] = None
-            self._depth_frames[camera_id] = None
-            self._ir_frames[camera_id] = None
-        logger.info("Stream stopped: %s (pipeline preserved)", camera_id)
-        return {"success": True, "message": f"Stopped {camera_id}"}
+        with self._measure_locks[camera_id]:
+            self._streaming[camera_id] = False
+            t = self._threads.pop(camera_id, None)
+            if t and t.is_alive():
+                t.join(timeout=2.0)
+            # 只停止视频流，不销毁 Pipeline
+            p = self._pipelines.get(camera_id)
+            if p:
+                try: p.stop()
+                except Exception: pass
+            with self._lock:
+                self._color_frames[camera_id] = None
+                self._depth_frames[camera_id] = None
+                self._ir_frames[camera_id] = None
+            logger.info("Stream stopped: %s (pipeline preserved)", camera_id)
+            return {"success": True, "message": f"Stopped {camera_id}"}
+
+    # ---- 测量专用对齐取帧 ----
+
+    def grab_aligned(self, camera_id: str, settle_frames: int = 15,
+                     settle_sec: float = 0.6, timeout: float = 10.0) -> dict:
+        """测量专用取帧: color+depth + FULL_FRAME_REQUIRE, AlignFilter 对齐。
+
+        接管该相机 pipeline (停推流→重启为对齐模式→取帧→恢复原流状态)。
+        settle 逻辑同测试脚本: 丢 settle_frames 帧 + 距调用起 settle_sec 秒,
+        保证取到的是调用时刻之后的新画面 (闭环中臂刚停稳, 旧帧会污染测量)。
+        返回 {success, color(BGR), depth(米)} 或 {success: False, message}。
+        """
+        from pyorbbecsdk import (Config, OBSensorType, OBFormat, OBError,
+                                 OBFrameAggregateOutputMode, AlignFilter, OBStreamType)
+        lock = self._measure_locks.get(camera_id)
+        if lock is None:
+            return {"success": False, "message": f"Unknown camera: {camera_id}"}
+        with lock:
+            was_streaming = self._streaming.get(camera_id, False)
+            prev_type = self._stream_types.get(camera_id, "raw")
+            if was_streaming:
+                self.stop_stream(camera_id)
+            try:
+                pipeline = self._pipelines.get(camera_id)
+                if pipeline is None:
+                    return {"success": False, "message": f"No pipeline: {camera_id}"}
+                config = Config()
+                try:
+                    cp = pipeline.get_stream_profile_list(OBSensorType.COLOR_SENSOR) \
+                        .get_video_stream_profile(0, 0, OBFormat.RGB, 0)
+                except Exception:
+                    cp = pipeline.get_stream_profile_list(OBSensorType.COLOR_SENSOR) \
+                        .get_default_video_stream_profile()
+                config.enable_stream(cp)
+                try:
+                    dp = pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR) \
+                        .get_video_stream_profile(0, 0, OBFormat.Y16, 0)
+                except Exception:
+                    dp = pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR) \
+                        .get_default_video_stream_profile()
+                config.enable_stream(dp)
+                try:
+                    config.set_frame_aggregate_output_mode(
+                        OBFrameAggregateOutputMode.FULL_FRAME_REQUIRE)
+                except Exception:
+                    pass
+                try:
+                    pipeline.start(config)
+                except OBError as e:
+                    return {"success": False, "message": f"Pipeline start failed: {e}"}
+
+                try:
+                    align = AlignFilter(align_to_stream=OBStreamType.COLOR_STREAM)
+                    got = 0
+                    color = depth = None
+                    t0 = time.time()
+                    while time.time() - t0 < timeout:
+                        frames = pipeline.wait_for_frames(1000)
+                        if frames is None:
+                            continue
+                        try:
+                            aligned = align.process(frames)
+                        except Exception:
+                            continue
+                        if not aligned:
+                            continue
+                        try:
+                            aligned = aligned.as_frame_set()
+                        except Exception:
+                            pass
+                        cf = aligned.get_color_frame()
+                        df = aligned.get_depth_frame()
+                        if cf is not None and df is not None:
+                            c = self._to_bgr(cf)
+                            d = self._to_depth_mm(df)
+                            if c is not None and d is not None:
+                                color, depth = c, d / 1000.0  # mm -> 米
+                                got += 1
+                                if got > settle_frames and time.time() - t0 >= settle_sec:
+                                    return {"success": True, "color": color, "depth": depth}
+                    return {"success": False,
+                            "message": "取帧失败 (AlignFilter depth->color 超时)"}
+                finally:
+                    try:
+                        pipeline.stop()
+                    except Exception:
+                        pass
+            finally:
+                if was_streaming:
+                    try:
+                        self.start_stream(camera_id, prev_type)
+                    except Exception:
+                        logger.exception("恢复推流失败: %s", camera_id)
 
     # ---- Color AE 最大曝光 (低光发光 QR 标定) ----
 
