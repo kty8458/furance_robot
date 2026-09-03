@@ -2016,6 +2016,89 @@ def main(args=None):
 
     node.create_service(GenericCommand, "/camera/compute_pose", _handle_compute_pose)
 
+    # /camera/fine_tune_measure (GenericCommand) — 取样杆微调单次测量
+    def _handle_fine_tune_measure(request, response):
+        import time as _time
+        from python_pkgs.orbbec_vision.fine_tune_measure import (
+            measure as ft_measure, draw_viz, load_fine_tune_cfg, MAX_ROLL_ERR_DEG,
+        )
+        params = json.loads(request.params_json) if request.params_json else {}
+        camera_id = params.get("camera_id", "")
+        settle_frames = int(params.get("settle_frames", 15))
+        settle_sec = float(params.get("settle_sec", 0.6))
+        save_viz = bool(params.get("save_viz", True))
+
+        def _fail(msg):
+            response.success = False
+            response.message = msg
+            response.result_json = "{}"
+            return response
+
+        cam_info = manager._cameras.get(camera_id)
+        if camera_id not in _cam_configs or cam_info is None or not cam_info.connected:
+            return _fail(f"相机不可用: {camera_id}")
+        detector = manager._yolo_detectors.get(camera_id)
+        if detector is None:
+            return _fail(f"YOLO 检测器不可用: {camera_id} (检查 yolo_config.yaml)")
+
+        # 1. 对齐取帧 (per-camera 锁, 期间推流排队)
+        grab = manager.grab_aligned(camera_id, settle_frames, settle_sec)
+        if not grab["success"]:
+            return _fail(grab["message"])
+        color, depth_m = grab["color"], grab["depth"]
+
+        # 2. YOLO 分割 (复用 mask 流的 detector), 取 mask 最大者
+        results = detector.detect(color)
+        if not results:
+            return _fail("YOLO 未检测到取样杆")
+        best = max(results, key=lambda r: r.mask_area_px)
+
+        # 3. 测量
+        ci = _cam_configs[camera_id]["calibration"]["color_intrinsics"]
+        K = np.array([[ci["fx"], 0, ci["cx"]],
+                      [0, ci["fy"], ci["cy"]],
+                      [0, 0, 1]], dtype=np.float64)
+        m = ft_measure(color, depth_m, best.mask, K)
+        if m is None:
+            return _fail("mask 中轴线/深度计算失败")
+        if abs(m["roll_err_deg"]) > MAX_ROLL_ERR_DEG:
+            return _fail(f"杆轴与竖直夹角 {m['roll_err_deg']:.1f}° 超过 "
+                         f"{MAX_ROLL_ERR_DEG}°, 疑似误识别")
+
+        # 4. 可视化 (失败不影响测量结果)
+        viz_path = ""
+        if save_viz:
+            out_dir = os.path.join(_config_dir, "data", "fine_tune",
+                                   _time.strftime("%Y%m%d_%H%M%S"))
+            os.makedirs(out_dir, exist_ok=True)
+            viz_path = os.path.join(out_dir, "measure.jpg")
+            try:
+                draw_viz(color, depth_m, best.mask, m, viz_path,
+                         title=f"{camera_id} measure")
+            except Exception:
+                logger.exception("fine_tune 可视化保存失败")
+                viz_path = ""
+
+        # 5. fine_tune 偏移/符号一并返回 (单一配置来源, 调用方不解析 yaml)
+        result = {
+            "camera_id": camera_id,
+            "roll_err_deg": m["roll_err_deg"],
+            "dy_px": m["dy_px"],
+            "dy_mm": m["dy_mm"],
+            "depth_med": m["depth_med"],
+            "conf": float(best.conf),
+            "mask_area_px": int(best.mask_area_px),
+            "viz_path": viz_path,
+            "fine_tune": load_fine_tune_cfg(config_path, camera_id),
+        }
+        response.success = True
+        response.message = "OK"
+        response.result_json = json.dumps(result)
+        return response
+
+    node.create_service(GenericCommand, "/camera/fine_tune_measure",
+                        _handle_fine_tune_measure)
+
     # ---- TF Broadcaster + Listener ----
     import tf2_ros
     _tf_broadcaster = tf2_ros.TransformBroadcaster(node)
