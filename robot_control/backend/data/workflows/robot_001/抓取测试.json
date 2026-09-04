@@ -116,6 +116,17 @@
       }
     },
     {
+      "id": "step_6b",
+      "type": "mixed",
+      "label": "取样杆微调",
+      "function": "fine_tune_grasp",
+      "params": {
+        "ref_depth": 0.35,
+        "timeout": 300,
+        "moves_base": false
+      }
+    },
+    {
       "id": "step_7",
       "type": "gripper",
       "label": "夹",
