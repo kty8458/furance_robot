@@ -487,6 +487,9 @@ const showNewScene = ref(false)
 const newSceneId = ref('')
 const newSceneDesc = ref('')
 
+// AE 最大曝光默认值: 低光发光 QR 场景的现场经验值, 表单默认填充
+const AE_EXPOSURE_DEFAULT = 332
+
 // ---- 点位编辑弹窗 ----
 const editDialogVisible = ref(false)
 const editDialogMode = ref('edit')  // 'create' | 'edit'
@@ -495,7 +498,7 @@ const editForm = ref(initEditForm())
 function initEditForm() {
   return {
     name: '', arm: 'right', camera_id: '', stream_type: 'color',
-    qr_ids: '', marker_size: 0.058, ae_max_exposure: null,
+    qr_ids: '', marker_size: 0.058, ae_max_exposure: AE_EXPOSURE_DEFAULT,
     xyzrpy: { x: 0, y: 0, z: 0, roll: 0, pitch: 0, yaw: 0 },
   }
 }
@@ -508,7 +511,7 @@ const calibArm = ref('right')
 const calibStreamType = ref('color')
 const calibQrIds = ref('')  // 逗号分隔字符串，空=通配
 const calibMarkerSize = ref(0.058)
-const calibAeExposure = ref(null)  // 低光QR的AE最大曝光, 随点位存储, null=不存储
+const calibAeExposure = ref(AE_EXPOSURE_DEFAULT)  // 低光QR的AE最大曝光, 随点位存储, 清空=不存储
 const calibrating = ref(false)
 const calibResult = ref(null)
 const secNewPointName = ref('')
@@ -751,7 +754,7 @@ function openEditPointDialog(row) {
     stream_type: row.stream_type || 'color',
     qr_ids: (row.qr_ids || []).join(','),
     marker_size: row.marker_size || 0.058,
-    ae_max_exposure: row.ae_max_exposure ?? null,
+    ae_max_exposure: row.ae_max_exposure ?? AE_EXPOSURE_DEFAULT,
     xyzrpy: { x: t[0], y: t[1], z: t[2], roll: euler.roll, pitch: euler.pitch, yaw: euler.yaw },
   }
   editDialogVisible.value = true
@@ -809,7 +812,7 @@ function onCalibPointChange(pointName) {
     secArm.value = p.arm || 'right'
     calibQrIds.value = (p.qr_ids || []).join(',')
     calibMarkerSize.value = p.marker_size || 0.058
-    calibAeExposure.value = p.ae_max_exposure ?? null
+    calibAeExposure.value = p.ae_max_exposure ?? AE_EXPOSURE_DEFAULT
     calibStreamType.value = p.stream_type || 'color'
   }
 }

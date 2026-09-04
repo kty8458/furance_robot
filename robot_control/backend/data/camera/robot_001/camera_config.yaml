@@ -112,6 +112,12 @@ cameras:
       - -72.58205642776579
       - 91.51272168340225
       - -12.746880683940805
+  fine_tune:
+    cam_y_offset_mm: 15.0
+    depth_offset_mm: -150.0
+    roll_sign: -1.0
+    y_sign: -1.0
+    z_sign: 1.0
 - id: right_arm
   name: 右臂相机
   serial: CPC9363000DA
@@ -163,4 +169,10 @@ cameras:
       - -72.58205642776579
       - 91.51272168340225
       - -12.746880683940805
+  fine_tune:
+    cam_y_offset_mm: 15.0
+    depth_offset_mm: -150.0
+    roll_sign: -1.0
+    y_sign: -1.0
+    z_sign: 1.0
   ae_max_exposure: 1
