@@ -159,3 +159,41 @@ def test_ref_depth_required():
 def test_max_iter_invalid():
     with pytest.raises(FineTuneError, match="max_iter"):
         fine_tune_grasp(FakeCtx([]), ref_depth=0.50, max_iter=0)
+
+
+def test_phase3_remeasure_when_roll_drifted():
+    # 阶段1 收敛 (roll=0.1); 阶段2 三次测量: 两次y修正后末帧roll漂移到4°, 触发roll修正;
+    # 阶段3 前重测一次 roll收敛且depth=0.52 → 深度进给一次
+    # moves: 2 y + 1 roll + 1 深度 = 4 次
+    ctx = FakeCtx([
+        m_data(roll=0.1),                          # 阶段1: 收敛
+        m_data(roll=0.1, dy_mm=10.0),              # 阶段2 it=1: y修正
+        m_data(roll=0.1, dy_mm=10.0),              # 阶段2 it=2: y修正
+        m_data(roll=4.0, dy_mm=10.0),              # 阶段2 it=3: roll漂移, roll修正
+        m_data(roll=0.1, dy_mm=2.5, depth=0.52),   # 阶段3 重测: roll收敛, depth=0.52
+    ])
+    r = fine_tune_grasp(ctx, ref_depth=0.50)
+    assert r["converged"] is False   # y 未收敛
+    assert len(ctx.moves) == 4
+    # 最后一次 move 是深度进给: tool x += 20mm
+    p = ctx.moves[-1].target_pose.pose
+    assert abs(p.position.x - 0.020) < 1e-9
+
+
+def test_phase3_abort_when_roll_still_bad():
+    # 阶段2 末帧 roll=4°; 阶段3 重测 roll 仍 4° → 中止, 深度 move 未发生
+    ctx = FakeCtx([
+        m_data(roll=0.1),                          # 阶段1: 收敛
+        m_data(roll=0.1, dy_mm=10.0),              # 阶段2 it=1: y修正
+        m_data(roll=0.1, dy_mm=10.0),              # 阶段2 it=2: y修正
+        m_data(roll=4.0, dy_mm=10.0),              # 阶段2 it=3: roll漂移, roll修正
+        m_data(roll=4.0, dy_mm=10.0, depth=0.52),  # 阶段3 重测: roll仍超限
+    ])
+    with pytest.raises(FineTuneError, match="深度进给中止"):
+        fine_tune_grasp(ctx, ref_depth=0.50)
+    assert len(ctx.moves) == 3   # 只有阶段2 的 2y + 1roll, 无深度进给
+
+
+def test_tolerance_must_be_positive():
+    with pytest.raises(FineTuneError, match="容差参数"):
+        fine_tune_grasp(FakeCtx([]), ref_depth=0.50, roll_tol=0)

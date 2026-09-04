@@ -693,10 +693,30 @@ class CameraManager:
                         pass
             finally:
                 if was_streaming:
-                    try:
-                        self.start_stream(camera_id, prev_type)
-                    except Exception:
-                        logger.exception("恢复推流失败: %s", camera_id)
+                    # 最多重试 2 次恢复推流, 每次检查 start_stream 返回的 success 字段
+                    recovered = False
+                    last_msg = ""
+                    for attempt in range(3):  # 1 次初始 + 2 次重试
+                        try:
+                            res = self.start_stream(camera_id, prev_type)
+                        except Exception:
+                            logger.exception("恢复推流异常 (第 %d 次): %s",
+                                             attempt + 1, camera_id)
+                            last_msg = "start_stream 抛出异常"
+                        else:
+                            if res.get("success"):
+                                recovered = True
+                                break
+                            last_msg = res.get("message", "unknown")
+                            logger.warning("恢复推流失败 (第 %d 次): %s - %s",
+                                           attempt + 1, camera_id, last_msg)
+                        if attempt < 2:
+                            time.sleep(1.0)
+                    if not recovered:
+                        logger.error(
+                            "推流恢复失败, 相机流保持停止, 需手动重启: "
+                            "camera_id=%s type=%s reason=%s",
+                            camera_id, prev_type, last_msg)
 
     # ---- Color AE 最大曝光 (低光发光 QR 标定) ----
 

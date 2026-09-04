@@ -197,6 +197,10 @@ def fine_tune_grasp(ctx, camera: str = "right_arm", arm: str = "right",
         raise FineTuneError(f"未知手臂: {arm} (可选 {list(EE_LINK)})")
     if max_iter is None or int(max_iter) < 1:
         raise FineTuneError(f"max_iter 必须为 >= 1 的整数 (当前: {max_iter})")
+    if roll_tol is None or roll_tol <= 0 or y_tol is None or y_tol <= 0 \
+            or depth_tol is None or depth_tol <= 0:
+        raise FineTuneError(
+            f"容差参数必须为正数 (roll_tol={roll_tol}, y_tol={y_tol}, depth_tol={depth_tol})")
     ee_link = EE_LINK[arm]
     viz_paths: list[str] = []
     iters = {"roll": 0, "y": 0}
@@ -282,6 +286,14 @@ def fine_tune_grasp(ctx, camera: str = "right_arm", arm: str = "right",
         logger.warning("阶段2 达到最大迭代 %d, y 未完全收敛", max_iter)
 
     # ---- 阶段3: 深度进给 (用阶段2 最后一次测量, 一次执行) ----
+    # 阶段2 末帧 roll 未收敛时重测一次 (倾斜杆的深度测量不可靠); 仍超限则中止
+    if abs(m["roll_err_deg"]) >= roll_tol:
+        m = measure_once()
+        ctx.set_progress(87.0, f"阶段3 前重测: roll={m['roll_err_deg']:+.2f}°")
+        if abs(m["roll_err_deg"]) >= roll_tol:
+            raise FineTuneError(
+                f"深度进给中止: 杆轴 roll {m['roll_err_deg']:+.1f}° 未收敛 "
+                f"(阈值 ±{roll_tol}°), 倾斜杆的深度测量不可靠")
     ft = m["fine_tune"]
     dz_mm = (m["depth_med"] - ref_depth) * 1000.0 + ft["depth_offset_mm"]
     ctx.set_progress(85.0, f"阶段3 深度: dz={dz_mm:+.1f}mm")
