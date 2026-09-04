@@ -119,9 +119,13 @@
       "id": "step_6b",
       "type": "mixed",
       "label": "取样杆微调",
-      "function": "fine_tune_grasp",
-      "params": {
-        "ref_depth": 0.35,
+      "config": {
+        "function": "fine_tune_grasp",
+        "params": {
+          "camera": "right_arm",
+          "arm": "right",
+          "ref_depth": 0.35
+        },
         "timeout": 300,
         "moves_base": false
       }
