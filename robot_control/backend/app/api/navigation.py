@@ -70,6 +70,15 @@ async def get_record_paths(request: Request, map_name: str = Query(...)):
     return ApiResponse(data=result.get("data"))
 
 
+@router.get("/task-queues", response_model=ApiResponse)
+async def get_task_queues(request: Request, map_name: str = Query(...)):
+    chassis = _get_chassis(request)
+    result = await chassis.get_task_queues(map_name)
+    if not result.get("success"):
+        return ApiResponse(code=1005, message=result.get("message", "获取组合路径失败"))
+    return ApiResponse(data=result.get("data"))
+
+
 @router.post("/task/start", response_model=ApiResponse)
 async def start_task(request: Request, body: TaskStartRequest):
     chassis = _get_chassis(request)

@@ -25,3 +25,12 @@ async def test_move_command(client):
     )
     assert resp.status_code == 200
     assert resp.json()["code"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_task_queues(client):
+    resp = await client.get("/api/v1/navigation/task-queues", params={"map_name": "车间地图"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["code"] == 0
+    assert any(q["name"] == "组合路径1" for q in data["data"])

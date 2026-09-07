@@ -6,6 +6,7 @@ export const navigationApi = {
   getPositions: (mapName) => api.get('/navigation/positions', { params: { map_name: mapName } }),
   getGraphPaths: (mapName) => api.get('/navigation/graph-paths', { params: { map_name: mapName } }),
   getRecordPaths: (mapName) => api.get('/navigation/record-paths', { params: { map_name: mapName } }),
+  getTaskQueues: (mapName) => api.get('/navigation/task-queues', { params: { map_name: mapName } }),
   startTask: (params) => api.post('/navigation/task/start', params),
   stopTask: () => api.post('/navigation/task/stop'),
   getTaskStatus: () => api.get('/navigation/task/status'),

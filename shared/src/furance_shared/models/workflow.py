@@ -11,6 +11,8 @@ class MoveStepConfig(BaseModel):
     map_name: Optional[str] = None
     point_name: Optional[str] = None
     path_name: Optional[str] = None
+    # 路径类型: NavigationPointTask (导航点) / PlayPathTask (录制路径) /
+    # PlayGraphPathTask (手绘路径) / CombinedPathTask (组合路径, 按名称执行底盘已保存的任务队列)
     path_type: str = "NavigationPointTask"
     # 定距离/定角度移动参数
     mwp_mode: int = 1                  # 1=定距离, 2=定角度

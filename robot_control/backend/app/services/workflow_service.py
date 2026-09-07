@@ -554,18 +554,27 @@ class WorkflowService:
                 message=f"Move step '{step.id}' missing map_name/point_name (configure in workflow or pass nav_params)",
             )
 
-        task_body = {
-            "map_name": map_name,
-            "loop": False,
-            "tasks": [{
-                "name": path_type,
-                "start_param": {
-                    "map_name": map_name,
-                    "position_name": point_name or "",
-                    "path_name": path_name or "",
-                },
-            }],
-        }
+        if path_type == "CombinedPathTask":
+            # 组合路径: 按 name 下发, 由底盘执行已保存的任务队列
+            task_body = {
+                "map_name": map_name,
+                "name": path_name or point_name,
+                "loop": False,
+                "tasks": [],
+            }
+        else:
+            task_body = {
+                "map_name": map_name,
+                "loop": False,
+                "tasks": [{
+                    "name": path_type,
+                    "start_param": {
+                        "map_name": map_name,
+                        "position_name": point_name or "",
+                        "path_name": path_name or "",
+                    },
+                }],
+            }
 
         start_res = await self._chassis.start_task(task_body)
         if not start_res.get("successed", start_res.get("success", False)):
@@ -575,7 +584,10 @@ class WorkflowService:
             await asyncio.sleep(NAV_POLL_INTERVAL)
             try:
                 status = await self._chassis.is_task_finished()
-                if status.get("data", {}).get("is_finished", False):
+                # 底盘返回 data 为布尔值 (true=完成); 兼容 dict 形式 {is_finished: bool}
+                data = status.get("data")
+                finished = data.get("is_finished", False) if isinstance(data, dict) else bool(data)
+                if finished:
                     return StepResult(step_id=step.id, success=True, message="Navigation completed")
             except Exception:
                 pass

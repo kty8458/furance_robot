@@ -104,16 +104,17 @@
                         </el-col>
                         <el-col :span="12">
                           <div style="font-size: 10px; color: #6b7b8d">类型</div>
-                          <el-select v-model="step.config.path_type" size="small" style="width: 100%" @change="() => onManualMapChange(step, step.config.map_name)">
-                            <el-option label="导航点" value="NavigationPointTask" />
+                          <el-select v-model="step.config.path_type" size="small" style="width: 100%" @change="() => onManualTypeChange(step)">
+                            <el-option label="路径点" value="NavigationPointTask" />
+                            <el-option label="手动路径" value="PlayGraphPathTask" />
                             <el-option label="录制路径" value="PlayPathTask" />
-                            <el-option label="手绘路径" value="PlayGraphPathTask" />
+                            <el-option label="组合路径" value="CombinedPathTask" />
                           </el-select>
                         </el-col>
                       </el-row>
                       <div style="font-size: 10px; color: #6b7b8d">点位/路径名</div>
                       <el-select v-model="step.config.point_name" size="small" style="width: 100%" filterable clearable placeholder="选择点位">
-                        <el-option v-for="p in (manualNavPoints[step.id] || [])" :key="p" :label="p" :value="p" />
+                        <el-option v-for="p in (manualNavPoints[step.id] || [])" :key="p.value" :label="p.label" :value="p.value" />
                       </el-select>
                     </template>
                     <template v-else-if="step.config.move_source === 'move_with_params'">
@@ -522,16 +523,17 @@
             </el-col>
             <el-col :span="6">
               <div style="font-size: 11px; color: #6b7b8d">类型</div>
-              <el-select v-model="execNavParams[step.id].path_type" size="small" style="width: 100%" @change="() => loadNavPoints(step.id, execNavParams[step.id].map_name)">
-                <el-option label="导航点" value="NavigationPointTask" />
+              <el-select v-model="execNavParams[step.id].path_type" size="small" style="width: 100%" @change="() => onExecTypeChange(step.id)">
+                <el-option label="路径点" value="NavigationPointTask" />
+                <el-option label="手动路径" value="PlayGraphPathTask" />
                 <el-option label="录制路径" value="PlayPathTask" />
-                <el-option label="手绘路径" value="PlayGraphPathTask" />
+                <el-option label="组合路径" value="CombinedPathTask" />
               </el-select>
             </el-col>
             <el-col :span="12">
               <div style="font-size: 11px; color: #6b7b8d">点位/路径</div>
               <el-select v-model="execNavParams[step.id].point_name" size="small" style="width: 100%" filterable>
-                <el-option v-for="p in execNavPoints[step.id]" :key="p" :label="p" :value="p" />
+                <el-option v-for="p in (execNavPoints[step.id] || [])" :key="p.value" :label="p.label" :value="p.value" />
               </el-select>
             </el-col>
           </el-row>
@@ -909,11 +911,45 @@ function onVisionSourceChange(step, visionStepId) {
   step.config.position = { x: `${ref}.x`, y: `${ref}.y`, z: `${ref}.z`, roll: `${ref}.roll`, pitch: `${ref}.pitch`, yaw: `${ref}.yaw` }
 }
 
+// 路径点子类型 (底盘 /data/poslist 的 type 字段)
+const pointTypeLabelMap = {
+  0: '初始点',
+  1: '充电点',
+  2: '导航点',
+}
+
+// 统一的地图名列表获取 (后端 data 即地图对象数组, axios 拦截器已解包)
+async function fetchMapNames() {
+  const res = await navigationApi.getMaps()
+  const list = Array.isArray(res.data) ? res.data : []
+  return list.map(m => m.name ?? m).filter(Boolean)
+}
+
+// 按地图+类型获取点位/路径选项, 返回 [{label, value}]
+// 路径点: 只保留 初始点(0)/充电点(1)/导航点(2), 显示名为"类型+名称"
+async function fetchNavOptions(mapName, type) {
+  let res
+  if (type === 'NavigationPointTask') {
+    res = await navigationApi.getPositions(mapName)
+  } else if (type === 'PlayGraphPathTask') {
+    res = await navigationApi.getGraphPaths(mapName)
+  } else if (type === 'PlayPathTask') {
+    res = await navigationApi.getRecordPaths(mapName)
+  } else {
+    res = await navigationApi.getTaskQueues(mapName)
+  }
+  const list = Array.isArray(res.data) ? res.data : []
+  return list
+    .filter(p => p && p.name != null && (type !== 'NavigationPointTask' || p.type in pointTypeLabelMap))
+    .map(p => ({
+      label: type === 'NavigationPointTask' ? `${pointTypeLabelMap[p.type]}-${p.name}` : p.name,
+      value: p.name,
+    }))
+}
+
 async function loadNavMaps() {
   try {
-    const res = await navigationApi.getMaps()
-    const data = res.data?.data || res.data || {}
-    navMaps.value = data.data || data.maps || Object.keys(data) || []
+    navMaps.value = await fetchMapNames()
   } catch {
     navMaps.value = []
   }
@@ -923,20 +959,15 @@ async function onManualMapChange(step, mapName) {
   if (!mapName) return
   const type = step.config.path_type || 'NavigationPointTask'
   try {
-    let res
-    if (type === 'NavigationPointTask') {
-      res = await navigationApi.getPositions(mapName)
-    } else if (type === 'PlayGraphPathTask') {
-      res = await navigationApi.getGraphPaths(mapName)
-    } else {
-      res = await navigationApi.getRecordPaths(mapName)
-    }
-    const data = res.data?.data || res.data || {}
-    const list = data.data || data.positions || data.paths || data || []
-    manualNavPoints[step.id] = Array.isArray(list) ? list : Object.keys(list)
+    manualNavPoints[step.id] = await fetchNavOptions(mapName, type)
   } catch {
     manualNavPoints[step.id] = []
   }
+}
+
+async function onManualTypeChange(step) {
+  step.config.point_name = null
+  await onManualMapChange(step, step.config.map_name)
 }
 
 async function refreshList() {
@@ -1185,9 +1216,7 @@ function moveStepDown(idx) {
 
 async function loadMaps() {
   try {
-    const res = await navigationApi.getMaps()
-    const data = res.data?.data || res.data || {}
-    maps.value = data.data || data.maps || Object.keys(data) || []
+    maps.value = await fetchMapNames()
   } catch {
     maps.value = []
   }
@@ -1196,22 +1225,17 @@ async function loadMaps() {
 async function loadNavPoints(stepId, mapName) {
   if (!mapName) return
   const params = execNavParams[stepId]
-  const type = params.path_type
+  const type = params.path_type || 'NavigationPointTask'
   try {
-    let res
-    if (type === 'NavigationPointTask') {
-      res = await navigationApi.getPositions(mapName)
-    } else if (type === 'PlayGraphPathTask') {
-      res = await navigationApi.getGraphPaths(mapName)
-    } else {
-      res = await navigationApi.getRecordPaths(mapName)
-    }
-    const data = res.data?.data || res.data || {}
-    const list = data.data || data.positions || data.paths || data || []
-    execNavPoints[stepId] = Array.isArray(list) ? list : Object.keys(list)
+    execNavPoints[stepId] = await fetchNavOptions(mapName, type)
   } catch {
     execNavPoints[stepId] = []
   }
+}
+
+async function onExecTypeChange(stepId) {
+  execNavParams[stepId].point_name = null
+  await loadNavPoints(stepId, execNavParams[stepId].map_name)
 }
 
 function openExecDialog() {

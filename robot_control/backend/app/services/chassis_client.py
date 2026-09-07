@@ -133,6 +133,11 @@ class ChassisClient:
         await self._ensure_token()
         return await self._request("GET", "/data/record_list", params={"map_name": map_name})
 
+    async def get_task_queues(self, map_name: str) -> dict[str, Any]:
+        """获取路径组合列表 (GET /task_queue/list?map_name=xxx)."""
+        await self._ensure_token()
+        return await self._request("GET", "/task_queue/list", params={"map_name": map_name})
+
     async def start_task(self, body: dict) -> dict[str, Any]:
         await self._ensure_token()
         logger.info("EVENT chassis_task_start body=%s", body)
@@ -226,9 +231,10 @@ class MockChassisClient:
 
     async def get_positions(self, map_name: str, type_: str = "") -> dict[str, Any]:
         return {"success": True, "message": "ok", "data": [
-            {"name": "A点", "angle": 0, "worldPose": {"position": {"x": 1.0, "y": 2.0, "z": 0}}},
-            {"name": "B点", "angle": 90, "worldPose": {"position": {"x": 3.0, "y": 4.0, "z": 0}}},
-            {"name": "充电点", "angle": 180, "worldPose": {"position": {"x": 0.0, "y": 0.0, "z": 0}}},
+            {"name": "初始点", "type": 0, "angle": 0, "worldPose": {"position": {"x": 0.0, "y": 0.0, "z": 0}}},
+            {"name": "A点", "type": 2, "angle": 0, "worldPose": {"position": {"x": 1.0, "y": 2.0, "z": 0}}},
+            {"name": "B点", "type": 2, "angle": 90, "worldPose": {"position": {"x": 3.0, "y": 4.0, "z": 0}}},
+            {"name": "充电点", "type": 1, "angle": 180, "worldPose": {"position": {"x": 0.0, "y": 0.0, "z": 0}}},
         ]}
 
     async def get_graph_paths(self, map_name: str) -> dict[str, Any]:
@@ -239,6 +245,11 @@ class MockChassisClient:
     async def get_record_paths(self, map_name: str) -> dict[str, Any]:
         return {"success": True, "message": "ok", "data": [
             {"name": "录制路径1"},
+        ]}
+
+    async def get_task_queues(self, map_name: str) -> dict[str, Any]:
+        return {"success": True, "message": "ok", "data": [
+            {"name": "组合路径1", "loop": False, "map_name": map_name, "tasks": []},
         ]}
 
     async def start_task(self, body: dict) -> dict[str, Any]:

@@ -17,6 +17,11 @@
                 <el-option v-for="m in maps" :key="m.id || m" :label="m.name || m" :value="m.name || m" />
               </el-select>
             </el-form-item>
+            <el-form-item label="数据类型">
+              <el-select v-model="dataType" @change="handleDataTypeChange" placeholder="请选择数据类型" style="width: 160px" :disabled="!mapName">
+                <el-option v-for="(label, value) in dataTypeLabelMap" :key="value" :label="label" :value="value" />
+              </el-select>
+            </el-form-item>
             <el-form-item>
               <el-button @click="refreshMaps" :loading="mapsLoading">
                 <el-icon><Refresh /></el-icon>
@@ -35,7 +40,7 @@
           <el-table :data="taskTargets" border style="width: 100%; margin-bottom: 20px" @row-click="selectTarget" :row-class-name="getRowClassName">
             <el-table-column prop="type" label="类型" width="140">
               <template #default="{ row }">
-                <el-tag :type="typeTagMap[row.type]" size="small">{{ typeLabelMap[row.type] }}</el-tag>
+                <el-tag :type="typeTagMap[row.type]" size="small">{{ pointTypeLabelMap[row.point_type] || typeLabelMap[row.type] || row.type }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="name" label="名称" />
@@ -141,12 +146,15 @@ import { MapLocation, Refresh, Key, Lightning, Position } from '@element-plus/ic
 
 const maps = ref([])
 const mapName = ref(null)
+const dataType = ref('NavigationPointTask')
 const taskTargets = ref([])
 const selectedTarget = ref(null)
 const mapsLoading = ref(false)
 const tokenLoading = ref(false)
 const taskRunning = ref(false)
 const taskFinished = ref(false)
+// 数据缓存: key = `${mapName}||${dataType}`, 避免切换类型时重复请求
+const dataCache = new Map()
 
 // 定距离/定角度移动控制
 const mwpMode = ref(1)  // 1=定距离, 2=定角度
@@ -162,11 +170,26 @@ const typeLabelMap = {
   NavigationPointTask: '导航点',
   PlayGraphPathTask: '手动路径',
   PlayPathTask: '录制路径',
+  CombinedPathTask: '组合路径',
 }
 const typeTagMap = {
   NavigationPointTask: '',
   PlayGraphPathTask: 'warning',
   PlayPathTask: 'info',
+  CombinedPathTask: 'success',
+}
+// 数据类型 (地图后的二级下拉框)
+const dataTypeLabelMap = {
+  NavigationPointTask: '路径点',
+  PlayGraphPathTask: '手动路径',
+  PlayPathTask: '录制路径',
+  CombinedPathTask: '组合路径',
+}
+// 路径点子类型 (底盘 /data/poslist 的 type 字段)
+const pointTypeLabelMap = {
+  0: '初始点',
+  1: '充电点',
+  2: '导航点',
 }
 
 onMounted(refreshMaps)
@@ -198,34 +221,55 @@ async function handleRefreshToken() {
 }
 
 async function handleMapChange() {
+  dataCache.clear()
+  await loadTargets()
+}
+
+async function handleDataTypeChange() {
+  await loadTargets()
+}
+
+async function loadTargets() {
   taskTargets.value = []
   selectedTarget.value = null
   taskFinished.value = false
   if (!mapName.value) return
 
+  const cacheKey = `${mapName.value}||${dataType.value}`
+  if (dataCache.has(cacheKey)) {
+    taskTargets.value = dataCache.get(cacheKey)
+    return
+  }
+
   try {
-    const [posRes, graphRes, recordRes] = await Promise.all([
-      navigationApi.getPositions(mapName.value),
-      navigationApi.getGraphPaths(mapName.value),
-      navigationApi.getRecordPaths(mapName.value),
-    ])
+    let res
+    if (dataType.value === 'NavigationPointTask') {
+      res = await navigationApi.getPositions(mapName.value)
+    } else if (dataType.value === 'PlayGraphPathTask') {
+      res = await navigationApi.getGraphPaths(mapName.value)
+    } else if (dataType.value === 'PlayPathTask') {
+      res = await navigationApi.getRecordPaths(mapName.value)
+    } else {
+      res = await navigationApi.getTaskQueues(mapName.value)
+    }
 
-    const positions = posRes.data || []
-    const graphs = graphRes.data || []
-    const records = recordRes.data || []
-
+    const list = Array.isArray(res.data) ? res.data : []
+    const taskType = dataType.value
     const targets = []
 
-    for (const p of Array.isArray(positions) ? positions : []) {
-      targets.push({ type: 'NavigationPointTask', name: p.name })
-    }
-    for (const g of Array.isArray(graphs) ? graphs : []) {
-      targets.push({ type: 'PlayGraphPathTask', name: g.name })
-    }
-    for (const r of Array.isArray(records) ? records : []) {
-      targets.push({ type: 'PlayPathTask', name: r.name })
+    if (taskType === 'NavigationPointTask') {
+      // 路径点只显示 初始点(0)/充电点(1)/导航点(2) 三类
+      for (const p of list) {
+        if (!(p.type in pointTypeLabelMap)) continue
+        targets.push({ type: taskType, point_type: p.type, name: p.name })
+      }
+    } else {
+      for (const item of list) {
+        targets.push({ type: taskType, name: item.name })
+      }
     }
 
+    dataCache.set(cacheKey, targets)
     taskTargets.value = targets
   } catch (error) {
     ElMessage.error(error.message || '获取导航数据失败')
@@ -253,12 +297,18 @@ async function handleStart(row) {
     task = { name: 'NavigationPointTask', start_param: { map_name: name, position_name: row.name } }
   } else if (row.type === 'PlayGraphPathTask') {
     task = { name: 'PlayGraphPathTask', start_param: { map_name: name, graph_name: row.name } }
+  } else if (row.type === 'CombinedPathTask') {
+    // 组合路径: 按 name 执行底盘已保存的任务队列
+    task = null
   } else {
     task = { name: 'PlayPathTask', start_param: { map_name: name, path_name: row.name } }
   }
 
   try {
-    await navigationApi.startTask({ map_name: name, loop: false, tasks: [task] })
+    const body = task
+      ? { map_name: name, loop: false, tasks: [task] }
+      : { map_name: name, name: row.name, loop: false, tasks: [] }
+    await navigationApi.startTask(body)
     ElMessage.success(`任务已启动: ${row.name}`)
     taskRunning.value = true
     taskFinished.value = false
